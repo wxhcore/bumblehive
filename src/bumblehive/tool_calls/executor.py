@@ -37,5 +37,14 @@ class ToolExecutor:
                     message=f"Invalid arguments for tool '{call.name}': {exc}",
                 ),
             )
+        except Exception as exc:
+            return ToolResult(
+                call_id=call.id,
+                name=call.name,
+                error=AgentError(
+                    code="tool_execution_error",
+                    message=f"Error executing tool '{call.name}': {exc}",
+                ),
+            )
 
         return ToolResult(call_id=call.id, name=call.name, content=content)
