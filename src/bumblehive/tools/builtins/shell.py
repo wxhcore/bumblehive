@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ..function import FunctionTool
+from ..callable import CallableTool
 from ..registry import ToolRegistry
 
 
@@ -168,10 +168,10 @@ def register_shell_exec_tool(
     workspace: str | Path,
     *,
     timeout: int = 30,
-) -> FunctionTool:
+) -> CallableTool:
     """Register the shell_exec tool on a registry."""
     return registry.register(
-        FunctionTool(
+        CallableTool(
             name="shell_exec",
             description=SHELL_EXEC_DESCRIPTION,
             parameters=SHELL_EXEC_PARAMETERS,

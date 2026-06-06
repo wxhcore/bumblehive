@@ -1,6 +1,6 @@
 """Tool registration primitives."""
 
-from .function import FunctionTool
+from .callable import CallableTool
 from .registry import ToolRegistry
 
-__all__ = ["FunctionTool", "ToolRegistry"]
+__all__ = ["CallableTool", "ToolRegistry"]

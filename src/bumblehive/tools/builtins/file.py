@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from ..function import FunctionTool
+from ..callable import CallableTool
 from ..registry import ToolRegistry
 
 
@@ -116,11 +116,11 @@ class WorkspaceFiles:
         return resolved
 
 
-def register_read_file_tool(registry: ToolRegistry, workspace: str | Path) -> FunctionTool:
+def register_read_file_tool(registry: ToolRegistry, workspace: str | Path) -> CallableTool:
     """Register the read_file tool on a registry."""
     files = WorkspaceFiles(workspace)
     return registry.register(
-        FunctionTool(
+        CallableTool(
             name="read_file",
             description=READ_FILE_DESCRIPTION,
             parameters=READ_FILE_PARAMETERS,
@@ -129,11 +129,11 @@ def register_read_file_tool(registry: ToolRegistry, workspace: str | Path) -> Fu
     )
 
 
-def register_write_file_tool(registry: ToolRegistry, workspace: str | Path) -> FunctionTool:
+def register_write_file_tool(registry: ToolRegistry, workspace: str | Path) -> CallableTool:
     """Register the write_file tool on a registry."""
     files = WorkspaceFiles(workspace)
     return registry.register(
-        FunctionTool(
+        CallableTool(
             name="write_file",
             description=WRITE_FILE_DESCRIPTION,
             parameters=WRITE_FILE_PARAMETERS,
