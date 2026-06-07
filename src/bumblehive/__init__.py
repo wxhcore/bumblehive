@@ -1,7 +1,8 @@
 """Bumblehive agent framework."""
 
-from .tools import ToolRegistry
+from .tools import Tool, ToolRegistry
 
 __all__ = [
+    "Tool",
     "ToolRegistry",
 ]

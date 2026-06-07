@@ -3,6 +3,7 @@ from typing import Any
 
 from fastmcp.tools.function_parsing import ParsedFunction
 
+from .base import Tool
 from .callable import CallableTool
 
 
@@ -28,9 +29,9 @@ class ToolRegistry:
     """Registry used by the agent loop to expose and execute tools."""
 
     def __init__(self) -> None:
-        self._tools: dict[str, CallableTool] = {}
+        self._tools: dict[str, Tool] = {}
 
-    def register(self, tool: CallableTool) -> CallableTool:
+    def register(self, tool: Tool) -> Tool:
         if tool.name in self._tools:
             raise ValueError(f"Tool already registered: {tool.name}")
         self._tools[tool.name] = tool
@@ -75,7 +76,7 @@ class ToolRegistry:
             return decorator(func)
         return decorator
 
-    def get_tool(self, name: str) -> CallableTool | None:
+    def get_tool(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
     @property
