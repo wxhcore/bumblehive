@@ -26,8 +26,8 @@ class ToolExecutor:
             )
 
         try:
-            tool.validate_arguments(call.arguments)
-            content = await tool.execute(**call.arguments)
+            arguments = tool.prepare_arguments(call.arguments)
+            content = await tool.execute(**arguments)
         except ValidationError as exc:
             return ToolResult(
                 call_id=call.id,
