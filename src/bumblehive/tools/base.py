@@ -4,7 +4,7 @@ from typing import Any
 
 from jsonschema.validators import validator_for
 
-_JSON_TYPE_MAP: dict[str, type | tuple[type, ...]] = {
+_JSON_SCHEMA_TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "string": str,
     "integer": int,
     "number": (int, float),
@@ -52,13 +52,13 @@ class Tool(ABC):
             return value
         if schema_type == "integer" and isinstance(value, int) and not isinstance(value, bool):
             return value
-        if schema_type in _JSON_TYPE_MAP and schema_type not in (
+        if schema_type in _JSON_SCHEMA_TYPE_MAP and schema_type not in (
             "boolean",
             "integer",
             "array",
             "object",
         ):
-            expected = _JSON_TYPE_MAP[schema_type]
+            expected = _JSON_SCHEMA_TYPE_MAP[schema_type]
             if isinstance(value, expected):
                 return value
 
