@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from jsonschema.validators import validator_for
 
@@ -21,12 +21,22 @@ class Tool(ABC):
     name: str
     description: str
     parameters: dict[str, Any]
+    source: Literal["local", "mcp"] = field(default="local", kw_only=True)
+    read_only: bool = field(default=False, kw_only=True)
+    exclusive: bool = field(default=False, kw_only=True)
     _validator: Any = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if self.source not in ("local", "mcp"):
+            raise ValueError("Tool source must be 'local' or 'mcp'")
         validator_cls = validator_for(schema=self.parameters)
         validator_cls.check_schema(schema=self.parameters)
         object.__setattr__(self, "_validator", validator_cls(schema=self.parameters))
+
+    @property
+    def concurrency_safe(self) -> bool:
+        """Whether this tool can run alongside other concurrency-safe tools."""
+        return self.read_only and not self.exclusive
 
     @staticmethod
     def _resolve_type(schema_type: Any) -> str | None:

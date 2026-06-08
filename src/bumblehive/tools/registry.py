@@ -1,7 +1,9 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from fastmcp.tools.function_parsing import ParsedFunction
+from jsonschema.exceptions import ValidationError
 
 from .base import Tool
 from .callable import CallableTool
@@ -25,6 +27,20 @@ def _resolve_tool_definition(
     return name, description, parameters
 
 
+@dataclass(frozen=True)
+class PreparedToolCall:
+    """A resolved tool call with arguments ready for execution."""
+
+    tool: Tool | None
+    arguments: dict[str, Any]
+    error_code: str | None = None
+    error_message: str | None = None
+
+    @property
+    def is_error(self) -> bool:
+        return self.error_code is not None
+
+
 class ToolRegistry:
     """Registry used by the agent loop to expose and execute tools."""
 
@@ -36,6 +52,41 @@ class ToolRegistry:
             raise ValueError(f"Tool already registered: {tool.name}")
         self._tools[tool.name] = tool
         return tool
+
+    def unregister(self, name: str) -> None:
+        """Remove a registered tool by name if it exists."""
+        self._tools.pop(name, None)
+
+    def prepare_call(self, name: str, arguments: dict[str, Any]) -> PreparedToolCall:
+        """Resolve a tool call and prepare its arguments for execution."""
+        tool = self.get_tool(name)
+        if tool is None:
+            available = ", ".join(self.tool_names) or "(none)"
+            return PreparedToolCall(
+                tool=None,
+                arguments=arguments,
+                error_code="tool_not_found",
+                error_message=f"Tool '{name}' not found. Available tools: {available}",
+            )
+
+        try:
+            prepared_arguments = tool.prepare_arguments(arguments)
+        except ValidationError as exc:
+            return PreparedToolCall(
+                tool=tool,
+                arguments=arguments,
+                error_code="invalid_tool_arguments",
+                error_message=f"Invalid arguments for tool '{name}': {exc}",
+            )
+        except Exception as exc:
+            return PreparedToolCall(
+                tool=tool,
+                arguments=arguments,
+                error_code="tool_prepare_error",
+                error_message=f"Error preparing tool '{name}': {exc}",
+            )
+
+        return PreparedToolCall(tool=tool, arguments=prepared_arguments)
 
     def tool(
         self,
