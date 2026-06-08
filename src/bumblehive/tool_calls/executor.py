@@ -1,4 +1,4 @@
-from jsonschema.exceptions import ValidationError
+import asyncio
 
 from ..schemas.errors import AgentError
 from ..schemas.tool_calls import ToolCall, ToolResult
@@ -13,30 +13,20 @@ class ToolExecutor:
 
     async def execute_call(self, call: ToolCall) -> ToolResult:
         """Execute a parsed tool call and return a structured result."""
-        tool = self.registry.get_tool(call.name)
-        if tool is None:
-            available = ", ".join(self.registry.tool_names) or "(none)"
+        prepared = self.registry.prepare_call(call.name, call.arguments)
+        if prepared.is_error:
             return ToolResult(
                 call_id=call.id,
                 name=call.name,
                 error=AgentError(
-                    code="tool_not_found",
-                    message=f"Tool '{call.name}' not found. Available tools: {available}",
+                    code=prepared.error_code or "tool_prepare_error",
+                    message=prepared.error_message or "Tool call could not be prepared.",
                 ),
             )
 
         try:
-            arguments = tool.prepare_arguments(call.arguments)
-            content = await tool.execute(**arguments)
-        except ValidationError as exc:
-            return ToolResult(
-                call_id=call.id,
-                name=call.name,
-                error=AgentError(
-                    code="invalid_tool_arguments",
-                    message=f"Invalid arguments for tool '{call.name}': {exc}",
-                ),
-            )
+            assert prepared.tool is not None
+            content = await prepared.tool.execute(**prepared.arguments)
         except Exception as exc:
             return ToolResult(
                 call_id=call.id,
@@ -48,3 +38,34 @@ class ToolExecutor:
             )
 
         return ToolResult(call_id=call.id, name=call.name, content=content)
+
+    async def execute_many(self, calls: list[ToolCall]) -> list[ToolResult]:
+        """Execute tool calls, parallelizing adjacent concurrency-safe tools."""
+        results: list[ToolResult] = []
+        for batch in self._partition_calls(calls):
+            if len(batch) == 1:
+                results.append(await self.execute_call(batch[0]))
+                continue
+
+            results.extend(await asyncio.gather(*(self.execute_call(call) for call in batch)))
+        return results
+
+    def _partition_calls(self, calls: list[ToolCall]) -> list[list[ToolCall]]:
+        batches: list[list[ToolCall]] = []
+        current: list[ToolCall] = []
+
+        for call in calls:
+            tool = self.registry.get_tool(call.name)
+            can_batch = bool(tool and tool.concurrency_safe)
+            if can_batch:
+                current.append(call)
+                continue
+
+            if current:
+                batches.append(current)
+                current = []
+            batches.append([call])
+
+        if current:
+            batches.append(current)
+        return batches
