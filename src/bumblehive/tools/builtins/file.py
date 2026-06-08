@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 from ..callable import CallableTool
+from ..context import ToolContext
 from ..registry import ToolRegistry
 
 
@@ -116,27 +117,41 @@ class WorkspaceFiles:
         return resolved
 
 
-def register_read_file_tool(registry: ToolRegistry, workspace: str | Path) -> CallableTool:
+def _workspace_from_context(workspace_or_context: str | Path | ToolContext) -> Path:
+    if isinstance(workspace_or_context, ToolContext):
+        return workspace_or_context.workspace
+    return Path(workspace_or_context)
+
+
+def register_read_file_tool(
+    registry: ToolRegistry,
+    workspace: str | Path | ToolContext,
+) -> CallableTool:
     """Register the read_file tool on a registry."""
-    files = WorkspaceFiles(workspace)
+    files = WorkspaceFiles(_workspace_from_context(workspace))
     return registry.register(
         CallableTool(
             name="read_file",
             description=READ_FILE_DESCRIPTION,
             parameters=READ_FILE_PARAMETERS,
             handler=files.read_file,
+            read_only=True,
         )
     )
 
 
-def register_write_file_tool(registry: ToolRegistry, workspace: str | Path) -> CallableTool:
+def register_write_file_tool(
+    registry: ToolRegistry,
+    workspace: str | Path | ToolContext,
+) -> CallableTool:
     """Register the write_file tool on a registry."""
-    files = WorkspaceFiles(workspace)
+    files = WorkspaceFiles(_workspace_from_context(workspace))
     return registry.register(
         CallableTool(
             name="write_file",
             description=WRITE_FILE_DESCRIPTION,
             parameters=WRITE_FILE_PARAMETERS,
             handler=files.write_file,
+            exclusive=True,
         )
     )
