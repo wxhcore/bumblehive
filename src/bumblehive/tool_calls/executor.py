@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Iterable
 
 from ..schemas.errors import AgentError
 from ..schemas.tool_calls import ToolCall, ToolResult
@@ -8,11 +9,32 @@ from ..tools.registry import ToolRegistry
 class ToolExecutor:
     """Execute parsed tool calls through a registry."""
 
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        *,
+        allowed_tool_names: Iterable[str] | None = None,
+    ) -> None:
         self.registry = registry
+        self.allowed_tool_names = (
+            None if allowed_tool_names is None else frozenset(allowed_tool_names)
+        )
 
     async def execute_call(self, call: ToolCall) -> ToolResult:
         """Execute a parsed tool call and return a structured result."""
+        if (
+            self.allowed_tool_names is not None
+            and call.name not in self.allowed_tool_names
+        ):
+            return ToolResult(
+                call_id=call.id,
+                name=call.name,
+                error=AgentError(
+                    code="tool_not_allowed",
+                    message=f"Tool '{call.name}' was not exposed in this model request.",
+                ),
+            )
+
         prepared = self.registry.prepare_call(call.name, call.arguments)
         if prepared.is_error:
             return ToolResult(

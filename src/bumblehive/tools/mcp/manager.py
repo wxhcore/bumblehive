@@ -1,11 +1,14 @@
-import asyncio
 import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from typing import Any
 
-from .base import Tool
-from .registry import ToolRegistry
+from fastmcp import Client
+from fastmcp.client.transports import SSETransport, StreamableHttpTransport, infer_transport
+from mcp.types import Tool as MCPToolDefinition
+
+from ..adapters.mcp import MCPToolWrapper
+from ..policy import ToolPolicy
+from ..registry import ToolRegistry
 
 
 @dataclass(frozen=True)
@@ -30,16 +33,12 @@ def mcp_tool_name(server_name: str, tool_name: str) -> str:
     return sanitize_mcp_tool_name(f"mcp_{server_name}_{tool_name}")
 
 
-def _fastmcp_client_transport(server: MCPServerConfig) -> str | Any:
+def _fastmcp_client_transport(
+    server: MCPServerConfig,
+) -> str | SSETransport | StreamableHttpTransport:
     """Return the transport argument expected by fastmcp.Client."""
     if not server.headers:
         return server.url
-
-    from fastmcp.client.transports import (
-        SSETransport,
-        StreamableHttpTransport,
-        infer_transport,
-    )
 
     transport = infer_transport(server.url)
     if not isinstance(transport, (SSETransport, StreamableHttpTransport)):
@@ -59,55 +58,12 @@ def _is_enabled_tool(server: MCPServerConfig, original_name: str, wrapped_name: 
     )
 
 
-def _text_from_content_blocks(blocks: Any) -> str:
-    parts: list[str] = []
-    for block in blocks:
-        if getattr(block, "type", None) == "text" and hasattr(block, "text"):
-            parts.append(block.text)
-        elif hasattr(block, "model_dump_json"):
-            parts.append(block.model_dump_json())
-        else:
-            parts.append(str(block))
-    return "\n".join(parts) or "(no output)"
-
-
-def _mcp_result_payload(result: Any) -> Any:
-    is_error = bool(getattr(result, "is_error", False))
-    data = getattr(result, "data", None)
-    if not is_error and data is not None:
-        return data
-
-    output = _text_from_content_blocks(getattr(result, "content", []))
-    if is_error:
-        return f"Error: {output}"
-
-    structured_content = getattr(result, "structured_content", None)
-    if structured_content is not None:
-        return structured_content
-    return output
-
-
-@dataclass(frozen=True)
-class MCPToolWrapper(Tool):
-    """Expose an MCP tool through Bumblehive's Tool interface."""
-
-    client: Any
-    original_name: str
-    server_name: str
-    timeout: int = 30
-
-    async def execute(self, **kwargs: Any) -> Any:
-        try:
-            result = await self.client.call_tool(
-                self.original_name,
-                kwargs,
-                timeout=self.timeout,
-                raise_on_error=False,
-            )
-        except (asyncio.TimeoutError, TimeoutError):
-            return f"Error: MCP tool '{self.name}' timed out after {self.timeout} seconds"
-
-        return _mcp_result_payload(result)
+def _tool_is_selected(
+    wrapped_name: str,
+    original_name: str,
+    policy: ToolPolicy,
+) -> bool:
+    return policy.allows_tool(wrapped_name, original_name)
 
 
 class MCPManager:
@@ -117,9 +73,12 @@ class MCPManager:
         self,
         registry: ToolRegistry,
         servers: list[MCPServerConfig] | None = None,
+        *,
+        policy: ToolPolicy | None = None,
     ) -> None:
         self.registry = registry
         self.servers = list(servers or [])
+        self.policy = policy or ToolPolicy()
         self._stacks: dict[str, AsyncExitStack] = {}
         self._registered_tools: dict[str, list[str]] = {}
 
@@ -161,14 +120,12 @@ class MCPManager:
             await stack.aclose()
             raise
 
-    async def _connect_client(self, stack: AsyncExitStack, server: MCPServerConfig) -> Any:
-        from fastmcp import Client
-
+    async def _connect_client(self, stack: AsyncExitStack, server: MCPServerConfig) -> Client:
         return await stack.enter_async_context(
             Client(_fastmcp_client_transport(server), name=server.name)
         )
 
-    async def _register_server_tools(self, server: MCPServerConfig, client: Any) -> list[str]:
+    async def _register_server_tools(self, server: MCPServerConfig, client: Client) -> list[str]:
         registered: list[str] = []
         for tool_def in await client.list_tools():
             tool = self._wrap_tool(server, client, tool_def)
@@ -181,11 +138,13 @@ class MCPManager:
     def _wrap_tool(
         self,
         server: MCPServerConfig,
-        client: Any,
-        tool_def: Any,
+        client: Client,
+        tool_def: MCPToolDefinition,
     ) -> MCPToolWrapper | None:
         wrapped_name = mcp_tool_name(server.name, tool_def.name)
         if not _is_enabled_tool(server, tool_def.name, wrapped_name):
+            return None
+        if not _tool_is_selected(wrapped_name, tool_def.name, self.policy):
             return None
 
         return MCPToolWrapper(

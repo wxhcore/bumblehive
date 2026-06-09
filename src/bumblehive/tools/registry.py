@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -6,7 +6,7 @@ from fastmcp.tools.function_parsing import ParsedFunction
 from jsonschema.exceptions import ValidationError
 
 from .base import Tool
-from .callable import CallableTool
+from .adapters.function import CallableTool
 
 
 def _resolve_tool_definition(
@@ -130,10 +130,22 @@ class ToolRegistry:
     def get_tool(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
+    def list_tools(self, tool_names: Iterable[str] | None = None) -> list[Tool]:
+        """Return registered tools, optionally filtered by name."""
+        names = self.tool_names if tool_names is None else sorted(set(tool_names))
+        missing = [name for name in names if name not in self._tools]
+        if missing:
+            raise ValueError(f"Unknown tools: {', '.join(missing)}")
+
+        return [self._tools[name] for name in names]
+
     @property
     def tool_names(self) -> list[str]:
         return sorted(self._tools)
 
-    def get_openai_tool_definitions(self) -> list[dict[str, Any]]:
+    def get_openai_tool_definitions(
+        self,
+        tool_names: Iterable[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Return OpenAI-compatible tool definitions for the model request."""
-        return [self._tools[name].to_openai_tool_schema() for name in self.tool_names]
+        return [tool.to_openai_tool_schema() for tool in self.list_tools(tool_names)]

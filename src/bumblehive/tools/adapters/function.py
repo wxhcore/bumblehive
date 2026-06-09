@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from .base import Tool
+from ..base import Tool
 
 
 @dataclass(frozen=True)

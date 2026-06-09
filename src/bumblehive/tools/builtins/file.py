@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from ..callable import CallableTool
+from ..adapters.function import CallableTool
 from ..context import ToolContext
 from ..registry import ToolRegistry
 
