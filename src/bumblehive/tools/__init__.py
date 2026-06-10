@@ -9,7 +9,8 @@ from .builtins import (
     register_shell_exec_tool,
     register_write_file_tool,
 )
-from .context import ToolContext
+from .runtime import ToolRuntimeContext
+from .manager import ToolManager
 from .mcp import MCPManager, MCPServerConfig
 from .policy import ToolPolicy
 from .registry import ToolRegistry
@@ -20,7 +21,8 @@ __all__ = [
     "MCPServerConfig",
     "MCPToolWrapper",
     "Tool",
-    "ToolContext",
+    "ToolRuntimeContext",
+    "ToolManager",
     "ToolPolicy",
     "ToolRegistry",
     "register_builtin_tools",

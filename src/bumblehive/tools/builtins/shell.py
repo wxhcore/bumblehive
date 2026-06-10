@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..adapters.function import CallableTool
-from ..context import ToolContext
+from ..runtime import ToolRuntimeContext
 from ..registry import ToolRegistry
 
 
@@ -166,12 +166,12 @@ class ShellExec:
 
 def register_shell_exec_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolContext,
+    workspace: str | Path | ToolRuntimeContext,
     *,
     timeout: int | None = None,
 ) -> CallableTool:
     """Register the shell_exec tool on a registry."""
-    if isinstance(workspace, ToolContext):
+    if isinstance(workspace, ToolRuntimeContext):
         ctx = workspace
         workspace = ctx.workspace
         shell_config = ctx.config.get("shell", {})

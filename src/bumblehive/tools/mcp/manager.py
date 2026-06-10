@@ -80,14 +80,14 @@ class MCPManager:
         self.servers = list(servers or [])
         self.policy = policy or ToolPolicy()
         self._stacks: dict[str, AsyncExitStack] = {}
-        self._registered_tools: dict[str, list[str]] = {}
+        self._registered_mcp_tool_names: dict[str, list[str]] = {}
 
     @property
-    def registered_tools(self) -> dict[str, list[str]]:
-        """Return registered MCP tool names grouped by server name."""
+    def registered_mcp_tool_names(self) -> dict[str, list[str]]:
+        """Return locally registered MCP tool names grouped by server name."""
         return {
             server_name: list(tool_names)
-            for server_name, tool_names in self._registered_tools.items()
+            for server_name, tool_names in self._registered_mcp_tool_names.items()
         }
 
     async def connect_all(self) -> list[str]:
@@ -113,7 +113,7 @@ class MCPManager:
             registered = await self._register_server_tools(server, client)
 
             self._stacks[server.name] = stack
-            self._registered_tools[server.name] = registered
+            self._registered_mcp_tool_names[server.name] = registered
             return registered
         except Exception:
             self._unregister_tools(registered)
@@ -164,7 +164,7 @@ class MCPManager:
 
     async def close_server(self, server_name: str) -> None:
         """Unregister one server's tools and close its connection."""
-        self._unregister_tools(self._registered_tools.pop(server_name, []))
+        self._unregister_tools(self._registered_mcp_tool_names.pop(server_name, []))
 
         stack = self._stacks.pop(server_name, None)
         if stack is not None:

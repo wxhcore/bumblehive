@@ -4,7 +4,7 @@ from typing import Any
 
 
 @dataclass(frozen=True)
-class ToolContext:
+class ToolRuntimeContext:
     """Runtime environment used when constructing tools."""
 
     workspace: Path

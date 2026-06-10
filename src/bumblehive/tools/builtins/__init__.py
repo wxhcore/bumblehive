@@ -1,6 +1,6 @@
 """Built-in tool registrations."""
 
-from ..context import ToolContext
+from ..runtime import ToolRuntimeContext
 from ..policy import ToolPolicy
 from ..registry import ToolRegistry
 from .file import (
@@ -12,7 +12,7 @@ from .shell import register_shell_exec_tool
 
 def register_builtin_tools(
     registry: ToolRegistry,
-    context: ToolContext,
+    context: ToolRuntimeContext,
     *,
     policy: ToolPolicy | None = None,
 ) -> list[str]:
