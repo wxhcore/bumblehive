@@ -1,6 +1,7 @@
 import fnmatch
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -160,10 +161,17 @@ _TYPE_GLOB_MAP = {
 }
 
 
+@dataclass(frozen=True)
+class ReadTextResult:
+    lines: list[str] | None
+    skipped_reason: str | None = None
+
+
 class WorkspaceSearch:
     _DEFAULT_FIND_LIMIT = 200
     _DEFAULT_GREP_LIMIT = 250
     _MAX_FILE_BYTES = 2_000_000
+    _MAX_RESULT_CHARS = 128_000
 
     def __init__(self, workspace: str | Path) -> None:
         self.access = WorkspaceAccess(workspace)
@@ -275,6 +283,11 @@ class WorkspaceSearch:
         total_matches = 0
         seen_content_matches = 0
         truncated = False
+        truncated_reason: str | None = None
+        content_chars = 0
+        skipped_binary = 0
+        skipped_large = 0
+        skipped_unreadable = 0
 
         root = resolved if resolved.is_dir() else resolved.parent
         for candidate in files:
@@ -286,72 +299,83 @@ class WorkspaceSearch:
             if not _matches_type(candidate.name, type):
                 continue
 
-            lines = self._read_text_lines(candidate)
-            if lines is None:
+            read_result = self._read_text_lines(candidate)
+            if read_result.lines is None:
+                if read_result.skipped_reason == "binary":
+                    skipped_binary += 1
+                elif read_result.skipped_reason == "large":
+                    skipped_large += 1
+                else:
+                    skipped_unreadable += 1
                 continue
+            lines = read_result.lines
 
-            line_matches: list[dict[str, Any]] = []
+            display_path = self.access.relative_display_path(candidate, root=root)
+            file_match_count = 0
             for index, line in enumerate(lines):
                 if not regex.search(line):
                     continue
                 total_matches += 1
+                file_match_count += 1
                 if output_mode != "content":
                     continue
+                seen_content_matches += 1
+                if seen_content_matches <= offset:
+                    continue
+                if limit is not None and returned >= limit:
+                    truncated = True
+                    truncated_reason = "head_limit"
+                    break
                 start = max(0, index - context_before)
                 end = min(len(lines), index + context_after + 1)
-                line_matches.append(
-                    {
-                        "line": index + 1,
-                        "text": line,
-                        "context": [
-                            {"line": ctx_index + 1, "text": lines[ctx_index]}
-                            for ctx_index in range(start, end)
-                        ],
-                    }
-                )
-
-            if not line_matches and output_mode == "content":
+                result_match = {
+                    "path": display_path,
+                    "line": index + 1,
+                    "text": line,
+                    "context": [
+                        {"line": ctx_index + 1, "text": lines[ctx_index]}
+                        for ctx_index in range(start, end)
+                    ],
+                }
+                match_chars = _content_match_chars(result_match)
+                if content_chars + match_chars > self._MAX_RESULT_CHARS:
+                    truncated = True
+                    truncated_reason = "output_size"
+                    break
+                content_matches.append(result_match)
+                content_chars += match_chars
+                returned += 1
+            if output_mode == "content" and truncated:
+                break
+            if file_match_count == 0:
                 continue
-            if output_mode != "content" and total_matches == 0:
-                continue
 
-            display_path = self.access.relative_display_path(candidate, root=root)
             try:
                 file_mtimes[display_path] = candidate.stat().st_mtime
             except OSError:
                 file_mtimes[display_path] = 0.0
-            file_match_count = len(line_matches)
-            if output_mode != "content":
-                file_match_count = sum(1 for line in lines if regex.search(line))
-            if file_match_count == 0:
-                continue
 
             if output_mode == "files_with_matches":
                 files_with_matches.append(display_path)
             elif output_mode == "count":
                 counts.append({"path": display_path, "count": file_match_count})
-            else:
-                for match in line_matches:
-                    seen_content_matches += 1
-                    if seen_content_matches <= offset:
-                        continue
-                    if limit is not None and returned >= limit:
-                        truncated = True
-                        break
-                    content_matches.append({"path": display_path, **match})
-                    returned += 1
-            if output_mode == "content" and truncated:
-                break
 
         result: dict[str, Any] = {
             "total_matches": total_matches,
             "truncated": truncated,
+            "skipped_binary": skipped_binary,
+            "skipped_large": skipped_large,
+            "skipped_unreadable": skipped_unreadable,
         }
+        if truncated_reason:
+            result["truncated_reason"] = truncated_reason
         if output_mode == "files_with_matches":
             files_with_matches.sort(key=lambda path: (-file_mtimes.get(path, 0.0), path))
             paged, truncated = _slice_items(files_with_matches, limit, offset)
             result["files"] = paged
             result["truncated"] = truncated
+            if truncated:
+                result["truncated_reason"] = "head_limit"
         elif output_mode == "count":
             counts.sort(
                 key=lambda item: (-file_mtimes.get(item["path"], 0.0), item["path"])
@@ -359,6 +383,8 @@ class WorkspaceSearch:
             paged_counts, truncated = _slice_items(counts, limit, offset)
             result["counts"] = paged_counts
             result["truncated"] = truncated
+            if truncated:
+                result["truncated_reason"] = "head_limit"
         else:
             result["matches"] = content_matches
         return result
@@ -379,19 +405,19 @@ class WorkspaceSearch:
     def _iter_files(self, root: Path) -> list[Path]:
         return [path for path in self._iter_paths(root, include_dirs=False) if path.is_file()]
 
-    def _read_text_lines(self, path: Path) -> list[str] | None:
+    def _read_text_lines(self, path: Path) -> ReadTextResult:
         try:
             if path.stat().st_size > self._MAX_FILE_BYTES:
-                return None
+                return ReadTextResult(None, "large")
             raw = path.read_bytes()
         except OSError:
-            return None
+            return ReadTextResult(None, "unreadable")
         if is_binary_bytes(raw):
-            return None
+            return ReadTextResult(None, "binary")
         try:
-            return raw.decode("utf-8").splitlines()
+            return ReadTextResult(raw.decode("utf-8").splitlines())
         except UnicodeDecodeError:
-            return None
+            return ReadTextResult(None, "binary")
 
 
 def _matches_query(path: str, query: str | None) -> bool:
@@ -439,6 +465,14 @@ def _slice_items(
     if limit is None:
         return items[offset:], False
     return items[offset:offset + limit], len(items) > offset + limit
+
+
+def _content_match_chars(match: dict[str, Any]) -> int:
+    chars = len(str(match.get("path", ""))) + len(str(match.get("text", ""))) + 32
+    for context in match.get("context", []):
+        if isinstance(context, dict):
+            chars += len(str(context.get("text", ""))) + 16
+    return chars
 
 
 def register_find_files_tool(

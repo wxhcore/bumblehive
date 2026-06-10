@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import fitz
+from docx import Document as DocxDocument
+from openpyxl import load_workbook
+from pptx import Presentation as PptxPresentation
+
 from ..adapters.function import CallableTool
 from ..runtime import ToolRuntimeContext
 from ..registry import ToolRegistry
@@ -46,8 +51,42 @@ def _is_blocked_device(path: str | Path) -> bool:
     return resolved.startswith("/dev/")
 
 
+def _parse_page_range(pages: str, total_pages: int) -> tuple[int, int]:
+    """Parse a 1-based page range into 0-based inclusive indexes."""
+    parts = pages.strip().split("-")
+    if not 1 <= len(parts) <= 2 or any(not part.strip() for part in parts):
+        raise ValueError("invalid page range")
+
+    start_page = int(parts[0])
+    end_page = int(parts[-1])
+    start = max(0, start_page - 1)
+    end = min(end_page - 1, total_pages - 1)
+    return start, end
+
+
+def _collect_pptx_shape_text(shape: Any, out: list[str]) -> None:
+    sub_shapes = getattr(shape, "shapes", None)
+    if sub_shapes is not None:
+        for sub_shape in sub_shapes:
+            _collect_pptx_shape_text(sub_shape, out)
+        return
+
+    if getattr(shape, "has_table", False):
+        for row in shape.table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            row_text = "\t".join(cell for cell in cells if cell)
+            if row_text:
+                out.append(row_text)
+        return
+
+    text = getattr(shape, "text", "")
+    if text:
+        out.append(text)
+
+
 READ_FILE_DESCRIPTION = (
-    "Read a UTF-8 text file inside the project workspace with line-numbered pagination."
+    "Read a UTF-8 text file, PDF, DOCX, XLSX, or PPTX inside the project workspace. "
+    "Text files use line-numbered pagination; PDF files support a pages range."
 )
 
 READ_FILE_PARAMETERS: dict[str, Any] = {
@@ -66,6 +105,10 @@ READ_FILE_PARAMETERS: dict[str, Any] = {
             "type": "integer",
             "description": "Maximum number of lines to read. Default 2000.",
             "minimum": 1,
+        },
+        "pages": {
+            "type": "string",
+            "description": "PDF page range, e.g. '1-5'. Defaults to the first 20 pages.",
         },
         "force": {
             "type": "boolean",
@@ -164,12 +207,14 @@ EDIT_FILE_PARAMETERS: dict[str, Any] = {
 
 
 class WorkspaceFiles:
-    _MAX_READ_CHARS = 32_000
+    _MAX_READ_CHARS = 128_000
     _DEFAULT_READ_LIMIT = 2000
+    _MAX_PDF_PAGES = 20
     _MAX_WRITE_CHARS = 200_000
     _MAX_EDIT_CHARS = 1024 * 1024 * 1024
     _DEFAULT_LIST_ENTRIES = 200
     _MARKDOWN_EXTS = frozenset({".md", ".mdx", ".markdown"})
+    _OFFICE_EXTS = frozenset({".docx", ".xlsx", ".pptx"})
 
     def __init__(self, workspace: str | Path, file_states: FileStates | None = None) -> None:
         self.access = WorkspaceAccess(workspace)
@@ -182,6 +227,7 @@ class WorkspaceFiles:
         path: str,
         offset: int = 1,
         limit: int | None = None,
+        pages: str | None = None,
         force: bool = False,
     ) -> dict[str, Any]:
         if _is_blocked_device(path):
@@ -196,6 +242,12 @@ class WorkspaceFiles:
         read_offset = offset
         read_limit = limit
         read_offset = max(read_offset, 1)
+
+        suffix = resolved.suffix.lower()
+        if suffix == ".pdf":
+            return self._read_pdf(resolved, pages)
+        if suffix in self._OFFICE_EXTS:
+            return self._read_office_doc(resolved)
 
         try:
             raw = resolved.read_bytes()
@@ -289,6 +341,145 @@ class WorkspaceFiles:
             "deduplicated": False,
             "next_offset": end + 1 if has_more else None,
         }
+
+    def _read_pdf(self, path: Path, pages: str | None) -> dict[str, Any]:
+        try:
+            doc = fitz.open(str(path))
+        except Exception as exc:
+            return {"error": f"error reading PDF: {exc}", "path": str(path)}
+
+        try:
+            total_pages = len(doc)
+            if total_pages == 0:
+                self.file_states.record_read(path)
+                return {
+                    "path": str(path),
+                    "file_type": "pdf",
+                    "content": "",
+                    "pages": None,
+                    "total_pages": 0,
+                    "truncated": False,
+                    "has_more": False,
+                }
+
+            if pages:
+                try:
+                    start, end = _parse_page_range(pages, total_pages)
+                except ValueError:
+                    return {
+                        "error": f"invalid page range '{pages}'. Use format like '1-5'.",
+                        "path": str(path),
+                        "total_pages": total_pages,
+                    }
+                if start > end or start >= total_pages:
+                    return {
+                        "error": f"page range '{pages}' is out of bounds",
+                        "path": str(path),
+                        "total_pages": total_pages,
+                    }
+            else:
+                start = 0
+                end = min(total_pages - 1, self._MAX_PDF_PAGES - 1)
+
+            page_count = end - start + 1
+            if page_count > self._MAX_PDF_PAGES:
+                end = start + self._MAX_PDF_PAGES - 1
+
+            parts: list[str] = []
+            for index in range(start, end + 1):
+                text = doc[index].get_text().strip()
+                if text:
+                    parts.append(f"--- Page {index + 1} ---\n{text}")
+
+            content = "\n\n".join(parts)
+            content, truncated = self._truncate_read_content(content)
+            has_more = end < total_pages - 1
+            self.file_states.record_read(path)
+            return {
+                "path": str(path),
+                "file_type": "pdf",
+                "content": content,
+                "pages": f"{start + 1}-{end + 1}",
+                "total_pages": total_pages,
+                "truncated": truncated,
+                "has_more": has_more,
+                "next_pages": (
+                    f"{end + 2}-{min(end + 1 + self._MAX_PDF_PAGES, total_pages)}"
+                    if has_more
+                    else None
+                ),
+                "message": None if content else "PDF has no extractable text",
+            }
+        finally:
+            doc.close()
+
+    def _read_office_doc(self, path: Path) -> dict[str, Any]:
+        suffix = path.suffix.lower()
+        try:
+            if suffix == ".docx":
+                content = self._extract_docx(path)
+            elif suffix == ".xlsx":
+                content = self._extract_xlsx(path)
+            elif suffix == ".pptx":
+                content = self._extract_pptx(path)
+            else:
+                return {"error": f"unsupported document format: {suffix}", "path": str(path)}
+        except Exception as exc:
+            return {"error": f"error reading {suffix.upper()} file: {exc}", "path": str(path)}
+
+        content, truncated = self._truncate_read_content(content)
+        self.file_states.record_read(path)
+        return {
+            "path": str(path),
+            "file_type": suffix.lstrip("."),
+            "content": content,
+            "truncated": truncated,
+            "message": None if content else f"{suffix.upper().lstrip('.')} has no extractable text",
+        }
+
+    def _extract_docx(self, path: Path) -> str:
+        doc = DocxDocument(path)
+        parts: list[str] = [paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells]
+                row_text = "\t".join(cell for cell in cells if cell)
+                if row_text:
+                    parts.append(row_text)
+        return "\n\n".join(parts)
+
+    def _extract_xlsx(self, path: Path) -> str:
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        try:
+            sheets: list[str] = []
+            for sheet_name in workbook.sheetnames:
+                worksheet = workbook[sheet_name]
+                rows: list[str] = []
+                for row in worksheet.iter_rows(values_only=True):
+                    row_text = "\t".join(str(cell) if cell is not None else "" for cell in row)
+                    if row_text.strip():
+                        rows.append(row_text)
+                if rows:
+                    sheets.append(f"--- Sheet: {sheet_name} ---\n" + "\n".join(rows))
+            return "\n\n".join(sheets)
+        finally:
+            workbook.close()
+
+    def _extract_pptx(self, path: Path) -> str:
+        presentation = PptxPresentation(path)
+        slides: list[str] = []
+        for index, slide in enumerate(presentation.slides, 1):
+            slide_text: list[str] = []
+            for shape in slide.shapes:
+                _collect_pptx_shape_text(shape, slide_text)
+            if slide_text:
+                slides.append(f"--- Slide {index} ---\n" + "\n".join(slide_text))
+        return "\n\n".join(slides)
+
+    def _truncate_read_content(self, content: str) -> tuple[str, bool]:
+        if len(content) <= self._MAX_READ_CHARS:
+            return content, False
+        return content[:self._MAX_READ_CHARS], True
 
     def write_file(self, path: str, content: str) -> dict[str, Any]:
         resolved = self._resolve_path(path)
