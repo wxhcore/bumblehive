@@ -7,11 +7,13 @@ from .builtins import (
     register_builtin_tools,
     register_apply_patch_tool,
     register_edit_file_tool,
+    register_exec_tool,
     register_find_files_tool,
     register_grep_tool,
+    register_list_exec_sessions_tool,
     register_list_dir_tool,
     register_read_file_tool,
-    register_shell_exec_tool,
+    register_write_stdin_tool,
     register_write_file_tool,
 )
 from .runtime import ToolRuntimeContext
@@ -33,10 +35,12 @@ __all__ = [
     "register_apply_patch_tool",
     "register_builtin_tools",
     "register_edit_file_tool",
+    "register_exec_tool",
     "register_find_files_tool",
     "register_grep_tool",
+    "register_list_exec_sessions_tool",
     "register_list_dir_tool",
     "register_read_file_tool",
-    "register_shell_exec_tool",
+    "register_write_stdin_tool",
     "register_write_file_tool",
 ]

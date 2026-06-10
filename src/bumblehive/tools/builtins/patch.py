@@ -1,4 +1,5 @@
 import difflib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -6,8 +7,8 @@ from typing import Any
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
 from ..runtime import ToolRuntimeContext
-from .file import _workspace_from_context
-from .workspace import WorkspaceAccess
+from .file import _file_states_from_context, _workspace_from_context
+from .workspace import FileStates, WorkspaceAccess
 
 
 APPLY_PATCH_DESCRIPTION = (
@@ -44,6 +45,27 @@ APPLY_PATCH_PARAMETERS: dict[str, Any] = {
                     },
                 },
                 "required": ["path", "action"],
+                "allOf": [
+                    {
+                        "if": {
+                            "properties": {"action": {"const": "add"}},
+                            "required": ["action"],
+                        },
+                        "then": {"required": ["new_text"]},
+                    },
+                    {
+                        "if": {
+                            "properties": {"action": {"const": "replace"}},
+                            "required": ["action"],
+                        },
+                        "then": {
+                            "required": ["old_text", "new_text"],
+                            "properties": {
+                                "old_text": {"minLength": 1},
+                            },
+                        },
+                    },
+                ],
                 "additionalProperties": False,
             },
         },
@@ -70,8 +92,9 @@ class PatchSummary:
 
 
 class StructuredPatch:
-    def __init__(self, workspace: str | Path) -> None:
+    def __init__(self, workspace: str | Path, file_states: FileStates | None = None) -> None:
         self.access = WorkspaceAccess(workspace)
+        self.file_states = file_states or FileStates()
 
     def apply_patch(
         self,
@@ -110,6 +133,8 @@ class StructuredPatch:
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_bytes(data)
                 raise
+            for path in writes:
+                self.file_states.record_write(path)
 
             return {
                 "success": True,
@@ -128,6 +153,8 @@ class StructuredPatch:
         edit: dict[str, Any],
         writes: dict[Path, str],
     ) -> PatchSummary:
+        if not isinstance(edit, dict):
+            raise PatchError("each edit must be an object")
         raw_path = edit.get("path")
         if not isinstance(raw_path, str) or not raw_path.strip():
             raise PatchError("path is required for each edit")
@@ -224,13 +251,20 @@ class StructuredPatch:
         return PatchSummary(action="update", path=path, added=added, deleted=deleted)
 
 
+_ABSOLUTE_WINDOWS_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
 def _validate_relative_path(path: str) -> str:
-    candidate = Path(path)
-    if candidate.is_absolute():
-        raise PatchError(f"path must be relative: {path}")
-    if any(part in ("", ".", "..") for part in candidate.parts):
-        raise PatchError(f"path must not contain empty or parent segments: {path}")
-    return candidate.as_posix()
+    normalized = path.strip()
+    if not normalized:
+        raise PatchError("patch path cannot be empty")
+    if "\0" in normalized:
+        raise PatchError(f"patch path contains a null byte: {path!r}")
+    if normalized.startswith(("~", "/", "\\")) or _ABSOLUTE_WINDOWS_RE.match(normalized):
+        raise PatchError(f"patch path must be relative: {path}")
+    if any(part in ("", ".", "..") for part in re.split(r"[\\/]+", normalized)):
+        raise PatchError(f"patch path must not contain empty or parent segments: {path}")
+    return normalized
 
 
 def _read_utf8_file(path: Path, display_path: str) -> str:
@@ -280,7 +314,10 @@ def register_apply_patch_tool(
     workspace: str | Path | ToolRuntimeContext,
 ) -> CallableTool:
     """Register the apply_patch tool on a registry."""
-    patch = StructuredPatch(_workspace_from_context(workspace))
+    patch = StructuredPatch(
+        _workspace_from_context(workspace),
+        file_states=_file_states_from_context(workspace),
+    )
     return registry.register(
         CallableTool(
             name="apply_patch",

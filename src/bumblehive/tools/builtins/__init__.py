@@ -11,7 +11,11 @@ from .file import (
 )
 from .patch import register_apply_patch_tool
 from .search import register_find_files_tool, register_grep_tool
-from .shell import register_shell_exec_tool
+from .shell import (
+    register_exec_tool,
+    register_list_exec_sessions_tool,
+    register_write_stdin_tool,
+)
 
 
 def register_builtin_tools(
@@ -38,8 +42,12 @@ def register_builtin_tools(
         registered.append(register_edit_file_tool(registry, context).name)
     if policy.allows_tool("apply_patch"):
         registered.append(register_apply_patch_tool(registry, context).name)
-    if policy.allows_tool("shell_exec"):
-        registered.append(register_shell_exec_tool(registry, context).name)
+    if policy.allows_tool("exec"):
+        registered.append(register_exec_tool(registry, context).name)
+    if policy.allows_tool("write_stdin"):
+        registered.append(register_write_stdin_tool(registry, context).name)
+    if policy.allows_tool("list_exec_sessions"):
+        registered.append(register_list_exec_sessions_tool(registry, context).name)
 
     return registered
 
@@ -48,10 +56,12 @@ __all__ = [
     "register_builtin_tools",
     "register_apply_patch_tool",
     "register_edit_file_tool",
+    "register_exec_tool",
     "register_find_files_tool",
     "register_grep_tool",
+    "register_list_exec_sessions_tool",
     "register_list_dir_tool",
     "register_read_file_tool",
-    "register_shell_exec_tool",
+    "register_write_stdin_tool",
     "register_write_file_tool",
 ]

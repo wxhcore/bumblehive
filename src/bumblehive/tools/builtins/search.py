@@ -53,6 +53,7 @@ FIND_FILES_PARAMETERS: dict[str, Any] = {
             "type": "integer",
             "description": "Skip this many matches before returning results.",
             "minimum": 0,
+            "maximum": 100000,
         },
     },
     "additionalProperties": False,
@@ -129,6 +130,7 @@ GREP_PARAMETERS: dict[str, Any] = {
             "type": "integer",
             "description": "Skip this many results before applying head_limit.",
             "minimum": 0,
+            "maximum": 100000,
         },
     },
     "required": ["pattern"],
@@ -268,6 +270,7 @@ class WorkspaceSearch:
         returned = 0
         files_with_matches: list[str] = []
         counts: list[dict[str, Any]] = []
+        file_mtimes: dict[str, float] = {}
         content_matches: list[dict[str, Any]] = []
         total_matches = 0
         seen_content_matches = 0
@@ -313,6 +316,10 @@ class WorkspaceSearch:
                 continue
 
             display_path = self.access.relative_display_path(candidate, root=root)
+            try:
+                file_mtimes[display_path] = candidate.stat().st_mtime
+            except OSError:
+                file_mtimes[display_path] = 0.0
             file_match_count = len(line_matches)
             if output_mode != "content":
                 file_match_count = sum(1 for line in lines if regex.search(line))
@@ -341,10 +348,14 @@ class WorkspaceSearch:
             "truncated": truncated,
         }
         if output_mode == "files_with_matches":
+            files_with_matches.sort(key=lambda path: (-file_mtimes.get(path, 0.0), path))
             paged, truncated = _slice_items(files_with_matches, limit, offset)
             result["files"] = paged
             result["truncated"] = truncated
         elif output_mode == "count":
+            counts.sort(
+                key=lambda item: (-file_mtimes.get(item["path"], 0.0), item["path"])
+            )
             paged_counts, truncated = _slice_items(counts, limit, offset)
             result["counts"] = paged_counts
             result["truncated"] = truncated

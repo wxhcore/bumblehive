@@ -9,7 +9,7 @@ from typing import Any
 from ..adapters.function import CallableTool
 from ..runtime import ToolRuntimeContext
 from ..registry import ToolRegistry
-from .workspace import DEFAULT_IGNORE_DIRS, WorkspaceAccess, is_binary_bytes
+from .workspace import DEFAULT_IGNORE_DIRS, FileStates, WorkspaceAccess, is_binary_bytes
 
 
 _BLOCKED_DEVICE_PATHS = frozenset(
@@ -171,9 +171,10 @@ class WorkspaceFiles:
     _DEFAULT_LIST_ENTRIES = 200
     _MARKDOWN_EXTS = frozenset({".md", ".mdx", ".markdown"})
 
-    def __init__(self, workspace: str | Path) -> None:
+    def __init__(self, workspace: str | Path, file_states: FileStates | None = None) -> None:
         self.access = WorkspaceAccess(workspace)
         self.workspace = self.access.workspace
+        self.file_states = file_states or FileStates()
         self._read_cache: dict[tuple[str, int, int | None], tuple[float, int, str]] = {}
 
     def read_file(
@@ -276,6 +277,7 @@ class WorkspaceFiles:
         has_more = end < total_lines
 
         self._read_cache[cache_key] = (stat.st_mtime, stat.st_size, content_hash)
+        self.file_states.record_read(resolved, offset=read_offset, limit=read_limit)
         return {
             "path": str(resolved),
             "start_line": start + 1,
@@ -297,6 +299,7 @@ class WorkspaceFiles:
 
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
+        self.file_states.record_write(resolved)
         return {
             "path": str(resolved),
             "bytes_written": len(content.encode("utf-8")),
@@ -381,12 +384,14 @@ class WorkspaceFiles:
             if old_text == "":
                 resolved.parent.mkdir(parents=True, exist_ok=True)
                 resolved.write_text(new_text, encoding="utf-8")
+                self.file_states.record_write(resolved)
                 return {"path": str(resolved), "created": True, "success": True}
             return {"error": "path does not exist or is not a file", "path": str(resolved)}
         if not resolved.is_file():
             return {"error": "path is not a file", "path": str(resolved)}
         if resolved.stat().st_size > self._MAX_EDIT_CHARS:
             return {"error": f"file is too large to edit; max {self._MAX_EDIT_CHARS} bytes"}
+        warning = self.file_states.check_read(resolved) if old_text != "" else None
 
         try:
             raw = resolved.read_bytes()
@@ -398,6 +403,7 @@ class WorkspaceFiles:
             if content.strip():
                 return {"error": "cannot create file because it already exists and is not empty"}
             resolved.write_text(new_text, encoding="utf-8")
+            self.file_states.record_write(resolved)
             return {"path": str(resolved), "replacements": 1, "success": True}
 
         norm_old = old_text.replace("\r\n", "\n")
@@ -458,11 +464,15 @@ class WorkspaceFiles:
         if b"\r\n" in raw:
             updated = updated.replace("\n", "\r\n")
         resolved.write_bytes(updated.encode("utf-8"))
-        return {
+        self.file_states.record_write(resolved)
+        result = {
             "path": str(resolved),
             "replacements": len(selected),
             "success": True,
         }
+        if warning:
+            result["warning"] = warning
+        return result
 
     def _resolve_path(self, path: str) -> Path | str:
         return self.access.resolve(path)
@@ -721,12 +731,43 @@ def _workspace_from_context(workspace_or_context: str | Path | ToolRuntimeContex
     return Path(workspace_or_context)
 
 
+_FILE_STATES_METADATA_KEY = "_bumblehive_builtin_file_states"
+_WORKSPACE_FILES_METADATA_KEY = "_bumblehive_builtin_workspace_files"
+
+
+def _file_states_from_context(
+    workspace_or_context: str | Path | ToolRuntimeContext,
+) -> FileStates:
+    if not isinstance(workspace_or_context, ToolRuntimeContext):
+        return FileStates()
+    states = workspace_or_context.metadata.get(_FILE_STATES_METADATA_KEY)
+    if not isinstance(states, FileStates):
+        states = FileStates()
+        workspace_or_context.metadata[_FILE_STATES_METADATA_KEY] = states
+    return states
+
+
+def _workspace_files_from_context(
+    workspace_or_context: str | Path | ToolRuntimeContext,
+) -> WorkspaceFiles:
+    if not isinstance(workspace_or_context, ToolRuntimeContext):
+        return WorkspaceFiles(workspace_or_context)
+    files = workspace_or_context.metadata.get(_WORKSPACE_FILES_METADATA_KEY)
+    if not isinstance(files, WorkspaceFiles):
+        files = WorkspaceFiles(
+            workspace_or_context.workspace,
+            file_states=_file_states_from_context(workspace_or_context),
+        )
+        workspace_or_context.metadata[_WORKSPACE_FILES_METADATA_KEY] = files
+    return files
+
+
 def register_read_file_tool(
     registry: ToolRegistry,
     workspace: str | Path | ToolRuntimeContext,
 ) -> CallableTool:
     """Register the read_file tool on a registry."""
-    files = WorkspaceFiles(_workspace_from_context(workspace))
+    files = _workspace_files_from_context(workspace)
     return registry.register(
         CallableTool(
             name="read_file",
@@ -743,7 +784,7 @@ def register_write_file_tool(
     workspace: str | Path | ToolRuntimeContext,
 ) -> CallableTool:
     """Register the write_file tool on a registry."""
-    files = WorkspaceFiles(_workspace_from_context(workspace))
+    files = _workspace_files_from_context(workspace)
     return registry.register(
         CallableTool(
             name="write_file",
@@ -760,7 +801,7 @@ def register_list_dir_tool(
     workspace: str | Path | ToolRuntimeContext,
 ) -> CallableTool:
     """Register the list_dir tool on a registry."""
-    files = WorkspaceFiles(_workspace_from_context(workspace))
+    files = _workspace_files_from_context(workspace)
     return registry.register(
         CallableTool(
             name="list_dir",
@@ -777,7 +818,7 @@ def register_edit_file_tool(
     workspace: str | Path | ToolRuntimeContext,
 ) -> CallableTool:
     """Register the edit_file tool on a registry."""
-    files = WorkspaceFiles(_workspace_from_context(workspace))
+    files = _workspace_files_from_context(workspace)
     return registry.register(
         CallableTool(
             name="edit_file",
