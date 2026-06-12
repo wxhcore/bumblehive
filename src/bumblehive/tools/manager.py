@@ -114,9 +114,17 @@ class ToolManager:
         """Reconnect one MCP server and rebuild its registered tools."""
         return await self.mcp_manager.reload_server(server_name)
 
-    def list_tools(self, tool_names: Iterable[str] | None = None) -> list[Tool]:
-        """Return registered Tool objects, optionally filtered by name."""
-        return self.registry.list_tools(tool_names)
+    def get_tool(self, name: str) -> Tool | None:
+        """Return one registered Tool object by name."""
+        return self.registry.get_tool(name)
+
+    def get_tools(self, tool_names: Iterable[str]) -> list[Tool]:
+        """Return registered Tool objects filtered by name."""
+        return self.registry.get_tools(tool_names)
+
+    def list_tools(self) -> list[Tool]:
+        """Return all registered Tool objects."""
+        return self.registry.list_tools()
 
     def get_openai_tool_definitions(
         self,

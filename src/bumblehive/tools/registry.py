@@ -130,14 +130,18 @@ class ToolRegistry:
     def get_tool(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
-    def list_tools(self, tool_names: Iterable[str] | None = None) -> list[Tool]:
-        """Return registered tools, optionally filtered by name."""
-        names = self.tool_names if tool_names is None else sorted(set(tool_names))
+    def get_tools(self, tool_names: Iterable[str]) -> list[Tool]:
+        """Return registered tools filtered by name."""
+        names = sorted(set(tool_names))
         missing = [name for name in names if name not in self._tools]
         if missing:
             raise ValueError(f"Unknown tools: {', '.join(missing)}")
 
         return [self._tools[name] for name in names]
+
+    def list_tools(self) -> list[Tool]:
+        """Return all registered tools."""
+        return [self._tools[name] for name in self.tool_names]
 
     @property
     def tool_names(self) -> list[str]:
@@ -148,4 +152,5 @@ class ToolRegistry:
         tool_names: Iterable[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Return OpenAI-compatible tool definitions for the model request."""
-        return [tool.to_openai_tool_schema() for tool in self.list_tools(tool_names)]
+        tools = self.list_tools() if tool_names is None else self.get_tools(tool_names)
+        return [tool.to_openai_tool_schema() for tool in tools]
