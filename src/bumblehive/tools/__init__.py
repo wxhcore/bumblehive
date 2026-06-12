@@ -18,7 +18,7 @@ from .builtins import (
 )
 from .runtime import ToolRuntimeContext
 from .manager import ToolManager
-from .mcp import MCPManager, MCPServerConfig
+from .mcp import MCPManager, MCPServerConfig, MCPServerStatus
 from .policy import ToolPolicy
 from .registry import ToolRegistry
 
@@ -26,6 +26,7 @@ __all__ = [
     "CallableTool",
     "MCPManager",
     "MCPServerConfig",
+    "MCPServerStatus",
     "MCPToolWrapper",
     "Tool",
     "ToolRuntimeContext",

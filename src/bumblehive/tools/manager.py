@@ -7,7 +7,7 @@ from ..tool_calls.executor import ToolExecutor
 from .base import Tool
 from .builtins import register_builtin_tools
 from .runtime import ToolRuntimeContext
-from .mcp import MCPManager, MCPServerConfig
+from .mcp import MCPManager, MCPServerConfig, MCPServerStatus
 from .policy import ToolPolicy
 from .registry import ToolRegistry
 
@@ -78,9 +78,41 @@ class ToolManager:
         """Connect configured MCP servers and register their enabled tools."""
         return await self.mcp_manager.connect_all()
 
-    async def connect_mcp_server(self, server: MCPServerConfig) -> list[str]:
+    def set_mcp_server(self, server: MCPServerConfig) -> None:
+        """Add or replace one MCP server configuration without connecting it."""
+        self.mcp_manager.set_server(server)
+
+    async def remove_mcp_server(self, server_name: str) -> None:
+        """Close and forget one MCP server configuration."""
+        await self.mcp_manager.remove_server(server_name)
+
+    def get_mcp_server_config(self, server_name: str) -> MCPServerConfig | None:
+        """Return one configured MCP server by name."""
+        return self.mcp_manager.get_server_config(server_name)
+
+    def list_mcp_server_configs(self) -> list[MCPServerConfig]:
+        """Return all configured MCP servers."""
+        return self.mcp_manager.list_server_configs()
+
+    def get_mcp_server_status(self, server_name: str) -> MCPServerStatus | None:
+        """Return one MCP server status by name."""
+        return self.mcp_manager.get_server_status(server_name)
+
+    def list_mcp_server_statuses(self) -> list[MCPServerStatus]:
+        """Return runtime status for all configured MCP servers."""
+        return self.mcp_manager.list_server_statuses()
+
+    async def connect_mcp_server(self, server: MCPServerConfig | str) -> list[str]:
         """Connect one MCP server and register its enabled tools."""
         return await self.mcp_manager.connect_server(server)
+
+    async def reload_mcp(self) -> list[str]:
+        """Reconnect configured MCP servers and rebuild their registered tools."""
+        return await self.mcp_manager.reload_all()
+
+    async def reload_mcp_server(self, server_name: str) -> list[str]:
+        """Reconnect one MCP server and rebuild its registered tools."""
+        return await self.mcp_manager.reload_server(server_name)
 
     def list_tools(self, tool_names: Iterable[str] | None = None) -> list[Tool]:
         """Return registered Tool objects, optionally filtered by name."""

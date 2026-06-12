@@ -22,6 +22,16 @@ class MCPServerConfig:
     enabled_tools: list[str] = field(default_factory=lambda: ["*"])
 
 
+@dataclass(frozen=True)
+class MCPServerStatus:
+    """Runtime status for one configured MCP server."""
+
+    name: str
+    connected: bool
+    registered_tools: list[str]
+    config: MCPServerConfig
+
+
 def sanitize_mcp_tool_name(name: str) -> str:
     """Return a provider-safe tool name."""
     sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
@@ -77,7 +87,9 @@ class MCPManager:
         policy: ToolPolicy | None = None,
     ) -> None:
         self.registry = registry
-        self.servers = list(servers or [])
+        self._server_configs: dict[str, MCPServerConfig] = {
+            server.name: server for server in servers or []
+        }
         self.policy = policy or ToolPolicy()
         self._stacks: dict[str, AsyncExitStack] = {}
         self._registered_mcp_tool_names: dict[str, list[str]] = {}
@@ -93,12 +105,55 @@ class MCPManager:
     async def connect_all(self) -> list[str]:
         """Connect every configured MCP server and register its tools."""
         registered: list[str] = []
-        for server in self.servers:
+        for server in self.list_server_configs():
             registered.extend(await self.connect_server(server))
         return registered
 
-    async def connect_server(self, server: MCPServerConfig) -> list[str]:
+    def set_server(self, server: MCPServerConfig) -> None:
+        """Add or replace one MCP server configuration without connecting it."""
+        self._server_configs[server.name] = server
+
+    async def remove_server(self, server_name: str) -> None:
+        """Close and forget one MCP server configuration."""
+        await self.close_server(server_name)
+        self._server_configs.pop(server_name, None)
+
+    def get_server_config(self, server_name: str) -> MCPServerConfig | None:
+        """Return one configured MCP server by name."""
+        return self._server_configs.get(server_name)
+
+    def list_server_configs(self) -> list[MCPServerConfig]:
+        """Return all configured MCP servers."""
+        return list(self._server_configs.values())
+
+    def get_server_status(self, server_name: str) -> MCPServerStatus | None:
+        """Return one MCP server status by name."""
+        config = self.get_server_config(server_name)
+        if config is None:
+            return None
+        return MCPServerStatus(
+            name=server_name,
+            connected=server_name in self._stacks,
+            registered_tools=list(self._registered_mcp_tool_names.get(server_name, [])),
+            config=config,
+        )
+
+    def list_server_statuses(self) -> list[MCPServerStatus]:
+        """Return runtime status for all configured MCP servers."""
+        return [
+            status
+            for server_name in self._server_configs
+            if (status := self.get_server_status(server_name)) is not None
+        ]
+
+    async def connect_server(self, server: MCPServerConfig | str) -> list[str]:
         """Connect one MCP server and register its enabled tools."""
+        if isinstance(server, str):
+            server_config = self.get_server_config(server)
+            if server_config is None:
+                raise ValueError(f"Unknown MCP server: {server}")
+            server = server_config
+
         if server.name in self._stacks:
             raise RuntimeError(f"MCP server already connected: {server.name}")
         if not server.url:
@@ -114,11 +169,26 @@ class MCPManager:
 
             self._stacks[server.name] = stack
             self._registered_mcp_tool_names[server.name] = registered
+            self.set_server(server)
             return registered
         except Exception:
             self._unregister_tools(registered)
             await stack.aclose()
             raise
+
+    async def reload_server(self, server_name: str) -> list[str]:
+        """Reconnect one MCP server and rebuild its registered tools."""
+        server = self._server_configs.get(server_name)
+        if server is None:
+            raise ValueError(f"Unknown MCP server: {server_name}")
+
+        await self.close_server(server_name)
+        return await self.connect_server(server)
+
+    async def reload_all(self) -> list[str]:
+        """Reconnect configured MCP servers and rebuild their registered tools."""
+        await self.close_all()
+        return await self.connect_all()
 
     async def _connect_client(self, stack: AsyncExitStack, server: MCPServerConfig) -> Client:
         return await stack.enter_async_context(
