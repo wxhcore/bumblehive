@@ -4,11 +4,14 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Skill:
-    """Model-visible summary for a local skill."""
+    """Model-visible summary for a local skill package."""
 
     name: str
     description: str
     path: Path
+    scripts: Path | None = None
+    references: Path | None = None
+    assets: Path | None = None
 
 
 @dataclass(frozen=True)

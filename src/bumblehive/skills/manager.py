@@ -5,7 +5,7 @@ from .loader import load_skills, resolve_skills_root
 from .models import Skill, SkillLoadResult
 from .render import render_skills_summary
 
-SkillFilesSnapshot = tuple[tuple[str, int], ...]
+SkillFilesSnapshot = tuple[tuple[str, int, int], ...]
 
 
 class SkillsManager:
@@ -67,11 +67,23 @@ class SkillsManager:
         if not self.skills_root.exists():
             return ()
 
-        snapshot: list[tuple[str, int]] = []
+        snapshot: list[tuple[str, int, int]] = []
         for skill_file in sorted(self.skills_root.glob("*/SKILL.md")):
-            try:
-                stat = skill_file.stat()
-            except OSError:
-                continue
-            snapshot.append((skill_file.resolve().as_posix(), stat.st_mtime_ns))
+            self._append_snapshot_entry(snapshot, skill_file)
+            skill_dir = skill_file.parent
+            for resource_name in ("scripts", "references", "assets"):
+                resource_path = skill_dir / resource_name
+                if resource_path.exists():
+                    self._append_snapshot_entry(snapshot, resource_path)
         return tuple(snapshot)
+
+    def _append_snapshot_entry(
+        self,
+        snapshot: list[tuple[str, int, int]],
+        path: Path,
+    ) -> None:
+        try:
+            stat = path.stat()
+        except OSError:
+            return
+        snapshot.append((path.resolve().as_posix(), stat.st_mtime_ns, stat.st_mode))
