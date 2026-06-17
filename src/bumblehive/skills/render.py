@@ -20,7 +20,7 @@ def render_skills_summary(skills: list[Skill]) -> str:
         return ""
 
     lines = [
-        "<skills>",
+        "<available_skills>",
         "  <instructions>",
         f"    {escape(SKILLS_INSTRUCTIONS)}",
         "  </instructions>",
@@ -38,7 +38,7 @@ def render_skills_summary(skills: list[Skill]) -> str:
         _append_optional_path(lines, "references", skill.references)
         _append_optional_path(lines, "assets", skill.assets)
         lines.append("  </skill>")
-    lines.append("</skills>")
+    lines.append("</available_skills>")
     return "\n".join(lines)
 
 
