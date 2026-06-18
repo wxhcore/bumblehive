@@ -12,7 +12,7 @@ from openpyxl import load_workbook
 from pptx import Presentation as PptxPresentation
 
 from ..adapters.function import CallableTool
-from ..registration import ToolRegistrationContext
+from ..registration import ToolRegistrationContext, current_tool_execution_context
 from ..registry import ToolRegistry
 from .workspace import DEFAULT_IGNORE_DIRS, FileStates, WorkspaceAccess, is_binary_bytes
 
@@ -216,9 +216,15 @@ class WorkspaceFiles:
     _MARKDOWN_EXTS = frozenset({".md", ".mdx", ".markdown"})
     _OFFICE_EXTS = frozenset({".docx", ".xlsx", ".pptx"})
 
-    def __init__(self, workspace: str | Path, file_states: FileStates | None = None) -> None:
-        self.access = WorkspaceAccess(workspace)
-        self.workspace = self.access.workspace
+    def __init__(
+        self,
+        workspace: str | Path | None = None,
+        file_states: FileStates | None = None,
+    ) -> None:
+        self.default_workspace = (
+            None if workspace is None else Path(workspace).expanduser().resolve()
+        )
+        self.workspace = self.default_workspace
         self.file_states = file_states or FileStates()
         self._read_cache: dict[tuple[str, int, int | None], tuple[float, int, str]] = {}
 
@@ -523,7 +529,7 @@ class WorkspaceFiles:
 
             entries.append(
                 {
-                    "path": self.access.relative_display_path(item),
+                    "path": self._display_path(item),
                     "type": "directory" if item.is_dir() else "file",
                 }
             )
@@ -666,7 +672,27 @@ class WorkspaceFiles:
         return result
 
     def _resolve_path(self, path: str) -> Path | str:
-        return self.access.resolve(path)
+        access = self._access()
+        if isinstance(access, str):
+            return access
+        return access.resolve(path)
+
+    def _display_path(self, path: Path, *, root: Path | None = None) -> str:
+        access = self._access()
+        if isinstance(access, str):
+            return path.as_posix()
+        return access.relative_display_path(path, root=root)
+
+    def _access(self) -> WorkspaceAccess | str:
+        context = current_tool_execution_context()
+        if context is not None:
+            return WorkspaceAccess(
+                context.workspace,
+                restrict_to_workspace=context.restrict_to_workspace,
+            )
+        if self.default_workspace is None:
+            return "workspace is required"
+        return WorkspaceAccess(self.default_workspace)
 
 
 @dataclass(frozen=True)
@@ -916,9 +942,13 @@ def _nearest_match(content: str, old_text: str) -> dict[str, Any] | None:
     }
 
 
-def _workspace_from_context(workspace_or_context: str | Path | ToolRegistrationContext) -> Path:
+def _workspace_from_context(
+    workspace_or_context: str | Path | ToolRegistrationContext | None,
+) -> Path | None:
     if isinstance(workspace_or_context, ToolRegistrationContext):
         return workspace_or_context.workspace
+    if workspace_or_context is None:
+        return None
     return Path(workspace_or_context)
 
 
@@ -927,7 +957,7 @@ _WORKSPACE_FILES_METADATA_KEY = "_bumblehive_builtin_workspace_files"
 
 
 def _file_states_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext,
+    workspace_or_context: str | Path | ToolRegistrationContext | None,
 ) -> FileStates:
     if not isinstance(workspace_or_context, ToolRegistrationContext):
         return FileStates()
@@ -939,7 +969,7 @@ def _file_states_from_context(
 
 
 def _workspace_files_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext,
+    workspace_or_context: str | Path | ToolRegistrationContext | None,
 ) -> WorkspaceFiles:
     if not isinstance(workspace_or_context, ToolRegistrationContext):
         return WorkspaceFiles(workspace_or_context)
@@ -955,7 +985,7 @@ def _workspace_files_from_context(
 
 def register_read_file_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the read_file tool on a registry."""
     files = _workspace_files_from_context(workspace)
@@ -972,7 +1002,7 @@ def register_read_file_tool(
 
 def register_write_file_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the write_file tool on a registry."""
     files = _workspace_files_from_context(workspace)
@@ -989,7 +1019,7 @@ def register_write_file_tool(
 
 def register_list_dir_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the list_dir tool on a registry."""
     files = _workspace_files_from_context(workspace)
@@ -1006,7 +1036,7 @@ def register_list_dir_tool(
 
 def register_edit_file_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the edit_file tool on a registry."""
     files = _workspace_files_from_context(workspace)

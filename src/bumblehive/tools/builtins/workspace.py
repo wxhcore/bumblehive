@@ -125,14 +125,19 @@ class FileStates:
 class WorkspaceAccess:
     """Shared workspace path handling for built-in local tools."""
 
-    def __init__(self, workspace: str | Path) -> None:
+    def __init__(self, workspace: str | Path, *, restrict_to_workspace: bool = True) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
+        self.restrict_to_workspace = restrict_to_workspace
 
     def resolve(self, path: str | Path) -> Path | str:
         raw = Path(path).expanduser()
         resolved = raw.resolve() if raw.is_absolute() else (self.workspace / raw).resolve()
 
-        if resolved != self.workspace and self.workspace not in resolved.parents:
+        if (
+            self.restrict_to_workspace
+            and resolved != self.workspace
+            and self.workspace not in resolved.parents
+        ):
             return "path is outside workspace"
         return resolved
 

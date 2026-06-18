@@ -7,7 +7,7 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..registration import ToolRegistrationContext
+from ..registration import ToolRegistrationContext, current_tool_execution_context
 from .file import _workspace_from_context
 from .workspace import DEFAULT_IGNORE_DIRS, WorkspaceAccess, is_binary_bytes
 
@@ -173,8 +173,10 @@ class WorkspaceSearch:
     _MAX_FILE_BYTES = 2_000_000
     _MAX_RESULT_CHARS = 128_000
 
-    def __init__(self, workspace: str | Path) -> None:
-        self.access = WorkspaceAccess(workspace)
+    def __init__(self, workspace: str | Path | None = None) -> None:
+        self.default_workspace = (
+            None if workspace is None else Path(workspace).expanduser().resolve()
+        )
 
     def find_files(
         self,
@@ -187,7 +189,10 @@ class WorkspaceSearch:
         head_limit: int | None = None,
         offset: int = 0,
     ) -> dict[str, Any]:
-        resolved = self.access.resolve(path or ".")
+        access = self._access()
+        if isinstance(access, str):
+            return {"error": access}
+        resolved = access.resolve(path or ".")
         if isinstance(resolved, str):
             return {"error": resolved}
         if not resolved.exists():
@@ -208,7 +213,7 @@ class WorkspaceSearch:
                 continue
 
             rel_path = candidate.relative_to(root).as_posix()
-            display_path = self.access.relative_display_path(candidate, root=root)
+            display_path = access.relative_display_path(candidate, root=root)
             if glob and not _matches_glob(rel_path, candidate.name, glob):
                 continue
             if candidate.is_file() and not _matches_type(candidate.name, type):
@@ -254,7 +259,10 @@ class WorkspaceSearch:
     ) -> dict[str, Any]:
         if output_mode not in {"content", "files_with_matches", "count"}:
             return {"error": "output_mode must be content, files_with_matches, or count"}
-        resolved = self.access.resolve(path or ".")
+        access = self._access()
+        if isinstance(access, str):
+            return {"error": access}
+        resolved = access.resolve(path or ".")
         if isinstance(resolved, str):
             return {"error": resolved}
         if not resolved.exists():
@@ -310,7 +318,7 @@ class WorkspaceSearch:
                 continue
             lines = read_result.lines
 
-            display_path = self.access.relative_display_path(candidate, root=root)
+            display_path = access.relative_display_path(candidate, root=root)
             file_match_count = 0
             for index, line in enumerate(lines):
                 if not regex.search(line):
@@ -419,6 +427,17 @@ class WorkspaceSearch:
         except UnicodeDecodeError:
             return ReadTextResult(None, "binary")
 
+    def _access(self) -> WorkspaceAccess | str:
+        context = current_tool_execution_context()
+        if context is not None:
+            return WorkspaceAccess(
+                context.workspace,
+                restrict_to_workspace=context.restrict_to_workspace,
+            )
+        if self.default_workspace is None:
+            return "workspace is required"
+        return WorkspaceAccess(self.default_workspace)
+
 
 def _matches_query(path: str, query: str | None) -> bool:
     if not query:
@@ -477,7 +496,7 @@ def _content_match_chars(match: dict[str, Any]) -> int:
 
 def register_find_files_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the find_files tool on a registry."""
     search = WorkspaceSearch(_workspace_from_context(workspace))
@@ -494,7 +513,7 @@ def register_find_files_tool(
 
 def register_grep_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the grep tool on a registry."""
     search = WorkspaceSearch(_workspace_from_context(workspace))

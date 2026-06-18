@@ -6,7 +6,7 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..registration import ToolRegistrationContext
+from ..registration import ToolRegistrationContext, current_tool_execution_context
 from .file import _file_states_from_context, _workspace_from_context
 from .workspace import FileStates, WorkspaceAccess
 
@@ -92,8 +92,14 @@ class PatchSummary:
 
 
 class StructuredPatch:
-    def __init__(self, workspace: str | Path, file_states: FileStates | None = None) -> None:
-        self.access = WorkspaceAccess(workspace)
+    def __init__(
+        self,
+        workspace: str | Path | None = None,
+        file_states: FileStates | None = None,
+    ) -> None:
+        self.default_workspace = (
+            None if workspace is None else Path(workspace).expanduser().resolve()
+        )
         self.file_states = file_states or FileStates()
 
     def apply_patch(
@@ -163,7 +169,10 @@ class StructuredPatch:
         if action not in {"add", "replace"}:
             raise PatchError(f"unknown action for {path}: {action}")
 
-        resolved = self.access.resolve(path)
+        access = self._access()
+        if isinstance(access, str):
+            raise PatchError(access)
+        resolved = access.resolve(path)
         if isinstance(resolved, str):
             raise PatchError(f"{path}: {resolved}")
 
@@ -250,6 +259,17 @@ class StructuredPatch:
         added, deleted = _line_diff_stats(content, updated)
         return PatchSummary(action="update", path=path, added=added, deleted=deleted)
 
+    def _access(self) -> WorkspaceAccess | str:
+        context = current_tool_execution_context()
+        if context is not None:
+            return WorkspaceAccess(
+                context.workspace,
+                restrict_to_workspace=context.restrict_to_workspace,
+            )
+        if self.default_workspace is None:
+            return "workspace is required"
+        return WorkspaceAccess(self.default_workspace)
+
 
 _ABSOLUTE_WINDOWS_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
@@ -311,7 +331,7 @@ def _summary_dict(summary: PatchSummary) -> dict[str, Any]:
 
 def register_apply_patch_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the apply_patch tool on a registry."""
     patch = StructuredPatch(

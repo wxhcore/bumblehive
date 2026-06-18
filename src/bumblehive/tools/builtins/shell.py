@@ -12,7 +12,7 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..registration import ToolRegistrationContext
+from ..registration import ToolRegistrationContext, current_tool_execution_context
 from .workspace import WorkspaceAccess
 
 
@@ -433,12 +433,14 @@ class ExecRunner:
 
     def __init__(
         self,
-        workspace: str | Path,
+        workspace: str | Path | None = None,
         *,
         timeout: int = 60,
         manager: ExecSessionManager | None = None,
     ) -> None:
-        self.access = WorkspaceAccess(workspace)
+        self.default_workspace = (
+            None if workspace is None else Path(workspace).expanduser().resolve()
+        )
         self.timeout = timeout
         self.manager = manager or DEFAULT_EXEC_SESSION_MANAGER
         self.deny_patterns = [
@@ -642,10 +644,17 @@ class ExecRunner:
         shell: str | None,
         login: bool | None,
     ) -> PreparedCommand | dict[str, Any]:
-        cwd = self._resolve_working_dir(working_dir)
+        access = self._access()
+        if isinstance(access, str):
+            return {"error": access}
+        cwd = self._resolve_working_dir(working_dir, access)
         if isinstance(cwd, str):
             return {"error": cwd}
-        guard_error = self._guard_command(command, cwd)
+        guard_error = self._guard_command(
+            command,
+            cwd,
+            restrict_to_workspace=access.restrict_to_workspace,
+        )
         if guard_error:
             return {"error": guard_error}
         shell_program, shell_error = _resolve_shell(shell)
@@ -667,18 +676,28 @@ class ExecRunner:
             return self.timeout
         return None
 
-    def _resolve_working_dir(self, working_dir: str | None) -> Path | str:
+    def _resolve_working_dir(
+        self,
+        working_dir: str | None,
+        access: WorkspaceAccess,
+    ) -> Path | str:
         if working_dir:
-            resolved = self.access.resolve(working_dir)
+            resolved = access.resolve(working_dir)
         else:
-            resolved = self.access.workspace
+            resolved = access.workspace
         if isinstance(resolved, str):
             return "working_dir is outside workspace"
         if not resolved.exists() or not resolved.is_dir():
             return "working_dir does not exist or is not a directory"
         return resolved
 
-    def _guard_command(self, command: str, cwd: Path) -> str | None:
+    def _guard_command(
+        self,
+        command: str,
+        cwd: Path,
+        *,
+        restrict_to_workspace: bool,
+    ) -> str | None:
         lower = command.strip().lower()
         for pattern in self.deny_patterns:
             if re.search(pattern, lower):
@@ -686,6 +705,8 @@ class ExecRunner:
         if "../" in command or "..\\" in command:
             return "command blocked by safety policy: path traversal"
         for raw_path in _extract_absolute_paths(command):
+            if not restrict_to_workspace:
+                continue
             expanded = os.path.expandvars(raw_path.strip())
             if _is_benign_device_path(expanded):
                 continue
@@ -698,6 +719,17 @@ class ExecRunner:
             if path != cwd and cwd not in path.parents:
                 return "command blocked by safety policy: path outside working_dir"
         return None
+
+    def _access(self) -> WorkspaceAccess | str:
+        context = current_tool_execution_context()
+        if context is not None:
+            return WorkspaceAccess(
+                context.workspace,
+                restrict_to_workspace=context.restrict_to_workspace,
+            )
+        if self.default_workspace is None:
+            return "workspace is required"
+        return WorkspaceAccess(self.default_workspace)
 
 
 def _poll_dict(
@@ -868,14 +900,18 @@ def _clamp_int(value: int | None, default: int, minimum: int, maximum: int) -> i
     return min(max(value, minimum), maximum)
 
 
-def _workspace_from_context(workspace_or_context: str | Path | ToolRegistrationContext) -> Path:
+def _workspace_from_context(
+    workspace_or_context: str | Path | ToolRegistrationContext | None,
+) -> Path | None:
     if isinstance(workspace_or_context, ToolRegistrationContext):
         return workspace_or_context.workspace
+    if workspace_or_context is None:
+        return None
     return Path(workspace_or_context)
 
 
 def _timeout_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext,
+    workspace_or_context: str | Path | ToolRegistrationContext | None,
     timeout: int | None,
 ) -> int | None:
     if not isinstance(workspace_or_context, ToolRegistrationContext):
@@ -886,7 +922,7 @@ def _timeout_from_context(
 
 
 def _runner_from_context(
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
     *,
     timeout: int | None = None,
 ) -> ExecRunner:
@@ -900,7 +936,7 @@ def _runner_from_context(
 
 
 def _manager_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext,
+    workspace_or_context: str | Path | ToolRegistrationContext | None,
 ) -> ExecSessionManager:
     if not isinstance(workspace_or_context, ToolRegistrationContext):
         return DEFAULT_EXEC_SESSION_MANAGER
@@ -913,7 +949,7 @@ def _manager_from_context(
 
 def register_exec_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
     *,
     timeout: int | None = None,
 ) -> CallableTool:
@@ -931,7 +967,7 @@ def register_exec_tool(
 
 def register_write_stdin_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
     *,
     timeout: int | None = None,
 ) -> CallableTool:
@@ -949,7 +985,7 @@ def register_write_stdin_tool(
 
 def register_list_exec_sessions_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext,
+    workspace: str | Path | ToolRegistrationContext | None,
     *,
     timeout: int | None = None,
 ) -> CallableTool:

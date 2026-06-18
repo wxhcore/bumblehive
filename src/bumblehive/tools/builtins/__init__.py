@@ -20,7 +20,7 @@ from .shell import (
 
 def register_builtin_tools(
     registry: ToolRegistry,
-    registration_context: ToolRegistrationContext,
+    registration_context: ToolRegistrationContext | None = None,
     *,
     policy: ToolPolicy | None = None,
 ) -> list[str]:
