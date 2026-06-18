@@ -3,9 +3,9 @@ from types import TracebackType
 from typing import Any
 
 from ..schemas.tool_calls import ToolCall, ToolResult
-from ..tool_calls.executor import ToolExecutor
 from .base import Tool
 from .builtins import register_builtin_tools
+from .executor import ToolExecutor
 from .runtime import ToolRuntimeContext
 from .mcp import MCPManager, MCPServerConfig, MCPServerStatus
 from .policy import ToolPolicy

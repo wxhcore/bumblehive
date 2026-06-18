@@ -17,6 +17,7 @@ from .builtins import (
     register_write_file_tool,
 )
 from .runtime import ToolRuntimeContext
+from .executor import ToolExecutor
 from .manager import ToolManager
 from .mcp import MCPManager, MCPServerConfig, MCPServerStatus
 from .policy import ToolPolicy
@@ -29,6 +30,7 @@ __all__ = [
     "MCPServerStatus",
     "MCPToolWrapper",
     "Tool",
+    "ToolExecutor",
     "ToolRuntimeContext",
     "ToolManager",
     "ToolPolicy",

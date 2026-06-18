@@ -2,7 +2,7 @@ import os
 import platform
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from html import escape
@@ -11,10 +11,11 @@ from pathlib import Path, PureWindowsPath
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .turn import AgentTurnContext, DynamicValue
+
 
 Message = dict[str, Any]
 ToolSchema = dict[str, Any]
-DynamicValue = str | int | float | bool | None | dict[str, Any] | list[Any]
 
 
 @lru_cache(maxsize=None)
@@ -35,21 +36,6 @@ TOOL_USE_INSTRUCTIONS = load_prompt("tool_use_instructions.md")
 class ContextBundle:
     messages: list[Message]
     tools: list[ToolSchema]
-
-
-@dataclass
-class AgentTurnContext:
-    """Per-turn runtime context shared by prompt building and tool execution."""
-
-    workspace: Path | str
-    timezone: str | None = None
-    dynamic_context: Mapping[str, DynamicValue] | None = None
-    session_id: str | None = None
-    request_id: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        self.workspace = Path(self.workspace).expanduser().resolve(strict=False)
 
 
 class ContextBuilder:

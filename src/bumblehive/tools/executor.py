@@ -3,7 +3,7 @@ from collections.abc import Iterable
 
 from ..schemas.errors import AgentError
 from ..schemas.tool_calls import ToolCall, ToolResult
-from ..tools.registry import ToolRegistry
+from .registry import ToolRegistry
 
 
 class ToolExecutor:
