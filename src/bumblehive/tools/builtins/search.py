@@ -7,9 +7,14 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..registration import ToolRegistrationContext, current_tool_execution_context
-from .file import _workspace_from_context
-from .workspace import DEFAULT_IGNORE_DIRS, WorkspaceAccess, is_binary_bytes
+from ..registration import ToolRegistrationContext
+from .workspace import (
+    DEFAULT_IGNORE_DIRS,
+    WorkspaceAccess,
+    current_workspace_access,
+    is_binary_bytes,
+    workspace_from_context,
+)
 
 
 FIND_FILES_DESCRIPTION = (
@@ -428,15 +433,7 @@ class WorkspaceSearch:
             return ReadTextResult(None, "binary")
 
     def _access(self) -> WorkspaceAccess | str:
-        context = current_tool_execution_context()
-        if context is not None:
-            return WorkspaceAccess(
-                context.workspace,
-                restrict_to_workspace=context.restrict_to_workspace,
-            )
-        if self.default_workspace is None:
-            return "workspace is required"
-        return WorkspaceAccess(self.default_workspace)
+        return current_workspace_access(self.default_workspace)
 
 
 def _matches_query(path: str, query: str | None) -> bool:
@@ -499,7 +496,7 @@ def register_find_files_tool(
     workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the find_files tool on a registry."""
-    search = WorkspaceSearch(_workspace_from_context(workspace))
+    search = WorkspaceSearch(workspace_from_context(workspace))
     return registry.register(
         CallableTool(
             name="find_files",
@@ -516,7 +513,7 @@ def register_grep_tool(
     workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the grep tool on a registry."""
-    search = WorkspaceSearch(_workspace_from_context(workspace))
+    search = WorkspaceSearch(workspace_from_context(workspace))
     return registry.register(
         CallableTool(
             name="grep",

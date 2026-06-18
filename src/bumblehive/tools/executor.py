@@ -3,10 +3,10 @@ from collections.abc import Iterable
 
 from ..schemas.errors import AgentError
 from ..schemas.tool_calls import ToolCall, ToolResult
-from .registration import (
-    ToolExecutionContext,
-    bind_tool_execution_context,
-    reset_tool_execution_context,
+from .scope import (
+    ToolScope,
+    bind_tool_scope,
+    reset_tool_scope,
 )
 from .registry import ToolRegistry
 
@@ -29,7 +29,7 @@ class ToolExecutor:
         self,
         call: ToolCall,
         *,
-        execution_context: ToolExecutionContext | None = None,
+        scope: ToolScope | None = None,
     ) -> ToolResult:
         """Execute a parsed tool call and return a structured result."""
         if (
@@ -59,8 +59,8 @@ class ToolExecutor:
         token = None
         try:
             assert prepared.tool is not None
-            if execution_context is not None:
-                token = bind_tool_execution_context(execution_context)
+            if scope is not None:
+                token = bind_tool_scope(scope)
             content = await prepared.tool.execute(**prepared.arguments)
         except Exception as exc:
             return ToolResult(
@@ -73,7 +73,7 @@ class ToolExecutor:
             )
         finally:
             if token is not None:
-                reset_tool_execution_context(token)
+                reset_tool_scope(token)
 
         return ToolResult(call_id=call.id, name=call.name, content=content)
 
@@ -81,7 +81,7 @@ class ToolExecutor:
         self,
         calls: list[ToolCall],
         *,
-        execution_context: ToolExecutionContext | None = None,
+        scope: ToolScope | None = None,
     ) -> list[ToolResult]:
         """Execute tool calls, parallelizing adjacent concurrency-safe tools."""
         results: list[ToolResult] = []
@@ -90,7 +90,7 @@ class ToolExecutor:
                 results.append(
                     await self.execute_call(
                         batch[0],
-                        execution_context=execution_context,
+                        scope=scope,
                     )
                 )
                 continue
@@ -100,7 +100,7 @@ class ToolExecutor:
                     *(
                         self.execute_call(
                             call,
-                            execution_context=execution_context,
+                            scope=scope,
                         )
                         for call in batch
                     )

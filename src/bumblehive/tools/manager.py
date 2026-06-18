@@ -6,7 +6,8 @@ from ..schemas.tool_calls import ToolCall, ToolResult
 from .base import Tool
 from .builtins import register_builtin_tools
 from .executor import ToolExecutor
-from .registration import ToolExecutionContext, ToolRegistrationContext
+from .scope import ToolScope
+from .registration import ToolRegistrationContext
 from .mcp import MCPManager, MCPServerConfig, MCPServerStatus
 from .policy import ToolPolicy
 from .registry import ToolRegistry
@@ -136,20 +137,20 @@ class ToolManager:
         call: ToolCall,
         *,
         allowed_tool_names: Iterable[str] | None = None,
-        execution_context: ToolExecutionContext | None = None,
+        scope: ToolScope | None = None,
     ) -> ToolResult:
         executor = ToolExecutor(self.registry, allowed_tool_names=allowed_tool_names)
-        return await executor.execute_call(call, execution_context=execution_context)
+        return await executor.execute_call(call, scope=scope)
 
     async def execute_many(
         self,
         calls: list[ToolCall],
         *,
         allowed_tool_names: Iterable[str] | None = None,
-        execution_context: ToolExecutionContext | None = None,
+        scope: ToolScope | None = None,
     ) -> list[ToolResult]:
         executor = ToolExecutor(self.registry, allowed_tool_names=allowed_tool_names)
-        return await executor.execute_many(calls, execution_context=execution_context)
+        return await executor.execute_many(calls, scope=scope)
 
     async def close_mcp_server(self, server_name: str) -> None:
         """Close one MCP server connection and unregister its tools."""

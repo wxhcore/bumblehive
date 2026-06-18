@@ -12,8 +12,8 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..registration import ToolRegistrationContext, current_tool_execution_context
-from .workspace import WorkspaceAccess
+from ..registration import ToolRegistrationContext
+from .workspace import WorkspaceAccess, current_workspace_access, workspace_from_context
 
 
 _IS_WINDOWS = sys.platform == "win32"
@@ -721,15 +721,7 @@ class ExecRunner:
         return None
 
     def _access(self) -> WorkspaceAccess | str:
-        context = current_tool_execution_context()
-        if context is not None:
-            return WorkspaceAccess(
-                context.workspace,
-                restrict_to_workspace=context.restrict_to_workspace,
-            )
-        if self.default_workspace is None:
-            return "workspace is required"
-        return WorkspaceAccess(self.default_workspace)
+        return current_workspace_access(self.default_workspace)
 
 
 def _poll_dict(
@@ -900,16 +892,6 @@ def _clamp_int(value: int | None, default: int, minimum: int, maximum: int) -> i
     return min(max(value, minimum), maximum)
 
 
-def _workspace_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext | None,
-) -> Path | None:
-    if isinstance(workspace_or_context, ToolRegistrationContext):
-        return workspace_or_context.workspace
-    if workspace_or_context is None:
-        return None
-    return Path(workspace_or_context)
-
-
 def _timeout_from_context(
     workspace_or_context: str | Path | ToolRegistrationContext | None,
     timeout: int | None,
@@ -929,7 +911,7 @@ def _runner_from_context(
     resolved_timeout = _timeout_from_context(workspace, timeout)
     manager = _manager_from_context(workspace)
     return ExecRunner(
-        _workspace_from_context(workspace),
+        workspace_from_context(workspace),
         timeout=60 if resolved_timeout is None else resolved_timeout,
         manager=manager,
     )

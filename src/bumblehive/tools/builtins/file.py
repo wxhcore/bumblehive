@@ -12,9 +12,16 @@ from openpyxl import load_workbook
 from pptx import Presentation as PptxPresentation
 
 from ..adapters.function import CallableTool
-from ..registration import ToolRegistrationContext, current_tool_execution_context
+from ..registration import ToolRegistrationContext
 from ..registry import ToolRegistry
-from .workspace import DEFAULT_IGNORE_DIRS, FileStates, WorkspaceAccess, is_binary_bytes
+from .workspace import (
+    DEFAULT_IGNORE_DIRS,
+    FileStates,
+    WorkspaceAccess,
+    current_workspace_access,
+    file_states_from_context,
+    is_binary_bytes,
+)
 
 
 _BLOCKED_DEVICE_PATHS = frozenset(
@@ -684,15 +691,7 @@ class WorkspaceFiles:
         return access.relative_display_path(path, root=root)
 
     def _access(self) -> WorkspaceAccess | str:
-        context = current_tool_execution_context()
-        if context is not None:
-            return WorkspaceAccess(
-                context.workspace,
-                restrict_to_workspace=context.restrict_to_workspace,
-            )
-        if self.default_workspace is None:
-            return "workspace is required"
-        return WorkspaceAccess(self.default_workspace)
+        return current_workspace_access(self.default_workspace)
 
 
 @dataclass(frozen=True)
@@ -942,30 +941,7 @@ def _nearest_match(content: str, old_text: str) -> dict[str, Any] | None:
     }
 
 
-def _workspace_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext | None,
-) -> Path | None:
-    if isinstance(workspace_or_context, ToolRegistrationContext):
-        return workspace_or_context.workspace
-    if workspace_or_context is None:
-        return None
-    return Path(workspace_or_context)
-
-
-_FILE_STATES_METADATA_KEY = "_bumblehive_builtin_file_states"
 _WORKSPACE_FILES_METADATA_KEY = "_bumblehive_builtin_workspace_files"
-
-
-def _file_states_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext | None,
-) -> FileStates:
-    if not isinstance(workspace_or_context, ToolRegistrationContext):
-        return FileStates()
-    states = workspace_or_context.metadata.get(_FILE_STATES_METADATA_KEY)
-    if not isinstance(states, FileStates):
-        states = FileStates()
-        workspace_or_context.metadata[_FILE_STATES_METADATA_KEY] = states
-    return states
 
 
 def _workspace_files_from_context(
@@ -977,7 +953,7 @@ def _workspace_files_from_context(
     if not isinstance(files, WorkspaceFiles):
         files = WorkspaceFiles(
             workspace_or_context.workspace,
-            file_states=_file_states_from_context(workspace_or_context),
+            file_states=file_states_from_context(workspace_or_context),
         )
         workspace_or_context.metadata[_WORKSPACE_FILES_METADATA_KEY] = files
     return files

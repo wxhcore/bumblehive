@@ -6,9 +6,14 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..registration import ToolRegistrationContext, current_tool_execution_context
-from .file import _file_states_from_context, _workspace_from_context
-from .workspace import FileStates, WorkspaceAccess
+from ..registration import ToolRegistrationContext
+from .workspace import (
+    FileStates,
+    WorkspaceAccess,
+    current_workspace_access,
+    file_states_from_context,
+    workspace_from_context,
+)
 
 
 APPLY_PATCH_DESCRIPTION = (
@@ -260,15 +265,7 @@ class StructuredPatch:
         return PatchSummary(action="update", path=path, added=added, deleted=deleted)
 
     def _access(self) -> WorkspaceAccess | str:
-        context = current_tool_execution_context()
-        if context is not None:
-            return WorkspaceAccess(
-                context.workspace,
-                restrict_to_workspace=context.restrict_to_workspace,
-            )
-        if self.default_workspace is None:
-            return "workspace is required"
-        return WorkspaceAccess(self.default_workspace)
+        return current_workspace_access(self.default_workspace)
 
 
 _ABSOLUTE_WINDOWS_RE = re.compile(r"^[A-Za-z]:[\\/]")
@@ -335,8 +332,8 @@ def register_apply_patch_tool(
 ) -> CallableTool:
     """Register the apply_patch tool on a registry."""
     patch = StructuredPatch(
-        _workspace_from_context(workspace),
-        file_states=_file_states_from_context(workspace),
+        workspace_from_context(workspace),
+        file_states=file_states_from_context(workspace),
     )
     return registry.register(
         CallableTool(
