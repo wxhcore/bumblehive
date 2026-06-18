@@ -6,7 +6,7 @@ from ..schemas.tool_calls import ToolCall, ToolResult
 from .base import Tool
 from .builtins import register_builtin_tools
 from .executor import ToolExecutor
-from .runtime import ToolRuntimeContext
+from .registration import ToolRegistrationContext
 from .mcp import MCPManager, MCPServerConfig, MCPServerStatus
 from .policy import ToolPolicy
 from .registry import ToolRegistry
@@ -19,13 +19,13 @@ class ToolManager:
         self,
         *,
         registry: ToolRegistry | None = None,
-        context: ToolRuntimeContext | None = None,
+        registration_context: ToolRegistrationContext | None = None,
         builtin_policy: ToolPolicy | None = None,
         mcp_servers: list[MCPServerConfig] | None = None,
         mcp_policy: ToolPolicy | None = None,
     ) -> None:
         self.registry = registry or ToolRegistry()
-        self.context = context
+        self.registration_context = registration_context
         self.builtin_policy = builtin_policy or ToolPolicy()
         self.mcp_manager = MCPManager(
             self.registry,
@@ -65,12 +65,12 @@ class ToolManager:
         self.registry.unregister(name)
 
     def register_builtin_tools(self) -> list[str]:
-        """Register built-in local tools using the configured context and policy."""
-        if self.context is None:
-            raise ValueError("ToolRuntimeContext is required to register built-in tools")
+        """Register built-in local tools using the configured registration context."""
+        if self.registration_context is None:
+            raise ValueError("ToolRegistrationContext is required to register built-in tools")
         return register_builtin_tools(
             self.registry,
-            self.context,
+            self.registration_context,
             policy=self.builtin_policy,
         )
 

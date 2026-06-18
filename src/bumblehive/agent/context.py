@@ -103,9 +103,6 @@ class ContextBuilder:
                 workspace=turn_context.workspace,
                 timezone=self.timezone,
                 dynamic_context=turn_context.dynamic_context,
-                session_id=turn_context.session_id,
-                request_id=turn_context.request_id,
-                metadata=turn_context.metadata,
             )
 
         if self.workspace is None:

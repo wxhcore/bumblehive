@@ -6,7 +6,7 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..runtime import ToolRuntimeContext
+from ..registration import ToolRegistrationContext
 from .file import _file_states_from_context, _workspace_from_context
 from .workspace import FileStates, WorkspaceAccess
 
@@ -311,7 +311,7 @@ def _summary_dict(summary: PatchSummary) -> dict[str, Any]:
 
 def register_apply_patch_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRuntimeContext,
+    workspace: str | Path | ToolRegistrationContext,
 ) -> CallableTool:
     """Register the apply_patch tool on a registry."""
     patch = StructuredPatch(

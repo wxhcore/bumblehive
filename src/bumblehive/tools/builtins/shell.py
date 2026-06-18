@@ -12,7 +12,7 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..runtime import ToolRuntimeContext
+from ..registration import ToolRegistrationContext
 from .workspace import WorkspaceAccess
 
 
@@ -868,17 +868,17 @@ def _clamp_int(value: int | None, default: int, minimum: int, maximum: int) -> i
     return min(max(value, minimum), maximum)
 
 
-def _workspace_from_context(workspace_or_context: str | Path | ToolRuntimeContext) -> Path:
-    if isinstance(workspace_or_context, ToolRuntimeContext):
+def _workspace_from_context(workspace_or_context: str | Path | ToolRegistrationContext) -> Path:
+    if isinstance(workspace_or_context, ToolRegistrationContext):
         return workspace_or_context.workspace
     return Path(workspace_or_context)
 
 
 def _timeout_from_context(
-    workspace_or_context: str | Path | ToolRuntimeContext,
+    workspace_or_context: str | Path | ToolRegistrationContext,
     timeout: int | None,
 ) -> int | None:
-    if not isinstance(workspace_or_context, ToolRuntimeContext):
+    if not isinstance(workspace_or_context, ToolRegistrationContext):
         return timeout
     shell_config = workspace_or_context.config.get("exec", {})
     config_timeout = shell_config.get("timeout") if isinstance(shell_config, dict) else None
@@ -886,7 +886,7 @@ def _timeout_from_context(
 
 
 def _runner_from_context(
-    workspace: str | Path | ToolRuntimeContext,
+    workspace: str | Path | ToolRegistrationContext,
     *,
     timeout: int | None = None,
 ) -> ExecRunner:
@@ -900,9 +900,9 @@ def _runner_from_context(
 
 
 def _manager_from_context(
-    workspace_or_context: str | Path | ToolRuntimeContext,
+    workspace_or_context: str | Path | ToolRegistrationContext,
 ) -> ExecSessionManager:
-    if not isinstance(workspace_or_context, ToolRuntimeContext):
+    if not isinstance(workspace_or_context, ToolRegistrationContext):
         return DEFAULT_EXEC_SESSION_MANAGER
     manager = workspace_or_context.metadata.get(_EXEC_MANAGER_METADATA_KEY)
     if not isinstance(manager, ExecSessionManager):
@@ -913,7 +913,7 @@ def _manager_from_context(
 
 def register_exec_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRuntimeContext,
+    workspace: str | Path | ToolRegistrationContext,
     *,
     timeout: int | None = None,
 ) -> CallableTool:
@@ -931,7 +931,7 @@ def register_exec_tool(
 
 def register_write_stdin_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRuntimeContext,
+    workspace: str | Path | ToolRegistrationContext,
     *,
     timeout: int | None = None,
 ) -> CallableTool:
@@ -949,7 +949,7 @@ def register_write_stdin_tool(
 
 def register_list_exec_sessions_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRuntimeContext,
+    workspace: str | Path | ToolRegistrationContext,
     *,
     timeout: int | None = None,
 ) -> CallableTool:

@@ -4,8 +4,8 @@ from typing import Any
 
 
 @dataclass(frozen=True)
-class ToolRuntimeContext:
-    """Runtime environment used when constructing tools."""
+class ToolRegistrationContext:
+    """Context used when registering workspace-bound tools."""
 
     workspace: Path
     config: dict[str, Any] = field(default_factory=dict)

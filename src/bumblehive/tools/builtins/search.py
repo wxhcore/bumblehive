@@ -7,7 +7,7 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..runtime import ToolRuntimeContext
+from ..registration import ToolRegistrationContext
 from .file import _workspace_from_context
 from .workspace import DEFAULT_IGNORE_DIRS, WorkspaceAccess, is_binary_bytes
 
@@ -477,7 +477,7 @@ def _content_match_chars(match: dict[str, Any]) -> int:
 
 def register_find_files_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRuntimeContext,
+    workspace: str | Path | ToolRegistrationContext,
 ) -> CallableTool:
     """Register the find_files tool on a registry."""
     search = WorkspaceSearch(_workspace_from_context(workspace))
@@ -494,7 +494,7 @@ def register_find_files_tool(
 
 def register_grep_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRuntimeContext,
+    workspace: str | Path | ToolRegistrationContext,
 ) -> CallableTool:
     """Register the grep tool on a registry."""
     search = WorkspaceSearch(_workspace_from_context(workspace))
