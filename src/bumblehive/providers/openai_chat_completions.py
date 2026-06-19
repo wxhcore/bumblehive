@@ -21,7 +21,7 @@ _ALLOWED_MESSAGE_KEYS = frozenset(
 )
 
 
-class OpenAICompatProvider(ModelProvider):
+class OpenAIChatCompletionsProvider(ModelProvider):
     """Provider for OpenAI-compatible Chat Completions APIs."""
 
     def __init__(
@@ -67,7 +67,7 @@ class OpenAICompatProvider(ModelProvider):
             from openai import AsyncOpenAI
         except ImportError as exc:
             raise RuntimeError(
-                "OpenAI SDK is required for OpenAICompatProvider. "
+                "OpenAI SDK is required for OpenAIChatCompletionsProvider. "
                 "Install it with: pip install openai"
             ) from exc
 
@@ -163,7 +163,7 @@ class OpenAICompatProvider(ModelProvider):
 
     @staticmethod
     def _first_choice(response: Any) -> Any:
-        choices = OpenAICompatProvider._get(response, "choices")
+        choices = OpenAIChatCompletionsProvider._get(response, "choices")
         if not choices:
             raise ValueError("response is missing choices")
         return choices[0]
@@ -192,8 +192,8 @@ class OpenAICompatProvider(ModelProvider):
     @staticmethod
     def _parse_reasoning_content(message: Any) -> str | None:
         reasoning = (
-            OpenAICompatProvider._get(message, "reasoning_content")
-            or OpenAICompatProvider._get(message, "reasoning")
+            OpenAIChatCompletionsProvider._get(message, "reasoning_content")
+            or OpenAIChatCompletionsProvider._get(message, "reasoning")
         )
         return reasoning if isinstance(reasoning, str) else None
 
@@ -204,15 +204,15 @@ class OpenAICompatProvider(ModelProvider):
 
         result: dict[str, int] = {}
         for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-            value = OpenAICompatProvider._safe_int(
-                OpenAICompatProvider._get(usage, key)
+            value = OpenAIChatCompletionsProvider._safe_int(
+                OpenAIChatCompletionsProvider._get(usage, key)
             )
             if value is not None:
                 result[key] = value
 
-        cached_tokens = OpenAICompatProvider._safe_int(
-            OpenAICompatProvider._get(
-                OpenAICompatProvider._get(usage, "prompt_tokens_details"),
+        cached_tokens = OpenAIChatCompletionsProvider._safe_int(
+            OpenAIChatCompletionsProvider._get(
+                OpenAIChatCompletionsProvider._get(usage, "prompt_tokens_details"),
                 "cached_tokens",
             )
         )

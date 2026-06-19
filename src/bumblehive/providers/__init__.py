@@ -8,14 +8,14 @@ from .base import (
 )
 from .config import ProviderConfig
 from .manager import ProviderManager
-from .openai_compat import OpenAICompatProvider
+from .openai_chat_completions import OpenAIChatCompletionsProvider
 
 __all__ = [
     "GenerationConfig",
     "ModelProvider",
     "ModelRequest",
     "ModelResponse",
-    "OpenAICompatProvider",
+    "OpenAIChatCompletionsProvider",
     "ProviderConfig",
     "ProviderManager",
 ]

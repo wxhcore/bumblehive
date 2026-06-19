@@ -1,6 +1,6 @@
 from .config import ProviderConfig
 from .base import ModelProvider
-from .openai_compat import OpenAICompatProvider
+from .openai_chat_completions import OpenAIChatCompletionsProvider
 
 
 class ProviderManager:
@@ -50,7 +50,7 @@ class ProviderManager:
 
     @staticmethod
     def _create_provider(config: ProviderConfig) -> ModelProvider:
-        return OpenAICompatProvider(
+        return OpenAIChatCompletionsProvider(
             model=config.model,
             api_key=config.api_key,
             base_url=config.base_url,
