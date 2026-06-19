@@ -58,3 +58,7 @@ class ModelProvider(ABC):
     async def complete(self, request: ModelRequest) -> ModelResponse:
         """Return one non-streaming model response."""
         ...
+
+    async def close(self) -> None:
+        """Release provider-owned resources."""
+        pass

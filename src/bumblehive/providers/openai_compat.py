@@ -2,6 +2,7 @@ import json
 import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from inspect import isawaitable
 from typing import Any
 
 from ..agent.types import AgentError
@@ -26,15 +27,15 @@ class OpenAICompatProvider(ModelProvider):
     def __init__(
         self,
         *,
-        model: str = "gpt-4.1-mini",
+        model: str = "gpt-5.4",
         api_key: str | None = None,
-        api_base: str | None = None,
+        base_url: str | None = None,
         default_generation: GenerationConfig | None = None,
         client: Any | None = None,
     ) -> None:
         self.model = model
         self.api_key = api_key
-        self.api_base = api_base
+        self.base_url = base_url
         self.default_generation = default_generation or GenerationConfig()
         self._client = client
 
@@ -72,9 +73,32 @@ class OpenAICompatProvider(ModelProvider):
 
         self._client = AsyncOpenAI(
             api_key=self.api_key,
-            base_url=self.api_base,
+            base_url=self.base_url,
         )
         return self._client
+
+    async def close(self) -> None:
+        """Close the cached OpenAI SDK client, if it was created."""
+        client = self._client
+        self._client = None
+        if client is None:
+            return
+
+        await self._close_client(client)
+
+    @staticmethod
+    async def _close_client(client: Any) -> None:
+        close = getattr(client, "close", None)
+        if callable(close):
+            result = close()
+        else:
+            aclose = getattr(client, "aclose", None)
+            if not callable(aclose):
+                return
+            result = aclose()
+
+        if isawaitable(result):
+            await result
 
     def _build_payload(self, request: ModelRequest) -> dict[str, Any]:
         generation = request.generation or self.default_generation

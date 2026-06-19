@@ -6,6 +6,8 @@ from .base import (
     ModelRequest,
     ModelResponse,
 )
+from .config import ProviderConfig
+from .manager import ProviderManager
 from .openai_compat import OpenAICompatProvider
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     "ModelRequest",
     "ModelResponse",
     "OpenAICompatProvider",
+    "ProviderConfig",
+    "ProviderManager",
 ]
