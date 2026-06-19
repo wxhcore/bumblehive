@@ -2,5 +2,12 @@
 
 from .context import ContextBuilder, ContextBundle
 from .turn import AgentTurnContext, DynamicValue
+from .types import AgentError
 
-__all__ = ["AgentTurnContext", "ContextBuilder", "ContextBundle", "DynamicValue"]
+__all__ = [
+    "AgentError",
+    "AgentTurnContext",
+    "ContextBuilder",
+    "ContextBundle",
+    "DynamicValue",
+]

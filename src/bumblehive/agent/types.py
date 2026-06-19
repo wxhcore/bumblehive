@@ -7,4 +7,4 @@ class AgentError:
 
     code: str
     message: str
-    recoverable: bool = True
+    recoverable: bool = False

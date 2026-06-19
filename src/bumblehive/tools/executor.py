@@ -1,8 +1,8 @@
 import asyncio
 from collections.abc import Iterable
 
-from ..schemas.errors import AgentError
-from ..schemas.tool_calls import ToolCall, ToolResult
+from ..agent.types import AgentError
+from .calls import ToolCall, ToolResult
 from .scope import (
     ToolScope,
     bind_tool_scope,

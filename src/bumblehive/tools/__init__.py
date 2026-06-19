@@ -16,6 +16,7 @@ from .builtins import (
     register_write_stdin_tool,
     register_write_file_tool,
 )
+from .calls import ToolCall, ToolResult, parse_tool_call
 from .scope import ToolScope
 from .registration import ToolRegistrationContext
 from .executor import ToolExecutor
@@ -31,12 +32,15 @@ __all__ = [
     "MCPServerStatus",
     "MCPToolWrapper",
     "Tool",
+    "ToolCall",
     "ToolExecutor",
+    "ToolResult",
     "ToolScope",
     "ToolRegistrationContext",
     "ToolManager",
     "ToolPolicy",
     "ToolRegistry",
+    "parse_tool_call",
     "register_apply_patch_tool",
     "register_builtin_tools",
     "register_edit_file_tool",

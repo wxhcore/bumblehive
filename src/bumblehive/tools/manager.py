@@ -2,7 +2,7 @@ from collections.abc import Callable, Iterable
 from types import TracebackType
 from typing import Any
 
-from ..schemas.tool_calls import ToolCall, ToolResult
+from .calls import ToolCall, ToolResult
 from .base import Tool
 from .builtins import register_builtin_tools
 from .executor import ToolExecutor
