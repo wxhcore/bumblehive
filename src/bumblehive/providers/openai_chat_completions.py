@@ -19,6 +19,34 @@ _ALLOWED_MESSAGE_KEYS = frozenset(
         "name",
     }
 )
+_NON_RECOVERABLE_QUOTA_TOKENS = frozenset(
+    {
+        "insufficient_quota",
+        "quota_exceeded",
+        "quota_exhausted",
+        "billing_hard_limit_reached",
+        "billing_not_active",
+        "payment_required",
+        "insufficient_balance",
+        "credit_balance_too_low",
+    }
+)
+_NON_RECOVERABLE_QUOTA_MARKERS = (
+    "insufficient_quota",
+    "insufficient quota",
+    "quota exceeded",
+    "quota exhausted",
+    "billing hard limit",
+    "billing_hard_limit_reached",
+    "billing not active",
+    "insufficient balance",
+    "insufficient_balance",
+    "credit balance too low",
+    "payment required",
+    "out of credits",
+    "out of quota",
+    "exceeded your current quota",
+)
 
 
 class OpenAIChatCompletionsProvider(ModelProvider):
@@ -39,7 +67,7 @@ class OpenAIChatCompletionsProvider(ModelProvider):
         self.default_generation = default_generation or GenerationConfig()
         self._client = client
 
-    async def complete(self, request: ModelRequest) -> ModelResponse:
+    async def generate(self, request: ModelRequest) -> ModelResponse:
         try:
             response = await self._client_or_create().chat.completions.create(
                 **self._build_payload(request)
@@ -239,6 +267,7 @@ class OpenAIChatCompletionsProvider(ModelProvider):
                 error_kind=metadata["error_kind"],
                 error_type=metadata["error_type"],
                 error_code=metadata["error_code"],
+                error_should_retry=metadata["error_should_retry"],
                 message=message,
             ),
         )
@@ -283,7 +312,11 @@ class OpenAIChatCompletionsProvider(ModelProvider):
             "error_kind": error_kind,
             "error_type": error_type,
             "error_code": error_code,
-            "retry_after": cls._extract_retry_after_from_headers(headers),
+            "error_should_retry": cls._extract_should_retry(headers),
+            "retry_after": (
+                cls._extract_retry_after_from_headers(headers)
+                or cls._extract_retry_after_from_text(cls._format_error_message(exc))
+            ),
         }
 
     @staticmethod
@@ -327,9 +360,10 @@ class OpenAIChatCompletionsProvider(ModelProvider):
         if status_code == 403:
             return "model_permission_error"
         if status_code == 402 or cls._looks_like_quota_error(
-            error_type,
-            error_code,
-            message,
+            status_code=status_code,
+            error_type=error_type,
+            error_code=error_code,
+            message=message,
         ):
             return "model_quota_error"
         if status_code == 429:
@@ -348,9 +382,17 @@ class OpenAIChatCompletionsProvider(ModelProvider):
         error_kind: str | None,
         error_type: str | None,
         error_code: str | None,
+        error_should_retry: bool | None,
         message: str,
     ) -> bool:
-        if cls._looks_like_quota_error(error_type, error_code, message):
+        if error_should_retry is not None:
+            return error_should_retry
+        if cls._looks_like_quota_error(
+            status_code=status_code,
+            error_type=error_type,
+            error_code=error_code,
+            message=message,
+        ):
             return False
         if error_kind in {"timeout", "connection"}:
             return True
@@ -365,6 +407,8 @@ class OpenAIChatCompletionsProvider(ModelProvider):
     @classmethod
     def _looks_like_quota_error(
         cls,
+        *,
+        status_code: int | None,
         error_type: str | None,
         error_code: str | None,
         message: str,
@@ -373,31 +417,14 @@ class OpenAIChatCompletionsProvider(ModelProvider):
             cls._normalize_token(error_type),
             cls._normalize_token(error_code),
         }
-        quota_tokens = {
-            "insufficient_quota",
-            "quota_exceeded",
-            "quota_exhausted",
-            "billing_hard_limit_reached",
-            "payment_required",
-            "insufficient_balance",
-            "credit_balance_too_low",
-        }
-        if any(token in quota_tokens for token in tokens if token):
+        if any(token in _NON_RECOVERABLE_QUOTA_TOKENS for token in tokens if token):
             return True
 
+        if status_code not in {402, 429}:
+            return False
+
         lowered = message.lower()
-        markers = (
-            "insufficient quota",
-            "quota exceeded",
-            "quota exhausted",
-            "billing hard limit",
-            "payment required",
-            "out of credits",
-            "out of quota",
-            "insufficient balance",
-            "credit balance",
-        )
-        return any(marker in lowered for marker in markers)
+        return any(marker in lowered for marker in _NON_RECOVERABLE_QUOTA_MARKERS)
 
     @classmethod
     def _extract_error_type_code(cls, payload: Any) -> tuple[str | None, str | None]:
@@ -456,6 +483,45 @@ class OpenAIChatCompletionsProvider(ModelProvider):
             retry_at = retry_at.replace(tzinfo=timezone.utc)
         remaining = (retry_at - datetime.now(retry_at.tzinfo)).total_seconds()
         return max(0.1, remaining)
+
+    @classmethod
+    def _extract_retry_after_from_text(cls, text: str) -> float | None:
+        lowered = text.lower()
+        patterns = (
+            r"retry after\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|secs|seconds|m|min|minutes)?",
+            r"try again in\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|secs|seconds|m|min|minutes)",
+            r"wait\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|secs|seconds|m|min|minutes)\s*before retry",
+            r"retry[_-]?after[\"'\s:=]+(\d+(?:\.\d+)?)",
+        )
+        for index, pattern in enumerate(patterns):
+            match = re.search(pattern, lowered)
+            if not match:
+                continue
+            value = float(match.group(1))
+            unit = match.group(2) if index < 3 else "s"
+            return cls._retry_after_seconds(value, unit)
+        return None
+
+    @staticmethod
+    def _retry_after_seconds(value: float, unit: str | None) -> float:
+        normalized = (unit or "s").lower()
+        if normalized in {"ms", "milliseconds"}:
+            return max(0.1, value / 1000.0)
+        if normalized in {"m", "min", "minutes"}:
+            return max(0.1, value * 60.0)
+        return max(0.1, value)
+
+    @classmethod
+    def _extract_should_retry(cls, headers: Any) -> bool | None:
+        raw = cls._header_value(headers, "x-should-retry")
+        if not isinstance(raw, str):
+            return None
+        lowered = raw.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+        return None
 
     @staticmethod
     def _header_value(headers: Any, name: str) -> Any:
