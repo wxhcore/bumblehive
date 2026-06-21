@@ -2,7 +2,6 @@ import os
 import platform
 import re
 import sys
-from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from html import escape
@@ -11,11 +10,11 @@ from pathlib import Path, PureWindowsPath
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .turn import AgentTurnContext, DynamicValue
+from ..config import get_workspace_path
 
 
 Message = dict[str, Any]
-ToolSchema = dict[str, Any]
+DynamicValue = str | int | float | bool | None | dict[str, Any] | list[Any]
 
 
 @lru_cache(maxsize=None)
@@ -32,12 +31,6 @@ DEFAULT_AGENT_INSTRUCTIONS = load_prompt("agent_instructions.md")
 TOOL_USE_INSTRUCTIONS = load_prompt("tool_use_instructions.md")
 
 
-@dataclass(frozen=True)
-class ContextBundle:
-    messages: list[Message]
-    tools: list[ToolSchema]
-
-
 class ContextBuilder:
     """Build model request context from caller-provided capabilities."""
 
@@ -48,7 +41,7 @@ class ContextBuilder:
         timezone: str | None = None,
     ) -> None:
         self.workspace = (
-            Path(workspace).expanduser().resolve(strict=False)
+            get_workspace_path(workspace)
             if workspace is not None
             else None
         )
@@ -58,27 +51,29 @@ class ContextBuilder:
         self,
         *,
         current_user_message: str,
-        turn_context: AgentTurnContext | None = None,
+        workspace: Path | str | None = None,
+        timezone: str | None = None,
+        dynamic_context: Mapping[str, DynamicValue] | None = None,
         history: Sequence[Message] | None = None,
         agent_instructions: str | None = None,
         available_skills: str = "",
-        tools: Sequence[ToolSchema] | None = None,
-    ) -> ContextBundle:
-        """Build the messages and tool schemas for one model request.
+    ) -> list[Message]:
+        """Build the messages for one model request.
 
-        ``turn_context`` carries per-turn runtime values shared with tool
-        execution. When omitted, the builder defaults provide the workspace and
-        timezone.
+        ``workspace``, ``timezone``, and ``dynamic_context`` carry per-turn
+        runtime values. When omitted, the builder defaults provide workspace
+        and timezone.
         """
-        active_turn_context = self._resolve_turn_context(turn_context)
+        active_workspace = self._resolve_workspace(workspace)
+        active_timezone = timezone if timezone is not None else self.timezone
         system_content = self._build_system_content(
-            workspace=active_turn_context.workspace,
+            workspace=active_workspace,
             agent_instructions=agent_instructions or DEFAULT_AGENT_INSTRUCTIONS,
             available_skills=available_skills,
         )
         runtime_context = self._build_runtime_context(
-            active_turn_context.dynamic_context,
-            timezone=active_turn_context.timezone,
+            dynamic_context,
+            timezone=active_timezone,
         )
         current_user_content = "\n\n".join(
             part for part in (current_user_message, runtime_context) if part
@@ -90,28 +85,16 @@ class ContextBuilder:
             {"role": "user", "content": current_user_content},
         ]
 
-        return ContextBundle(messages=messages, tools=list(tools or []))
+        return messages
 
-    def _resolve_turn_context(
+    def _resolve_workspace(
         self,
-        turn_context: AgentTurnContext | None,
-    ) -> AgentTurnContext:
-        if turn_context is not None:
-            if turn_context.timezone is not None or self.timezone is None:
-                return turn_context
-            return AgentTurnContext(
-                workspace=turn_context.workspace,
-                timezone=self.timezone,
-                dynamic_context=turn_context.dynamic_context,
-            )
+        workspace: Path | str | None,
+    ) -> Path:
+        if workspace is not None:
+            return get_workspace_path(workspace)
 
-        if self.workspace is None:
-            raise ValueError("workspace must be provided to ContextBuilder or AgentTurnContext")
-
-        return AgentTurnContext(
-            workspace=self.workspace,
-            timezone=self.timezone,
-        )
+        return self.workspace or get_workspace_path()
 
     def _build_system_content(
         self,

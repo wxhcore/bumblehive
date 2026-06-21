@@ -1,5 +1,4 @@
 from pathlib import Path
-from collections.abc import Iterable
 
 from .loader import load_skills, resolve_skills_root
 from .models import Skill, SkillLoadResult
@@ -41,17 +40,25 @@ class SkillsManager:
         return self.list_skills(force_reload=True)
 
     def build_skills_summary(self, skill_names: list[str] | None = None) -> str:
+        """Render skills for prompt context.
+
+        ``skill_names=None`` renders all skills, ``[]`` renders none, and a
+        non-empty list renders only the named skills in the given order.
+        """
         result = self.list_skills()
         skills = result.skills
         if skill_names is not None:
-            selected = set(skill_names)
-            skills = [skill for skill in skills if skill.name in selected]
+            skills = self.get_skills(skill_names)
         return render_skills_summary(skills)
 
-    def get_skills(self, names: Iterable[str]) -> list[Skill]:
+    def get_skills(self, names: list[str]) -> list[Skill]:
         result = self.list_skills()
-        selected = set(names)
-        return [skill for skill in result.skills if skill.name in selected]
+        by_name = {skill.name: skill for skill in result.skills}
+        return [
+            by_name[name]
+            for name in names
+            if name in by_name
+        ]
 
     def get_skill(self, name: str) -> Skill | None:
         skills = self.get_skills([name])

@@ -1,6 +1,7 @@
 """Agent context assembly primitives."""
 
-from .context import ContextBuilder, ContextBundle
+from .config import AgentRunConfig
+from .context import ContextBuilder, DynamicValue
 from .history import (
     backfill_missing_tool_results,
     drop_empty_messages,
@@ -10,14 +11,17 @@ from .history import (
     sanitize_messages,
     truncate_tool_results,
 )
-from .turn import AgentTurnContext, DynamicValue
+from .loop import AgentLoop
+from .runner import AgentRunResult, ToolCallingRunner
 from .types import AgentError
 
 __all__ = [
     "AgentError",
-    "AgentTurnContext",
+    "AgentLoop",
+    "AgentRunConfig",
+    "AgentRunResult",
+    "ToolCallingRunner",
     "ContextBuilder",
-    "ContextBundle",
     "DynamicValue",
     "backfill_missing_tool_results",
     "drop_empty_messages",

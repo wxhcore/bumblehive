@@ -6,9 +6,9 @@ from .openai_chat_completions import OpenAIChatCompletionsProvider
 class ProviderManager:
     """Single-runtime cache for one active provider.
 
-    Reuses the provider while connection settings stay unchanged. When the
-    model, API key, or base URL changes, the previous provider is closed before
-    a new one is created.
+    Reuses the provider while connection settings stay unchanged. When the API
+    key or base URL changes, the previous provider is closed before a new one is
+    created.
     """
 
     def __init__(self) -> None:
@@ -18,12 +18,10 @@ class ProviderManager:
     async def get(
         self,
         *,
-        model: str,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> ModelProvider:
         config = ProviderConfig(
-            model=model,
             api_key=api_key,
             base_url=base_url,
         )
@@ -51,7 +49,6 @@ class ProviderManager:
     @staticmethod
     def _create_provider(config: ProviderConfig) -> ModelProvider:
         return OpenAIChatCompletionsProvider(
-            model=config.model,
             api_key=config.api_key,
             base_url=config.base_url,
         )
