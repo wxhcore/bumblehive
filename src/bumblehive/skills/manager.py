@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from ..config import get_workspace_path
-from .loader import load_skills, resolve_skills_root
+from .loader import load_skills
 from .models import Skill, SkillLoadResult
 from .render import render_skills_summary
 
@@ -103,7 +103,7 @@ class SkillsManager:
         )
         return [
             BUILTIN_SKILLS_DIR.resolve(),
-            resolve_skills_root(active_workspace),
+            active_workspace / "skills",
         ]
 
     def _load_from_roots(self, roots: list[Path]) -> SkillLoadResult:

@@ -1,11 +1,11 @@
 import asyncio
+from pathlib import Path
 
 from ..agent.types import AgentError
 from .calls import ToolCall, ToolResult
 from .scope import (
-    ToolScope,
-    bind_tool_scope,
-    reset_tool_scope,
+    bind_tool_workspace,
+    reset_tool_workspace,
 )
 from .registry import ToolRegistry
 
@@ -24,7 +24,7 @@ class ToolExecutor:
         call: ToolCall,
         *,
         allowed_tool_names: list[str] | None = None,
-        scope: ToolScope | None = None,
+        workspace: Path | str | None = None,
     ) -> ToolResult:
         """Execute a parsed tool call and return a structured result."""
         allowed = None if allowed_tool_names is None else frozenset(allowed_tool_names)
@@ -55,8 +55,7 @@ class ToolExecutor:
         token = None
         try:
             assert prepared.tool is not None
-            if scope is not None:
-                token = bind_tool_scope(scope)
+            token = bind_tool_workspace(workspace)
             content = await prepared.tool.execute(**prepared.arguments)
         except Exception as exc:
             return ToolResult(
@@ -69,7 +68,7 @@ class ToolExecutor:
             )
         finally:
             if token is not None:
-                reset_tool_scope(token)
+                reset_tool_workspace(token)
 
         return ToolResult(call_id=call.id, name=call.name, content=content)
 
@@ -78,7 +77,7 @@ class ToolExecutor:
         calls: list[ToolCall],
         *,
         allowed_tool_names: list[str] | None = None,
-        scope: ToolScope | None = None,
+        workspace: Path | str | None = None,
     ) -> list[ToolResult]:
         """Execute tool calls, parallelizing adjacent concurrency-safe tools."""
         results: list[ToolResult] = []
@@ -88,7 +87,7 @@ class ToolExecutor:
                     await self.execute_call(
                         batch[0],
                         allowed_tool_names=allowed_tool_names,
-                        scope=scope,
+                        workspace=workspace,
                     )
                 )
                 continue
@@ -99,7 +98,7 @@ class ToolExecutor:
                         self.execute_call(
                             call,
                             allowed_tool_names=allowed_tool_names,
-                            scope=scope,
+                            workspace=workspace,
                         )
                         for call in batch
                     )

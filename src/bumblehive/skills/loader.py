@@ -26,11 +26,6 @@ def load_skills(skills_root: Path) -> SkillLoadResult:
     return SkillLoadResult(skills=skills, errors=errors)
 
 
-def resolve_skills_root(workspace: Path) -> Path:
-    """Resolve the workspace-local directory that contains skill folders."""
-    return Path(workspace).expanduser().resolve() / "skills"
-
-
 def _parse_skill_file(path: Path) -> Skill:
     content = path.read_text(encoding="utf-8")
     frontmatter = _extract_frontmatter(content)

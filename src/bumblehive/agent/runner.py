@@ -6,7 +6,6 @@ from typing import Any
 from ..providers.base import ModelProvider, ModelRequest
 from ..tools.calls import ToolCall, ToolResult
 from ..tools.manager import ToolManager
-from ..tools.scope import ToolScope
 from .config import AgentRunConfig
 from .history import prepare_history
 from .types import AgentError
@@ -81,7 +80,7 @@ class ToolCallingRunner:
                 tool_results = await tools.execute_many(
                     response.tool_calls,
                     allowed_tool_names=tool_names,
-                    scope=ToolScope(workspace=workspace),
+                    workspace=workspace,
                 )
                 for tool_call, tool_result in zip(response.tool_calls, tool_results):
                     if tool_result.error is None:

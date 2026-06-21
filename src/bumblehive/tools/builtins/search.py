@@ -112,18 +112,6 @@ GREP_PARAMETERS: dict[str, Any] = {
             "minimum": 0,
             "maximum": 20,
         },
-        "max_matches": {
-            "type": "integer",
-            "description": "Legacy alias for head_limit in content mode.",
-            "minimum": 1,
-            "maximum": 1000,
-        },
-        "max_results": {
-            "type": "integer",
-            "description": "Legacy alias for head_limit in files_with_matches or count mode.",
-            "minimum": 1,
-            "maximum": 1000,
-        },
         "head_limit": {
             "type": "integer",
             "description": "Maximum matches/files to return. Default 200, 0 for all.",
@@ -248,8 +236,6 @@ class WorkspaceSearch:
         output_mode: str = "files_with_matches",
         context_before: int = 0,
         context_after: int = 0,
-        max_matches: int | None = None,
-        max_results: int | None = None,
         head_limit: int | None = None,
         offset: int = 0,
     ) -> dict[str, Any]:
@@ -269,14 +255,7 @@ class WorkspaceSearch:
             return {"error": f"invalid regex pattern: {exc}"}
 
         files = [resolved] if resolved.is_file() else list(self._iter_files(resolved))
-        if head_limit is not None:
-            limit = None if head_limit == 0 else head_limit
-        elif output_mode == "content" and max_matches is not None:
-            limit = max_matches
-        elif output_mode != "content" and max_results is not None:
-            limit = max_results
-        else:
-            limit = self._DEFAULT_GREP_LIMIT
+        limit = None if head_limit == 0 else head_limit or self._DEFAULT_GREP_LIMIT
         returned = 0
         files_with_matches: list[str] = []
         counts: list[dict[str, Any]] = []

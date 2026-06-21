@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from pathlib import Path
 from types import TracebackType
 from typing import Any, Mapping
 
@@ -7,7 +8,6 @@ from .base import Tool
 from .builtins import _register_builtin_tools
 from .builtins.state import BuiltinToolState
 from .executor import ToolExecutor
-from .scope import ToolScope
 from .mcp import MCPManager, MCPServerConfig, MCPServerStatus
 from .policy import ToolPolicy
 from .registry import ToolRegistry
@@ -144,12 +144,12 @@ class ToolManager:
         call: ToolCall,
         *,
         allowed_tool_names: list[str] | None = None,
-        scope: ToolScope | None = None,
+        workspace: Path | str | None = None,
     ) -> ToolResult:
         return await self._executor.execute_call(
             call,
             allowed_tool_names=allowed_tool_names,
-            scope=scope,
+            workspace=workspace,
         )
 
     async def execute_many(
@@ -157,12 +157,12 @@ class ToolManager:
         calls: list[ToolCall],
         *,
         allowed_tool_names: list[str] | None = None,
-        scope: ToolScope | None = None,
+        workspace: Path | str | None = None,
     ) -> list[ToolResult]:
         return await self._executor.execute_many(
             calls,
             allowed_tool_names=allowed_tool_names,
-            scope=scope,
+            workspace=workspace,
         )
 
     async def close_mcp_server(self, server_name: str) -> None:

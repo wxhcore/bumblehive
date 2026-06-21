@@ -644,7 +644,6 @@ class ExecRunner:
         guard_error = self._guard_command(
             command,
             cwd,
-            restrict_to_workspace=access.restrict_to_workspace,
         )
         if guard_error:
             return {"error": guard_error}
@@ -686,8 +685,6 @@ class ExecRunner:
         self,
         command: str,
         cwd: Path,
-        *,
-        restrict_to_workspace: bool,
     ) -> str | None:
         lower = command.strip().lower()
         for pattern in self.deny_patterns:
@@ -696,8 +693,6 @@ class ExecRunner:
         if "../" in command or "..\\" in command:
             return "command blocked by safety policy: path traversal"
         for raw_path in _extract_absolute_paths(command):
-            if not restrict_to_workspace:
-                continue
             expanded = os.path.expandvars(raw_path.strip())
             if _is_benign_device_path(expanded):
                 continue

@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..scope import current_tool_scope
+from ..scope import current_tool_workspace
 from ...config import get_workspace_path
 
 
@@ -128,17 +128,15 @@ class FileStates:
 class WorkspaceAccess:
     """Shared workspace path handling for built-in local tools."""
 
-    def __init__(self, workspace: str | Path, *, restrict_to_workspace: bool = True) -> None:
+    def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
-        self.restrict_to_workspace = restrict_to_workspace
 
     def resolve(self, path: str | Path) -> Path | str:
         raw = Path(path).expanduser()
         resolved = raw.resolve() if raw.is_absolute() else (self.workspace / raw).resolve()
 
         if (
-            self.restrict_to_workspace
-            and resolved != self.workspace
+            resolved != self.workspace
             and self.workspace not in resolved.parents
         ):
             return "path is outside workspace"
@@ -158,13 +156,8 @@ class WorkspaceAccess:
 
 
 def current_workspace_access() -> WorkspaceAccess:
-    context = current_tool_scope()
-    if context is not None:
-        return WorkspaceAccess(
-            context.workspace,
-            restrict_to_workspace=context.restrict_to_workspace,
-        )
-    return WorkspaceAccess(get_workspace_path())
+    workspace = current_tool_workspace()
+    return WorkspaceAccess(workspace or get_workspace_path())
 
 
 def is_binary_bytes(raw: bytes) -> bool:
