@@ -34,6 +34,7 @@ class ToolManager:
             servers=mcp_servers,
             policy=mcp_policy,
         )
+        self._executor = ToolExecutor(self.registry)
 
     async def __aenter__(self) -> "ToolManager":
         return self
@@ -145,8 +146,11 @@ class ToolManager:
         allowed_tool_names: list[str] | None = None,
         scope: ToolScope | None = None,
     ) -> ToolResult:
-        executor = ToolExecutor(self.registry, allowed_tool_names=allowed_tool_names)
-        return await executor.execute_call(call, scope=scope)
+        return await self._executor.execute_call(
+            call,
+            allowed_tool_names=allowed_tool_names,
+            scope=scope,
+        )
 
     async def execute_many(
         self,
@@ -155,8 +159,11 @@ class ToolManager:
         allowed_tool_names: list[str] | None = None,
         scope: ToolScope | None = None,
     ) -> list[ToolResult]:
-        executor = ToolExecutor(self.registry, allowed_tool_names=allowed_tool_names)
-        return await executor.execute_many(calls, scope=scope)
+        return await self._executor.execute_many(
+            calls,
+            allowed_tool_names=allowed_tool_names,
+            scope=scope,
+        )
 
     async def close_mcp_server(self, server_name: str) -> None:
         """Close one MCP server connection and unregister its tools."""

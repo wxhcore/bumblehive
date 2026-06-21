@@ -16,24 +16,21 @@ class ToolExecutor:
     def __init__(
         self,
         registry: ToolRegistry,
-        *,
-        allowed_tool_names: list[str] | None = None,
     ) -> None:
         self.registry = registry
-        self.allowed_tool_names = (
-            None if allowed_tool_names is None else frozenset(allowed_tool_names)
-        )
 
     async def execute_call(
         self,
         call: ToolCall,
         *,
+        allowed_tool_names: list[str] | None = None,
         scope: ToolScope | None = None,
     ) -> ToolResult:
         """Execute a parsed tool call and return a structured result."""
+        allowed = None if allowed_tool_names is None else frozenset(allowed_tool_names)
         if (
-            self.allowed_tool_names is not None
-            and call.name not in self.allowed_tool_names
+            allowed is not None
+            and call.name not in allowed
         ):
             return ToolResult(
                 call_id=call.id,
@@ -80,6 +77,7 @@ class ToolExecutor:
         self,
         calls: list[ToolCall],
         *,
+        allowed_tool_names: list[str] | None = None,
         scope: ToolScope | None = None,
     ) -> list[ToolResult]:
         """Execute tool calls, parallelizing adjacent concurrency-safe tools."""
@@ -89,6 +87,7 @@ class ToolExecutor:
                 results.append(
                     await self.execute_call(
                         batch[0],
+                        allowed_tool_names=allowed_tool_names,
                         scope=scope,
                     )
                 )
@@ -99,6 +98,7 @@ class ToolExecutor:
                     *(
                         self.execute_call(
                             call,
+                            allowed_tool_names=allowed_tool_names,
                             scope=scope,
                         )
                         for call in batch
