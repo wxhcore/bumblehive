@@ -1,10 +1,13 @@
 from pathlib import Path
 
+from ..config import get_workspace_path
 from .loader import load_skills, resolve_skills_root
 from .models import Skill, SkillLoadResult
 from .render import render_skills_summary
 
 SkillFilesSnapshot = tuple[tuple[str, int, int], ...]
+SkillsCacheKey = tuple[str, ...]
+BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin" / "skills"
 
 
 class SkillsManager:
@@ -12,47 +15,59 @@ class SkillsManager:
 
     def __init__(
         self,
-        workspace: Path | None = None,
-        *,
-        skills_path: Path | None = None,
+        workspace: Path | str | None = None,
     ) -> None:
-        root = Path.cwd() if workspace is None else Path(workspace)
-        self.workspace = root.expanduser().resolve()
-        self.skills_root = resolve_skills_root(self.workspace, skills_path=skills_path)
-        self._cached_result: SkillLoadResult | None = None
-        self._cached_snapshot: SkillFilesSnapshot | None = None
+        self.workspace = get_workspace_path(workspace)
+        self._cache: dict[SkillsCacheKey, tuple[SkillFilesSnapshot, SkillLoadResult]] = {}
 
-    def list_skills(self, *, force_reload: bool = False) -> SkillLoadResult:
-        snapshot = self._snapshot_skill_files()
+    def list_skills(
+        self,
+        *,
+        workspace: Path | str | None = None,
+        force_reload: bool = False,
+    ) -> SkillLoadResult:
+        roots = self._skills_roots(workspace)
+        cache_key = tuple(root.as_posix() for root in roots)
+        snapshot = self._snapshot_skill_files(roots)
+        cached = self._cache.get(cache_key)
         if (
             not force_reload
-            and self._cached_result is not None
-            and self._cached_snapshot == snapshot
+            and cached is not None
+            and cached[0] == snapshot
         ):
-            return self._cached_result
+            return cached[1]
 
-        result = load_skills(skills_path=self.skills_root)
-        self._cached_result = result
-        self._cached_snapshot = snapshot
+        result = self._load_from_roots(roots)
+        self._cache[cache_key] = (snapshot, result)
         return result
 
-    def reload(self) -> SkillLoadResult:
-        return self.list_skills(force_reload=True)
+    def reload(self, *, workspace: Path | str | None = None) -> SkillLoadResult:
+        return self.list_skills(workspace=workspace, force_reload=True)
 
-    def build_skills_summary(self, skill_names: list[str] | None = None) -> str:
+    def build_skills_summary(
+        self,
+        skill_names: list[str] | None = None,
+        *,
+        workspace: Path | str | None = None,
+    ) -> str:
         """Render skills for prompt context.
 
         ``skill_names=None`` renders all skills, ``[]`` renders none, and a
         non-empty list renders only the named skills in the given order.
         """
-        result = self.list_skills()
+        result = self.list_skills(workspace=workspace)
         skills = result.skills
         if skill_names is not None:
-            skills = self.get_skills(skill_names)
+            skills = self.get_skills(skill_names, workspace=workspace)
         return render_skills_summary(skills)
 
-    def get_skills(self, names: list[str]) -> list[Skill]:
-        result = self.list_skills()
+    def get_skills(
+        self,
+        names: list[str],
+        *,
+        workspace: Path | str | None = None,
+    ) -> list[Skill]:
+        result = self.list_skills(workspace=workspace)
         by_name = {skill.name: skill for skill in result.skills}
         return [
             by_name[name]
@@ -60,28 +75,59 @@ class SkillsManager:
             if name in by_name
         ]
 
-    def get_skill(self, name: str) -> Skill | None:
-        skills = self.get_skills([name])
+    def get_skill(
+        self,
+        name: str,
+        *,
+        workspace: Path | str | None = None,
+    ) -> Skill | None:
+        skills = self.get_skills([name], workspace=workspace)
         return skills[0] if skills else None
 
-    def load_skill_content(self, name: str) -> str | None:
-        skill = self.get_skill(name)
+    def load_skill_content(
+        self,
+        name: str,
+        *,
+        workspace: Path | str | None = None,
+    ) -> str | None:
+        skill = self.get_skill(name, workspace=workspace)
         if skill is None:
             return None
         return skill.path.read_text(encoding="utf-8")
 
-    def _snapshot_skill_files(self) -> SkillFilesSnapshot:
-        if not self.skills_root.exists():
-            return ()
+    def _skills_roots(self, workspace: Path | str | None) -> list[Path]:
+        active_workspace = (
+            get_workspace_path(workspace)
+            if workspace is not None
+            else self.workspace
+        )
+        return [
+            BUILTIN_SKILLS_DIR.resolve(),
+            resolve_skills_root(active_workspace),
+        ]
 
+    def _load_from_roots(self, roots: list[Path]) -> SkillLoadResult:
+        by_name: dict[str, Skill] = {}
+        errors = []
+        for root in roots:
+            result = load_skills(root)
+            errors.extend(result.errors)
+            for skill in result.skills:
+                by_name[skill.name] = skill
+        return SkillLoadResult(skills=list(by_name.values()), errors=errors)
+
+    def _snapshot_skill_files(self, roots: list[Path]) -> SkillFilesSnapshot:
         snapshot: list[tuple[str, int, int]] = []
-        for skill_file in sorted(self.skills_root.glob("*/SKILL.md")):
-            self._append_snapshot_entry(snapshot, skill_file)
-            skill_dir = skill_file.parent
-            for resource_name in ("scripts", "references", "assets"):
-                resource_path = skill_dir / resource_name
-                if resource_path.exists():
-                    self._append_snapshot_entry(snapshot, resource_path)
+        for root in roots:
+            if not root.exists():
+                continue
+            for skill_file in sorted(root.glob("*/SKILL.md")):
+                self._append_snapshot_entry(snapshot, skill_file)
+                skill_dir = skill_file.parent
+                for resource_name in ("scripts", "references", "assets"):
+                    resource_path = skill_dir / resource_name
+                    if resource_path.exists():
+                        self._append_snapshot_entry(snapshot, resource_path)
         return tuple(snapshot)
 
     def _append_snapshot_entry(

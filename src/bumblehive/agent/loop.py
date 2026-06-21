@@ -54,7 +54,10 @@ class AgentLoop:
             base_url=provider_config.base_url,
         )
 
-        available_skills = self.skills.build_skills_summary(skill_names)
+        available_skills = self.skills.build_skills_summary(
+            skill_names,
+            workspace=workspace,
+        )
         messages = self.context.build(
             current_user_message=current_user_message,
             workspace=workspace,

@@ -9,13 +9,9 @@ from .models import Skill, SkillError, SkillLoadResult
 FRONTMATTER_DELIMITER = "---"
 
 
-def load_skills(
-    workspace: Path | None = None,
-    *,
-    skills_path: Path | None = None,
-) -> SkillLoadResult:
-    """Load skills from <skills_path>/*/SKILL.md or <workspace>/skills/*/SKILL.md."""
-    skills_root = resolve_skills_root(workspace, skills_path=skills_path)
+def load_skills(skills_root: Path) -> SkillLoadResult:
+    """Load skills from <skills_root>/*/SKILL.md."""
+    skills_root = Path(skills_root).expanduser().resolve()
     if not skills_root.exists():
         return SkillLoadResult(skills=[], errors=[])
 
@@ -30,17 +26,9 @@ def load_skills(
     return SkillLoadResult(skills=skills, errors=errors)
 
 
-def resolve_skills_root(
-    workspace: Path | None = None,
-    *,
-    skills_path: Path | None = None,
-) -> Path:
-    """Resolve the directory that contains skill folders."""
-    if skills_path is not None:
-        return Path(skills_path).expanduser().resolve()
-
-    root = Path.cwd() if workspace is None else Path(workspace)
-    return root.expanduser().resolve() / "skills"
+def resolve_skills_root(workspace: Path) -> Path:
+    """Resolve the workspace-local directory that contains skill folders."""
+    return Path(workspace).expanduser().resolve() / "skills"
 
 
 def _parse_skill_file(path: Path) -> Skill:
