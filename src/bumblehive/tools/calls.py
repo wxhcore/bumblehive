@@ -14,6 +14,21 @@ class ToolCall:
     name: str
     arguments: dict[str, Any]
 
+    def to_openai_tool_call(self) -> dict[str, Any]:
+        """Return this call in Chat Completions assistant-message shape."""
+        return {
+            "id": self.id,
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "arguments": json.dumps(
+                    self.arguments,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            },
+        }
+
 
 @dataclass(frozen=True)
 class ToolResult:

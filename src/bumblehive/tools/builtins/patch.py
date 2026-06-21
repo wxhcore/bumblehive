@@ -6,13 +6,11 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..registration import ToolRegistrationContext
+from .state import BuiltinToolState
 from .workspace import (
     FileStates,
     WorkspaceAccess,
     current_workspace_access,
-    file_states_from_context,
-    workspace_from_context,
 )
 
 
@@ -99,12 +97,8 @@ class PatchSummary:
 class StructuredPatch:
     def __init__(
         self,
-        workspace: str | Path | None = None,
         file_states: FileStates | None = None,
     ) -> None:
-        self.default_workspace = (
-            None if workspace is None else Path(workspace).expanduser().resolve()
-        )
         self.file_states = file_states or FileStates()
 
     def apply_patch(
@@ -175,8 +169,6 @@ class StructuredPatch:
             raise PatchError(f"unknown action for {path}: {action}")
 
         access = self._access()
-        if isinstance(access, str):
-            raise PatchError(access)
         resolved = access.resolve(path)
         if isinstance(resolved, str):
             raise PatchError(f"{path}: {resolved}")
@@ -264,8 +256,8 @@ class StructuredPatch:
         added, deleted = _line_diff_stats(content, updated)
         return PatchSummary(action="update", path=path, added=added, deleted=deleted)
 
-    def _access(self) -> WorkspaceAccess | str:
-        return current_workspace_access(self.default_workspace)
+    def _access(self) -> WorkspaceAccess:
+        return current_workspace_access()
 
 
 _ABSOLUTE_WINDOWS_RE = re.compile(r"^[A-Za-z]:[\\/]")
@@ -328,12 +320,12 @@ def _summary_dict(summary: PatchSummary) -> dict[str, Any]:
 
 def register_apply_patch_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
+    *,
+    state: BuiltinToolState,
 ) -> CallableTool:
     """Register the apply_patch tool on a registry."""
     patch = StructuredPatch(
-        workspace_from_context(workspace),
-        file_states=file_states_from_context(workspace),
+        file_states=state.file_states,
     )
     return registry.register(
         CallableTool(

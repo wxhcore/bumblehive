@@ -2,16 +2,18 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..config import get_workspace_path
+
 
 @dataclass(frozen=True)
 class ToolScope:
     """Per-execution scope used to bound workspace-aware tool calls."""
 
-    workspace: Path
+    workspace: Path | str | None = None
     restrict_to_workspace: bool = True
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "workspace", Path(self.workspace).expanduser().resolve())
+        object.__setattr__(self, "workspace", get_workspace_path(self.workspace))
 
 
 _CURRENT_TOOL_SCOPE: ContextVar[ToolScope | None] = ContextVar(

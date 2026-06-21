@@ -1,5 +1,4 @@
 import asyncio
-from collections.abc import Iterable
 
 from ..agent.types import AgentError
 from .calls import ToolCall, ToolResult
@@ -18,7 +17,7 @@ class ToolExecutor:
         self,
         registry: ToolRegistry,
         *,
-        allowed_tool_names: Iterable[str] | None = None,
+        allowed_tool_names: list[str] | None = None,
     ) -> None:
         self.registry = registry
         self.allowed_tool_names = (

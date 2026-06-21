@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..scope import current_tool_scope
-from ..registration import ToolRegistrationContext
+from ...config import get_workspace_path
 
 
 DEFAULT_IGNORE_DIRS = frozenset(
@@ -125,31 +125,6 @@ class FileStates:
         return True
 
 
-_FILE_STATES_METADATA_KEY = "_bumblehive_builtin_file_states"
-
-
-def workspace_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext | None,
-) -> Path | None:
-    if isinstance(workspace_or_context, ToolRegistrationContext):
-        return workspace_or_context.workspace
-    if workspace_or_context is None:
-        return None
-    return Path(workspace_or_context)
-
-
-def file_states_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext | None,
-) -> FileStates:
-    if not isinstance(workspace_or_context, ToolRegistrationContext):
-        return FileStates()
-    states = workspace_or_context.metadata.get(_FILE_STATES_METADATA_KEY)
-    if not isinstance(states, FileStates):
-        states = FileStates()
-        workspace_or_context.metadata[_FILE_STATES_METADATA_KEY] = states
-    return states
-
-
 class WorkspaceAccess:
     """Shared workspace path handling for built-in local tools."""
 
@@ -182,18 +157,14 @@ class WorkspaceAccess:
         return any(part in ignore_dirs for part in path.parts)
 
 
-def current_workspace_access(
-    default_workspace: str | Path | None = None,
-) -> WorkspaceAccess | str:
+def current_workspace_access() -> WorkspaceAccess:
     context = current_tool_scope()
     if context is not None:
         return WorkspaceAccess(
             context.workspace,
             restrict_to_workspace=context.restrict_to_workspace,
         )
-    if default_workspace is None:
-        return "workspace is required"
-    return WorkspaceAccess(default_workspace)
+    return WorkspaceAccess(get_workspace_path())
 
 
 def is_binary_bytes(raw: bytes) -> bool:

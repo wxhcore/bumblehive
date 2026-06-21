@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -130,14 +130,13 @@ class ToolRegistry:
     def get_tool(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
-    def get_tools(self, tool_names: Iterable[str]) -> list[Tool]:
+    def get_tools(self, tool_names: list[str]) -> list[Tool]:
         """Return registered tools filtered by name."""
-        names = sorted(set(tool_names))
-        missing = [name for name in names if name not in self._tools]
+        missing = [name for name in tool_names if name not in self._tools]
         if missing:
             raise ValueError(f"Unknown tools: {', '.join(missing)}")
 
-        return [self._tools[name] for name in names]
+        return [self._tools[name] for name in tool_names]
 
     def list_tools(self) -> list[Tool]:
         """Return all registered tools."""
@@ -149,8 +148,12 @@ class ToolRegistry:
 
     def get_openai_tool_definitions(
         self,
-        tool_names: Iterable[str] | None = None,
+        tool_names: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Return OpenAI-compatible tool definitions for the model request."""
+        """Return OpenAI-compatible tool definitions for the model request.
+
+        ``tool_names=None`` returns all tools, ``[]`` returns none, and a
+        non-empty list returns only the named tools in the given order.
+        """
         tools = self.list_tools() if tool_names is None else self.get_tools(tool_names)
         return [tool.to_openai_tool_schema() for tool in tools]

@@ -12,8 +12,8 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..registration import ToolRegistrationContext
-from .workspace import WorkspaceAccess, current_workspace_access, workspace_from_context
+from .state import BuiltinToolState
+from .workspace import WorkspaceAccess, current_workspace_access
 
 
 _IS_WINDOWS = sys.platform == "win32"
@@ -425,24 +425,17 @@ class ExecSessionManager:
             await session.kill()
 
 
-DEFAULT_EXEC_SESSION_MANAGER = ExecSessionManager()
-
-
 class ExecRunner:
     _MAX_TIMEOUT = 600
 
     def __init__(
         self,
-        workspace: str | Path | None = None,
         *,
         timeout: int = 60,
         manager: ExecSessionManager | None = None,
     ) -> None:
-        self.default_workspace = (
-            None if workspace is None else Path(workspace).expanduser().resolve()
-        )
         self.timeout = timeout
-        self.manager = manager or DEFAULT_EXEC_SESSION_MANAGER
+        self.manager = manager or ExecSessionManager()
         self.deny_patterns = [
             r"\brm\s+-[rf]{1,2}\b",
             r"\bdel\s+/[fq]\b",
@@ -645,8 +638,6 @@ class ExecRunner:
         login: bool | None,
     ) -> PreparedCommand | dict[str, Any]:
         access = self._access()
-        if isinstance(access, str):
-            return {"error": access}
         cwd = self._resolve_working_dir(working_dir, access)
         if isinstance(cwd, str):
             return {"error": cwd}
@@ -720,8 +711,8 @@ class ExecRunner:
                 return "command blocked by safety policy: path outside working_dir"
         return None
 
-    def _access(self) -> WorkspaceAccess | str:
-        return current_workspace_access(self.default_workspace)
+    def _access(self) -> WorkspaceAccess:
+        return current_workspace_access()
 
 
 def _poll_dict(
@@ -892,50 +883,45 @@ def _clamp_int(value: int | None, default: int, minimum: int, maximum: int) -> i
     return min(max(value, minimum), maximum)
 
 
-def _timeout_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext | None,
+def _timeout_from_config(
+    config: dict[str, Any],
     timeout: int | None,
 ) -> int | None:
-    if not isinstance(workspace_or_context, ToolRegistrationContext):
-        return timeout
-    shell_config = workspace_or_context.config.get("exec", {})
+    shell_config = config.get("exec", {})
     config_timeout = shell_config.get("timeout") if isinstance(shell_config, dict) else None
     return timeout if timeout is not None else config_timeout
 
 
-def _runner_from_context(
-    workspace: str | Path | ToolRegistrationContext | None,
+def _runner_from_state(
+    state: BuiltinToolState,
     *,
+    config: dict[str, Any],
     timeout: int | None = None,
 ) -> ExecRunner:
-    resolved_timeout = _timeout_from_context(workspace, timeout)
-    manager = _manager_from_context(workspace)
+    resolved_timeout = _timeout_from_config(config, timeout)
+    manager = _manager_from_state(state)
     return ExecRunner(
-        workspace_from_context(workspace),
         timeout=60 if resolved_timeout is None else resolved_timeout,
         manager=manager,
     )
 
 
-def _manager_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext | None,
-) -> ExecSessionManager:
-    if not isinstance(workspace_or_context, ToolRegistrationContext):
-        return DEFAULT_EXEC_SESSION_MANAGER
-    manager = workspace_or_context.metadata.get(_EXEC_MANAGER_METADATA_KEY)
+def _manager_from_state(state: BuiltinToolState) -> ExecSessionManager:
+    manager = state.exec_session_manager
     if not isinstance(manager, ExecSessionManager):
         manager = ExecSessionManager()
-        workspace_or_context.metadata[_EXEC_MANAGER_METADATA_KEY] = manager
+        state.exec_session_manager = manager
     return manager
 
 
 def register_exec_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
     *,
+    config: dict[str, Any],
+    state: BuiltinToolState,
     timeout: int | None = None,
 ) -> CallableTool:
-    runner = _runner_from_context(workspace, timeout=timeout)
+    runner = _runner_from_state(state, config=config, timeout=timeout)
     return registry.register(
         CallableTool(
             name="exec",
@@ -949,11 +935,12 @@ def register_exec_tool(
 
 def register_write_stdin_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
     *,
+    config: dict[str, Any],
+    state: BuiltinToolState,
     timeout: int | None = None,
 ) -> CallableTool:
-    runner = _runner_from_context(workspace, timeout=timeout)
+    runner = _runner_from_state(state, config=config, timeout=timeout)
     return registry.register(
         CallableTool(
             name="write_stdin",
@@ -967,11 +954,12 @@ def register_write_stdin_tool(
 
 def register_list_exec_sessions_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
     *,
+    config: dict[str, Any],
+    state: BuiltinToolState,
     timeout: int | None = None,
 ) -> CallableTool:
-    runner = _runner_from_context(workspace, timeout=timeout)
+    runner = _runner_from_state(state, config=config, timeout=timeout)
     return registry.register(
         CallableTool(
             name="list_exec_sessions",

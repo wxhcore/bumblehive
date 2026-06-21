@@ -12,14 +12,13 @@ from openpyxl import load_workbook
 from pptx import Presentation as PptxPresentation
 
 from ..adapters.function import CallableTool
-from ..registration import ToolRegistrationContext
 from ..registry import ToolRegistry
+from .state import BuiltinToolState
 from .workspace import (
     DEFAULT_IGNORE_DIRS,
     FileStates,
     WorkspaceAccess,
     current_workspace_access,
-    file_states_from_context,
     is_binary_bytes,
 )
 
@@ -225,13 +224,8 @@ class WorkspaceFiles:
 
     def __init__(
         self,
-        workspace: str | Path | None = None,
         file_states: FileStates | None = None,
     ) -> None:
-        self.default_workspace = (
-            None if workspace is None else Path(workspace).expanduser().resolve()
-        )
-        self.workspace = self.default_workspace
         self.file_states = file_states or FileStates()
         self._read_cache: dict[tuple[str, int, int | None], tuple[float, int, str]] = {}
 
@@ -680,18 +674,14 @@ class WorkspaceFiles:
 
     def _resolve_path(self, path: str) -> Path | str:
         access = self._access()
-        if isinstance(access, str):
-            return access
         return access.resolve(path)
 
     def _display_path(self, path: Path, *, root: Path | None = None) -> str:
         access = self._access()
-        if isinstance(access, str):
-            return path.as_posix()
         return access.relative_display_path(path, root=root)
 
-    def _access(self) -> WorkspaceAccess | str:
-        return current_workspace_access(self.default_workspace)
+    def _access(self) -> WorkspaceAccess:
+        return current_workspace_access()
 
 
 @dataclass(frozen=True)
@@ -941,30 +931,21 @@ def _nearest_match(content: str, old_text: str) -> dict[str, Any] | None:
     }
 
 
-_WORKSPACE_FILES_METADATA_KEY = "_bumblehive_builtin_workspace_files"
-
-
-def _workspace_files_from_context(
-    workspace_or_context: str | Path | ToolRegistrationContext | None,
-) -> WorkspaceFiles:
-    if not isinstance(workspace_or_context, ToolRegistrationContext):
-        return WorkspaceFiles(workspace_or_context)
-    files = workspace_or_context.metadata.get(_WORKSPACE_FILES_METADATA_KEY)
+def _workspace_files_from_state(state: BuiltinToolState) -> WorkspaceFiles:
+    files = state.workspace_files
     if not isinstance(files, WorkspaceFiles):
-        files = WorkspaceFiles(
-            workspace_or_context.workspace,
-            file_states=file_states_from_context(workspace_or_context),
-        )
-        workspace_or_context.metadata[_WORKSPACE_FILES_METADATA_KEY] = files
+        files = WorkspaceFiles(file_states=state.file_states)
+        state.workspace_files = files
     return files
 
 
 def register_read_file_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
+    *,
+    state: BuiltinToolState,
 ) -> CallableTool:
     """Register the read_file tool on a registry."""
-    files = _workspace_files_from_context(workspace)
+    files = _workspace_files_from_state(state)
     return registry.register(
         CallableTool(
             name="read_file",
@@ -978,10 +959,11 @@ def register_read_file_tool(
 
 def register_write_file_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
+    *,
+    state: BuiltinToolState,
 ) -> CallableTool:
     """Register the write_file tool on a registry."""
-    files = _workspace_files_from_context(workspace)
+    files = _workspace_files_from_state(state)
     return registry.register(
         CallableTool(
             name="write_file",
@@ -995,10 +977,11 @@ def register_write_file_tool(
 
 def register_list_dir_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
+    *,
+    state: BuiltinToolState,
 ) -> CallableTool:
     """Register the list_dir tool on a registry."""
-    files = _workspace_files_from_context(workspace)
+    files = _workspace_files_from_state(state)
     return registry.register(
         CallableTool(
             name="list_dir",
@@ -1012,10 +995,11 @@ def register_list_dir_tool(
 
 def register_edit_file_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
+    *,
+    state: BuiltinToolState,
 ) -> CallableTool:
     """Register the edit_file tool on a registry."""
-    files = _workspace_files_from_context(workspace)
+    files = _workspace_files_from_state(state)
     return registry.register(
         CallableTool(
             name="edit_file",

@@ -1,13 +1,13 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from types import TracebackType
-from typing import Any
+from typing import Any, Mapping
 
 from .calls import ToolCall, ToolResult
 from .base import Tool
-from .builtins import register_builtin_tools
+from .builtins import _register_builtin_tools
+from .builtins.state import BuiltinToolState
 from .executor import ToolExecutor
 from .scope import ToolScope
-from .registration import ToolRegistrationContext
 from .mcp import MCPManager, MCPServerConfig, MCPServerStatus
 from .policy import ToolPolicy
 from .registry import ToolRegistry
@@ -20,14 +20,15 @@ class ToolManager:
         self,
         *,
         registry: ToolRegistry | None = None,
-        registration_context: ToolRegistrationContext | None = None,
+        builtin_config: Mapping[str, Any] | None = None,
         builtin_policy: ToolPolicy | None = None,
         mcp_servers: list[MCPServerConfig] | None = None,
         mcp_policy: ToolPolicy | None = None,
     ) -> None:
         self.registry = registry or ToolRegistry()
-        self.registration_context = registration_context
+        self.builtin_config = dict(builtin_config or {})
         self.builtin_policy = builtin_policy or ToolPolicy()
+        self._builtin_state = BuiltinToolState()
         self.mcp_manager = MCPManager(
             self.registry,
             servers=mcp_servers,
@@ -66,10 +67,11 @@ class ToolManager:
         self.registry.unregister(name)
 
     def register_builtin_tools(self) -> list[str]:
-        """Register built-in local tools using the configured registration context."""
-        return register_builtin_tools(
+        """Register built-in local tools using manager-owned config and state."""
+        return _register_builtin_tools(
             self.registry,
-            self.registration_context,
+            config=self.builtin_config,
+            state=self._builtin_state,
             policy=self.builtin_policy,
         )
 
@@ -117,7 +119,7 @@ class ToolManager:
         """Return one registered Tool object by name."""
         return self.registry.get_tool(name)
 
-    def get_tools(self, tool_names: Iterable[str]) -> list[Tool]:
+    def get_tools(self, tool_names: list[str]) -> list[Tool]:
         """Return registered Tool objects filtered by name."""
         return self.registry.get_tools(tool_names)
 
@@ -127,16 +129,20 @@ class ToolManager:
 
     def get_openai_tool_definitions(
         self,
-        tool_names: Iterable[str] | None = None,
+        tool_names: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Return OpenAI-compatible tool definitions for a model request."""
+        """Return OpenAI-compatible tool definitions for a model request.
+
+        ``tool_names=None`` returns all tools, ``[]`` returns none, and a
+        non-empty list returns only the named tools in the given order.
+        """
         return self.registry.get_openai_tool_definitions(tool_names)
 
     async def execute_call(
         self,
         call: ToolCall,
         *,
-        allowed_tool_names: Iterable[str] | None = None,
+        allowed_tool_names: list[str] | None = None,
         scope: ToolScope | None = None,
     ) -> ToolResult:
         executor = ToolExecutor(self.registry, allowed_tool_names=allowed_tool_names)
@@ -146,7 +152,7 @@ class ToolManager:
         self,
         calls: list[ToolCall],
         *,
-        allowed_tool_names: Iterable[str] | None = None,
+        allowed_tool_names: list[str] | None = None,
         scope: ToolScope | None = None,
     ) -> list[ToolResult]:
         executor = ToolExecutor(self.registry, allowed_tool_names=allowed_tool_names)

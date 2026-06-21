@@ -7,13 +7,11 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from ..registration import ToolRegistrationContext
 from .workspace import (
     DEFAULT_IGNORE_DIRS,
     WorkspaceAccess,
     current_workspace_access,
     is_binary_bytes,
-    workspace_from_context,
 )
 
 
@@ -178,11 +176,6 @@ class WorkspaceSearch:
     _MAX_FILE_BYTES = 2_000_000
     _MAX_RESULT_CHARS = 128_000
 
-    def __init__(self, workspace: str | Path | None = None) -> None:
-        self.default_workspace = (
-            None if workspace is None else Path(workspace).expanduser().resolve()
-        )
-
     def find_files(
         self,
         path: str = ".",
@@ -195,8 +188,6 @@ class WorkspaceSearch:
         offset: int = 0,
     ) -> dict[str, Any]:
         access = self._access()
-        if isinstance(access, str):
-            return {"error": access}
         resolved = access.resolve(path or ".")
         if isinstance(resolved, str):
             return {"error": resolved}
@@ -265,8 +256,6 @@ class WorkspaceSearch:
         if output_mode not in {"content", "files_with_matches", "count"}:
             return {"error": "output_mode must be content, files_with_matches, or count"}
         access = self._access()
-        if isinstance(access, str):
-            return {"error": access}
         resolved = access.resolve(path or ".")
         if isinstance(resolved, str):
             return {"error": resolved}
@@ -432,8 +421,8 @@ class WorkspaceSearch:
         except UnicodeDecodeError:
             return ReadTextResult(None, "binary")
 
-    def _access(self) -> WorkspaceAccess | str:
-        return current_workspace_access(self.default_workspace)
+    def _access(self) -> WorkspaceAccess:
+        return current_workspace_access()
 
 
 def _matches_query(path: str, query: str | None) -> bool:
@@ -493,10 +482,9 @@ def _content_match_chars(match: dict[str, Any]) -> int:
 
 def register_find_files_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the find_files tool on a registry."""
-    search = WorkspaceSearch(workspace_from_context(workspace))
+    search = WorkspaceSearch()
     return registry.register(
         CallableTool(
             name="find_files",
@@ -510,10 +498,9 @@ def register_find_files_tool(
 
 def register_grep_tool(
     registry: ToolRegistry,
-    workspace: str | Path | ToolRegistrationContext | None,
 ) -> CallableTool:
     """Register the grep tool on a registry."""
-    search = WorkspaceSearch(workspace_from_context(workspace))
+    search = WorkspaceSearch()
     return registry.register(
         CallableTool(
             name="grep",
