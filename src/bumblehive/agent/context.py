@@ -107,6 +107,7 @@ class ContextBuilder:
             part
             for part in (
                 self._render_agent_instructions(agent_instructions),
+                self._build_platform_policy(),
                 self._build_capability_context(available_skills),
                 self._build_workspace_context(workspace),
             )
@@ -131,6 +132,41 @@ class ContextBuilder:
             f"{self._indent(instructions, 2)}\n"
             "</tool_use>"
         )
+
+    def _build_platform_policy(self) -> str:
+        system = platform.system() or sys.platform
+        if system == "Windows":
+            family = "windows"
+            instructions = [
+                "Do not assume GNU tools like grep, sed, or awk are available.",
+                "Prefer structured file tools or Windows-native commands when they are more reliable.",
+                "If terminal output is garbled, retry with UTF-8 output enabled.",
+            ]
+        else:
+            family = "posix"
+            instructions = [
+                "Prefer UTF-8 and standard POSIX shell behavior.",
+                "Use structured file tools when they are simpler or safer than shell commands.",
+                "Use command execution for tests, builds, package commands, git commands, and project-specific CLIs.",
+            ]
+
+        lines = [
+            "<platform_policy>",
+            f"  <system>{escape(self._format_os_name())}</system>",
+            f"  <family>{family}</family>",
+            "  <instructions>",
+        ]
+        lines.extend(
+            f"    <item>{escape(instruction)}</item>"
+            for instruction in instructions
+        )
+        lines.extend(
+            [
+                "  </instructions>",
+                "</platform_policy>",
+            ]
+        )
+        return "\n".join(lines)
 
     def _build_workspace_context(self, workspace: Path) -> str:
         return "\n".join(
