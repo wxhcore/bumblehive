@@ -38,6 +38,7 @@ class AgentLoop:
         history: Sequence[Message] | None = None,
         skill_names: list[str] | None = None,
         tool_names: list[str] | None = None,
+        context_window_tokens: int | None = None,
         agent_instructions: str | None = None,
     ) -> AgentRunResult:
         """Run one user turn with optional skill and tool filtering.
@@ -66,6 +67,7 @@ class AgentLoop:
             messages=messages,
             model=model,
             generation=generation,
-            tool_names=tool_names,
             workspace=workspace,
+            tool_names=tool_names,
+            context_window_tokens=context_window_tokens,
         )

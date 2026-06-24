@@ -7,6 +7,7 @@ from ..providers.base import GenerationConfig, ModelProvider, ModelRequest
 from ..tools.calls import ToolCall, ToolResult
 from ..tools.manager import ToolManager
 from .messages import prepare_history
+from .tokens import fit_context_window
 from .types import AgentError
 
 
@@ -44,6 +45,7 @@ class ToolCallingRunner:
         generation: GenerationConfig | None = None,
         workspace: Path | str | None = None,
         tool_names: list[str] | None = None,
+        context_window_tokens: int | None = None,
     ) -> AgentRunResult:
         """Run model/tool iterations until a final model response is produced."""
 
@@ -53,8 +55,19 @@ class ToolCallingRunner:
         usage: dict[str, int] = {}
 
         for _iteration in range(MAX_ITERATIONS):
+            request_generation = generation or GenerationConfig()
+            request_messages = prepare_history(run_messages)
+            request_messages = fit_context_window(
+                provider=provider,
+                model=model,
+                messages=request_messages,
+                tools=tool_definitions,
+                context_window_tokens=context_window_tokens,
+                max_output_tokens=request_generation.max_tokens,
+            )
+            request_messages = prepare_history(request_messages)
             request = ModelRequest(
-                messages=prepare_history(run_messages),
+                messages=request_messages,
                 tools=tool_definitions,
                 model=model,
                 generation=generation,
