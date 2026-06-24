@@ -7,7 +7,6 @@ from .base import (
     ModelResponse,
     RetryConfig,
 )
-from .config import ProviderConfig
 from .manager import ProviderManager
 from .openai_chat_completions import OpenAIChatCompletionsProvider
 
@@ -17,7 +16,6 @@ __all__ = [
     "ModelRequest",
     "ModelResponse",
     "OpenAIChatCompletionsProvider",
-    "ProviderConfig",
     "ProviderManager",
     "RetryConfig",
 ]

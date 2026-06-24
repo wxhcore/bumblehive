@@ -3,15 +3,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..providers.base import ModelProvider, ModelRequest
+from ..providers.base import GenerationConfig, ModelProvider, ModelRequest
 from ..tools.calls import ToolCall, ToolResult
 from ..tools.manager import ToolManager
-from .config import AgentRunConfig
 from .history import prepare_history
 from .types import AgentError
 
 
 Message = dict[str, Any]
+
+MAX_ITERATIONS = 300
+MAX_ITERATIONS_MESSAGE = (
+    "I reached the maximum number of tool iterations before producing "
+    "a final response."
+)
 
 
 @dataclass(frozen=True)
@@ -35,34 +40,26 @@ class ToolCallingRunner:
         provider: ModelProvider,
         tools: ToolManager,
         messages: list[Message],
-        config: AgentRunConfig,
+        model: str,
+        generation: GenerationConfig | None = None,
         workspace: Path | str | None = None,
         tool_names: list[str] | None = None,
     ) -> AgentRunResult:
         """Run model/tool iterations until a final model response is produced."""
-        if config.max_iterations < 1:
-            raise ValueError("max_iterations must be at least 1")
 
         tool_definitions = tools.get_openai_tool_definitions(tool_names)
         run_messages = [dict(message) for message in messages]
         tools_used: list[str] = []
         usage: dict[str, int] = {}
 
-        for _iteration in range(config.max_iterations):
+        for _iteration in range(MAX_ITERATIONS):
             request = ModelRequest(
-                messages=prepare_history(
-                    run_messages,
-                    max_tool_result_chars=config.max_tool_result_chars,
-                ),
+                messages=prepare_history(run_messages),
                 tools=tool_definitions,
-                model=config.model,
-                generation=config.generation,
-                tool_choice=config.tool_choice,
+                model=model,
+                generation=generation,
             )
-            response = await provider.generate_with_retry(
-                request,
-                retry=config.retry,
-            )
+            response = await provider.generate_with_retry(request)
             self._accumulate_usage(usage, response.usage)
 
             if response.is_error:
@@ -98,7 +95,7 @@ class ToolCallingRunner:
                 stop_reason="completed",
             )
 
-        final_content = config.max_iterations_message
+        final_content = MAX_ITERATIONS_MESSAGE
         run_messages.append(self._assistant_message(final_content))
         return AgentRunResult(
             final_content=final_content,

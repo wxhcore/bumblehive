@@ -2,11 +2,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Mapping
 
-from ..providers.config import ProviderConfig
-from ..providers.manager import ProviderManager
+from ..providers.base import GenerationConfig, ModelProvider
 from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
-from .config import AgentRunConfig
 from .context import ContextBuilder, DynamicValue
 from .runner import AgentRunResult, Message, ToolCallingRunner
 
@@ -17,13 +15,11 @@ class AgentLoop:
     def __init__(
         self,
         *,
-        providers: ProviderManager,
         tools: ToolManager,
         context: ContextBuilder,
         skills: SkillsManager,
         runner: ToolCallingRunner,
     ) -> None:
-        self.providers = providers
         self.tools = tools
         self.context = context
         self.skills = skills
@@ -33,8 +29,9 @@ class AgentLoop:
         self,
         current_user_message: str,
         *,
-        provider_config: ProviderConfig,
-        run_config: AgentRunConfig,
+        provider: ModelProvider,
+        model: str,
+        generation: GenerationConfig | None = None,
         workspace: Path | str | None = None,
         timezone: str | None = None,
         dynamic_context: Mapping[str, DynamicValue] | None = None,
@@ -49,11 +46,6 @@ class AgentLoop:
         ``None`` exposes everything, ``[]`` exposes nothing, and a non-empty
         list exposes only the named items in the given order.
         """
-        provider = await self.providers.get(
-            api_key=provider_config.api_key,
-            base_url=provider_config.base_url,
-        )
-
         available_skills = self.skills.build_skills_summary(
             skill_names,
             workspace=workspace,
@@ -72,7 +64,8 @@ class AgentLoop:
             provider=provider,
             tools=self.tools,
             messages=messages,
+            model=model,
+            generation=generation,
             tool_names=tool_names,
             workspace=workspace,
-            config=run_config,
         )

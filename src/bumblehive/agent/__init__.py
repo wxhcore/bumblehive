@@ -1,6 +1,5 @@
 """Agent context assembly primitives."""
 
-from .config import AgentRunConfig
 from .context import ContextBuilder, DynamicValue
 from .history import (
     backfill_missing_tool_results,
@@ -18,7 +17,6 @@ from .types import AgentError
 __all__ = [
     "AgentError",
     "AgentLoop",
-    "AgentRunConfig",
     "AgentRunResult",
     "ToolCallingRunner",
     "ContextBuilder",

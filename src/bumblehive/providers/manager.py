@@ -1,6 +1,8 @@
-from .config import ProviderConfig
 from .base import ModelProvider
 from .openai_chat_completions import OpenAIChatCompletionsProvider
+
+
+ProviderKey = tuple[str | None, str | None]
 
 
 class ProviderManager:
@@ -12,7 +14,7 @@ class ProviderManager:
     """
 
     def __init__(self) -> None:
-        self._config: ProviderConfig | None = None
+        self._key: ProviderKey | None = None
         self._provider: ModelProvider | None = None
 
     async def get(
@@ -21,17 +23,17 @@ class ProviderManager:
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> ModelProvider:
-        config = ProviderConfig(
-            api_key=api_key,
-            base_url=base_url,
-        )
+        key = (api_key, base_url)
 
-        if self._provider is not None and config == self._config:
+        if self._provider is not None and key == self._key:
             return self._provider
 
         await self._discard_current_provider()
-        self._provider = self._create_provider(config)
-        self._config = config
+        self._provider = self._create_provider(
+            api_key=api_key,
+            base_url=base_url,
+        )
+        self._key = key
         return self._provider
 
     async def close(self) -> None:
@@ -42,13 +44,17 @@ class ProviderManager:
         """Remove the cached provider and release its resources."""
         provider = self._provider
         self._provider = None
-        self._config = None
+        self._key = None
         if provider is not None:
             await provider.close()
 
     @staticmethod
-    def _create_provider(config: ProviderConfig) -> ModelProvider:
+    def _create_provider(
+        *,
+        api_key: str | None,
+        base_url: str | None,
+    ) -> ModelProvider:
         return OpenAIChatCompletionsProvider(
-            api_key=config.api_key,
-            base_url=config.base_url,
+            api_key=api_key,
+            base_url=base_url,
         )
