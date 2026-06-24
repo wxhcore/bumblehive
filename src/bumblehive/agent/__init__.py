@@ -1,7 +1,7 @@
 """Agent context assembly primitives."""
 
 from .context import ContextBuilder, DynamicValue
-from .history import (
+from .messages import (
     backfill_missing_tool_results,
     drop_empty_messages,
     drop_orphan_tool_results,

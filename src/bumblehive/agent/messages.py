@@ -13,6 +13,7 @@ _BASE_MESSAGE_KEYS = frozenset(
         "tool_calls",
         "tool_call_id",
         "name",
+        "reasoning_content",
     }
 )
 _MISSING_TOOL_RESULT_CONTENT = (
@@ -67,6 +68,9 @@ def drop_empty_messages(messages: Sequence[Mapping[str, Any]]) -> list[Message]:
     for message in messages:
         role = message.get("role")
         if role == "assistant" and message.get("tool_calls"):
+            result.append(dict(message))
+            continue
+        if role == "assistant" and message.get("reasoning_content") is not None:
             result.append(dict(message))
             continue
         if role == "tool" and message.get("tool_call_id"):
@@ -205,6 +209,8 @@ def _has_content(content: Any) -> bool:
 
 def _is_plain_text_message(message: Mapping[str, Any]) -> bool:
     if message.get("tool_calls"):
+        return False
+    if "reasoning_content" in message:
         return False
     content = message.get("content")
     return content is None or isinstance(content, str)

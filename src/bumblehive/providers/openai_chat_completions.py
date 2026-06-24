@@ -17,6 +17,7 @@ _ALLOWED_MESSAGE_KEYS = frozenset(
         "tool_calls",
         "tool_call_id",
         "name",
+        "reasoning_content",
     }
 )
 _NON_RECOVERABLE_QUOTA_TOKENS = frozenset(

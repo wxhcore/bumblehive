@@ -6,7 +6,7 @@ from typing import Any
 from ..providers.base import GenerationConfig, ModelProvider, ModelRequest
 from ..tools.calls import ToolCall, ToolResult
 from ..tools.manager import ToolManager
-from .history import prepare_history
+from .messages import prepare_history
 from .types import AgentError
 
 
@@ -85,8 +85,13 @@ class ToolCallingRunner:
                     run_messages.append(self._tool_result_message(tool_call, tool_result))
                 continue
 
-            final_content = response.content or ""
-            run_messages.append(self._assistant_message(final_content))
+            final_content = response.content or response.refusal or ""
+            run_messages.append(
+                self._assistant_message(
+                    final_content,
+                    reasoning_content=response.reasoning_content,
+                )
+            )
             return AgentRunResult(
                 final_content=final_content,
                 messages=run_messages,
@@ -111,15 +116,25 @@ class ToolCallingRunner:
         )
 
     @staticmethod
-    def _assistant_message(content: str | None) -> Message:
-        return {
+    def _assistant_message(
+        content: str | None,
+        *,
+        reasoning_content: str | None = None,
+    ) -> Message:
+        message: Message = {
             "role": "assistant",
             "content": content or "",
         }
+        if reasoning_content is not None:
+            message["reasoning_content"] = reasoning_content
+        return message
 
     @classmethod
     def _assistant_tool_call_message(cls, response: Any) -> Message:
-        message = cls._assistant_message(response.content)
+        message = cls._assistant_message(
+            response.content,
+            reasoning_content=response.reasoning_content,
+        )
         message["tool_calls"] = [
             tool_call.to_openai_tool_call()
             for tool_call in response.tool_calls
