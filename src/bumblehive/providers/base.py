@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..agent.types import AgentError
+from ..contracts.errors import AgentError
 from ..tools.calls import ToolCall
 
 

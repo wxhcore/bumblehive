@@ -5,7 +5,7 @@ from email.utils import parsedate_to_datetime
 from inspect import isawaitable
 from typing import Any
 
-from ..agent.types import AgentError
+from ..contracts.errors import AgentError
 from ..tools.calls import ToolCall, parse_tool_call
 from .base import GenerationConfig, ModelProvider, ModelRequest, ModelResponse
 

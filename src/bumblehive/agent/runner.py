@@ -3,12 +3,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..contracts.errors import AgentError
 from ..providers.base import GenerationConfig, ModelProvider, ModelRequest
 from ..tools.calls import ToolCall, ToolResult
 from ..tools.manager import ToolManager
 from .messages import prepare_history
 from .tokens import fit_context_window
-from .types import AgentError
 
 
 Message = dict[str, Any]

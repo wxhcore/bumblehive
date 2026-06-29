@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from ..agent.types import AgentError
+from ..contracts.errors import AgentError
 from .calls import ToolCall, ToolResult
 from .scope import (
     bind_tool_workspace,

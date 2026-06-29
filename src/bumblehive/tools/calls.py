@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from ..agent.types import AgentError
+from ..contracts.errors import AgentError
 
 
 @dataclass(frozen=True)

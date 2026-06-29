@@ -12,10 +12,8 @@ from .messages import (
 )
 from .loop import AgentLoop
 from .runner import AgentRunResult, ToolCallingRunner
-from .types import AgentError
 
 __all__ = [
-    "AgentError",
     "AgentLoop",
     "AgentRunResult",
     "ToolCallingRunner",
