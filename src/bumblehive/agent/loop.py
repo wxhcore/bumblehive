@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Mapping
 
@@ -6,7 +5,8 @@ from ..providers.base import GenerationConfig, ModelProvider
 from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
 from .context import ContextBuilder, DynamicValue
-from .runner import AgentRunResult, Message, ToolCallingRunner
+from .history import MessageHistoryManager
+from .runner import AgentRunResult, ToolCallingRunner
 
 
 class AgentLoop:
@@ -19,11 +19,13 @@ class AgentLoop:
         context: ContextBuilder,
         skills: SkillsManager,
         runner: ToolCallingRunner,
+        history: MessageHistoryManager,
     ) -> None:
         self.tools = tools
         self.context = context
         self.skills = skills
         self.runner = runner
+        self.history = history
 
     async def run_turn(
         self,
@@ -35,7 +37,6 @@ class AgentLoop:
         workspace: Path | str | None = None,
         timezone: str | None = None,
         dynamic_context: Mapping[str, DynamicValue] | None = None,
-        history: Sequence[Message] | None = None,
         skill_names: list[str] | None = None,
         tool_names: list[str] | None = None,
         context_window_tokens: int | None = None,
@@ -56,12 +57,12 @@ class AgentLoop:
             workspace=workspace,
             timezone=timezone,
             dynamic_context=dynamic_context,
-            history=history,
+            history=self.history.history(),
             agent_instructions=agent_instructions,
             available_skills=available_skills,
         )
 
-        return await self.runner.run(
+        result = await self.runner.run(
             provider=provider,
             tools=self.tools,
             messages=messages,
@@ -71,3 +72,5 @@ class AgentLoop:
             tool_names=tool_names,
             context_window_tokens=context_window_tokens,
         )
+        self.history.replace_run_messages(result.messages)
+        return result

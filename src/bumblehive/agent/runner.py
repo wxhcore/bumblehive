@@ -7,7 +7,7 @@ from ..contracts.errors import AgentError
 from ..providers.base import GenerationConfig, ModelProvider, ModelRequest
 from ..tools.calls import ToolCall, ToolResult
 from ..tools.manager import ToolManager
-from .messages import prepare_history
+from .history import prepare_history
 from .tokens import fit_context_window
 
 

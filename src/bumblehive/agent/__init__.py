@@ -1,10 +1,11 @@
 """Agent context assembly primitives."""
 
 from .context import ContextBuilder, DynamicValue
-from .messages import (
+from .history import (
     backfill_missing_tool_results,
     drop_empty_messages,
     drop_orphan_tool_results,
+    MessageHistoryManager,
     merge_consecutive_text_messages,
     prepare_history,
     sanitize_messages,
@@ -19,6 +20,7 @@ __all__ = [
     "ToolCallingRunner",
     "ContextBuilder",
     "DynamicValue",
+    "MessageHistoryManager",
     "backfill_missing_tool_results",
     "drop_empty_messages",
     "drop_orphan_tool_results",

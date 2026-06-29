@@ -22,6 +22,126 @@ _MISSING_TOOL_RESULT_CONTENT = (
 _DEFAULT_MAX_TOOL_RESULT_CHARS = 20_000
 
 
+class MessageHistoryManager:
+    """Mutable conversation history container for library users."""
+
+    def __init__(
+        self,
+        messages: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
+        self._messages = [dict(message) for message in messages or []]
+
+    def add(self, role: str, content: Any = None, **extra: Any) -> Message:
+        """Append one message and return the stored copy."""
+        message: Message = {
+            "role": role,
+            "content": content,
+            **extra,
+        }
+        self._messages.append(message)
+        return dict(message)
+
+    def add_user(self, content: Any, **extra: Any) -> Message:
+        """Append a user message."""
+        return self.add("user", content, **extra)
+
+    def add_assistant(self, content: Any = None, **extra: Any) -> Message:
+        """Append an assistant message."""
+        return self.add("assistant", content, **extra)
+
+    def add_tool(
+        self,
+        tool_call_id: str,
+        content: Any,
+        *,
+        name: str = "",
+        **extra: Any,
+    ) -> Message:
+        """Append a tool result message."""
+        return self.add(
+            "tool",
+            content,
+            tool_call_id=tool_call_id,
+            name=name,
+            **extra,
+        )
+
+    def extend(self, messages: Sequence[Mapping[str, Any]]) -> None:
+        """Append messages without keeping caller-owned dictionaries."""
+        self._messages.extend(dict(message) for message in messages)
+
+    def replace(self, messages: Sequence[Mapping[str, Any]]) -> None:
+        """Replace with already-clean conversation history.
+
+        This stores messages exactly as provided, except for cloning each
+        dictionary. Use ``replace_run_messages`` for ``AgentRunResult.messages``
+        because run messages include per-turn system and runtime context.
+        """
+        self._messages = [dict(message) for message in messages]
+
+    def replace_run_messages(self, messages: Sequence[Mapping[str, Any]]) -> None:
+        """Replace history from ``AgentRunResult.messages``.
+
+        Drops per-turn system messages and strips runtime context from user
+        messages before storing them. Use this after ``AgentLoop.run_turn`` or
+        ``ToolCallingRunner.run`` when carrying history into the next turn.
+        """
+        self._messages = _run_messages_to_history(messages)
+
+    def clear(self) -> None:
+        """Remove all stored messages."""
+        self._messages.clear()
+
+    def history(self) -> list[Message]:
+        """Return a cloned copy of the raw stored history."""
+        return [dict(message) for message in self._messages]
+
+    def prepare(
+        self,
+        *,
+        max_tool_result_chars: int | None = _DEFAULT_MAX_TOOL_RESULT_CHARS,
+        missing_tool_result_content: str = _MISSING_TOOL_RESULT_CONTENT,
+    ) -> list[Message]:
+        """Return provider-ready history using per-call preparation options."""
+        return prepare_history(
+            self._messages,
+            max_tool_result_chars=max_tool_result_chars,
+            missing_tool_result_content=missing_tool_result_content,
+        )
+
+
+def _run_messages_to_history(
+    messages: Sequence[Mapping[str, Any]],
+) -> list[Message]:
+    history: list[Message] = []
+    for message in messages:
+        current = dict(message)
+        role = current.get("role")
+        if role == "system":
+            continue
+        if role == "user":
+            current = _strip_user_runtime_context(current)
+            if not _has_content(current.get("content")):
+                continue
+        history.append(current)
+    return history
+
+
+def _strip_user_runtime_context(message: Message) -> Message:
+    content = message.get("content")
+    if not isinstance(content, str):
+        return message
+
+    marker = "<runtime_context>"
+    marker_index = content.find(marker)
+    if marker_index < 0:
+        return message
+
+    cleaned = dict(message)
+    cleaned["content"] = content[:marker_index].rstrip("\n ")
+    return cleaned
+
+
 def prepare_history(
     messages: Sequence[Mapping[str, Any]],
     *,
