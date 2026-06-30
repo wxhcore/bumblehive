@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Mapping
@@ -29,6 +29,7 @@ class ToolManager:
         self.builtin_config = dict(builtin_config or {})
         self.builtin_policy = builtin_policy or ToolPolicy()
         self._builtin_state = BuiltinToolState()
+        self._builtin_tools_registered = False
         self.mcp_manager = MCPManager(
             self.registry,
             servers=mcp_servers,
@@ -69,12 +70,17 @@ class ToolManager:
 
     def register_builtin_tools(self) -> list[str]:
         """Register built-in local tools using manager-owned config and state."""
-        return _register_builtin_tools(
+        if self._builtin_tools_registered:
+            return []
+
+        registered = _register_builtin_tools(
             self.registry,
             config=self.builtin_config,
             state=self._builtin_state,
             policy=self.builtin_policy,
         )
+        self._builtin_tools_registered = True
+        return registered
 
     async def connect_mcp(self) -> list[str]:
         """Connect configured MCP servers and register their enabled tools."""
@@ -115,6 +121,45 @@ class ToolManager:
     async def reload_mcp_server(self, server_name: str) -> list[str]:
         """Reconnect one MCP server and rebuild its registered tools."""
         return await self.mcp_manager.reload_server(server_name)
+
+    async def sync_mcp_servers(
+        self,
+        servers: Sequence[MCPServerConfig],
+    ) -> list[str]:
+        """Make configured MCP servers match ``servers``.
+
+        If the configuration is unchanged, connected servers are left alone.
+        If the configuration changed, existing MCP connections are closed,
+        removed server configs are forgotten, new configs are stored, and the
+        current server set is connected.
+        """
+        next_servers = list(servers)
+        if next_servers == self.list_mcp_server_configs():
+            return await self._connect_disconnected_mcp_servers()
+
+        await self.close_mcp()
+        next_names = {server.name for server in next_servers}
+        for server in list(self.list_mcp_server_configs()):
+            if server.name not in next_names:
+                await self.remove_mcp_server(server.name)
+
+        for server in next_servers:
+            self.set_mcp_server(server)
+
+        return await self.connect_mcp()
+
+    async def _connect_disconnected_mcp_servers(self) -> list[str]:
+        registered: list[str] = []
+        statuses = {
+            status.name: status
+            for status in self.list_mcp_server_statuses()
+        }
+        for server in self.list_mcp_server_configs():
+            status = statuses.get(server.name)
+            if status is None or status.connected:
+                continue
+            registered.extend(await self.connect_mcp_server(server.name))
+        return registered
 
     def get_tool(self, name: str) -> Tool | None:
         """Return one registered Tool object by name."""
