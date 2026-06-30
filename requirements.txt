@@ -1,0 +1,9 @@
+openai
+fastmcp
+mcp
+jsonschema
+PyYAML
+PyMuPDF
+python-docx
+openpyxl
+python-pptx
