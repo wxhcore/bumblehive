@@ -156,6 +156,8 @@ class OpenAIChatCompletionsProvider(ModelProvider):
             payload["temperature"] = generation.temperature
         if generation.reasoning_effort is not None:
             payload["reasoning_effort"] = generation.reasoning_effort
+        if generation.extra_body:
+            payload["extra_body"] = generation.extra_body
 
     @staticmethod
     def _sanitize_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
