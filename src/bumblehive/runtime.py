@@ -22,7 +22,7 @@ class BumblehiveRuntime:
 
     def __init__(self, config: ConfigInput = None) -> None:
         self._config_input = config
-        self.config = load_config(config)
+        self.config = load_config(self._config_input)
         self.providers = ProviderManager()
         self.tools = ToolManager()
         self.context = ContextBuilder()

@@ -38,6 +38,59 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True)
+class RuntimeArguments:
+    """Convenient flat arguments for constructing a Bumblehive runtime."""
+
+    provider_type: str = "openai_chat_completions"
+    model: str = "gpt-5.4"
+    api_key: str | None = None
+    base_url: str | None = None
+    max_tokens: int = 8192
+    temperature: float | None = None
+    reasoning_effort: str | None = None
+    workspace: str | Path | None = None
+    timezone: str | None = None
+    context_window_tokens: int | None = None
+    agent_instructions: str | None = None
+    dynamic_context: dict[str, Any] = field(default_factory=dict)
+    skill_names: tuple[str, ...] | None = None
+    tool_names: tuple[str, ...] | None = None
+    mcp_servers: tuple[MCPServerConfig, ...] = ()
+
+    def to_config(self) -> "BumblehiveConfig":
+        """Convert flat runtime arguments into structured config."""
+        return BumblehiveConfig(
+            provider=ProviderConfig(
+                type=self.provider_type,
+                model=self.model,
+                api_key=self.api_key,
+                base_url=self.base_url,
+            ),
+            generation=GenerationConfig(
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                reasoning_effort=self.reasoning_effort,
+            ),
+            agent=AgentConfig(
+                instructions=self.agent_instructions,
+                dynamic_context=dict(self.dynamic_context),
+                skill_names=self.skill_names,
+                tool_names=self.tool_names,
+            ),
+            runtime=RuntimeConfig(
+                workspace=(
+                    str(self.workspace)
+                    if self.workspace is not None
+                    else None
+                ),
+                timezone=self.timezone,
+                context_window_tokens=self.context_window_tokens,
+            ),
+            mcp_servers=self.mcp_servers,
+        )
+
+
+@dataclass(frozen=True)
 class BumblehiveConfig:
     """Top-level runtime configuration."""
 

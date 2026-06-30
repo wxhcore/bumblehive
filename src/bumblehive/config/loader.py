@@ -2,10 +2,17 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .schema import BumblehiveConfig
+from .schema import BumblehiveConfig, RuntimeArguments
 
 
-ConfigInput = str | Path | Mapping[str, Any] | BumblehiveConfig | None
+ConfigInput = (
+    str
+    | Path
+    | Mapping[str, Any]
+    | BumblehiveConfig
+    | RuntimeArguments
+    | None
+)
 
 
 def load_config(config: ConfigInput = None) -> BumblehiveConfig:
@@ -15,6 +22,9 @@ def load_config(config: ConfigInput = None) -> BumblehiveConfig:
 
     if isinstance(config, BumblehiveConfig):
         return config
+
+    if isinstance(config, RuntimeArguments):
+        return config.to_config()
 
     if isinstance(config, Mapping):
         return BumblehiveConfig.from_mapping(config)
