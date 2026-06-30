@@ -192,11 +192,7 @@ def _generation_config(value: Any) -> GenerationConfig:
         max_tokens=int(data.get("max_tokens", GenerationConfig.max_tokens)),
         temperature=_optional_float(data.get("temperature")),
         reasoning_effort=_optional_str(data.get("reasoning_effort")),
-        extra_body=(
-            None
-            if data.get("extra_body") is None
-            else _mapping(data.get("extra_body"), "generation.extra_body")
-        ),
+        extra_body=_optional_dict(data.get("extra_body"), "generation.extra_body"),
     )
 
 
@@ -269,6 +265,14 @@ def _dynamic_context(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise TypeError("agent.dynamic_context must be a mapping")
     return {str(key): context_value for key, context_value in value.items()}
+
+
+def _optional_dict(value: Any, section: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{section} must be a mapping")
+    return value
 
 
 def _optional_str_tuple(value: Any, section: str) -> tuple[str, ...] | None:
