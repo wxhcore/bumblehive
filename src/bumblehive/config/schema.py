@@ -48,7 +48,7 @@ class RuntimeArguments:
     max_tokens: int = 8192
     temperature: float | None = None
     reasoning_effort: str | None = None
-    extra_body: dict[str, Any] = field(default_factory=dict)
+    extra_body: dict[str, Any] | None = None
     workspace: str | Path | None = None
     timezone: str | None = None
     context_window_tokens: int | None = None
@@ -192,7 +192,11 @@ def _generation_config(value: Any) -> GenerationConfig:
         max_tokens=int(data.get("max_tokens", GenerationConfig.max_tokens)),
         temperature=_optional_float(data.get("temperature")),
         reasoning_effort=_optional_str(data.get("reasoning_effort")),
-        extra_body=_mapping(data.get("extra_body"), "generation.extra_body"),
+        extra_body=(
+            None
+            if data.get("extra_body") is None
+            else _mapping(data.get("extra_body"), "generation.extra_body")
+        ),
     )
 
 
@@ -297,8 +301,7 @@ def _generation_to_dict(config: GenerationConfig) -> dict[str, Any]:
     }
     _set_if_not_none(data, "temperature", config.temperature)
     _set_if_not_none(data, "reasoning_effort", config.reasoning_effort)
-    if config.extra_body:
-        data["extra_body"] = config.extra_body
+    _set_if_not_none(data, "extra_body", config.extra_body)
     return data
 
 

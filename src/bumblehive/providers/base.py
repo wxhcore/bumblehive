@@ -13,7 +13,7 @@ class GenerationConfig:
     max_tokens: int = 8192
     temperature: float | None = None
     reasoning_effort: str | None = None
-    extra_body: dict[str, Any] = field(default_factory=dict)
+    extra_body: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

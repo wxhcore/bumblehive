@@ -156,7 +156,7 @@ class OpenAIChatCompletionsProvider(ModelProvider):
             payload["temperature"] = generation.temperature
         if generation.reasoning_effort is not None:
             payload["reasoning_effort"] = generation.reasoning_effort
-        if generation.extra_body:
+        if generation.extra_body is not None:
             payload["extra_body"] = generation.extra_body
 
     @staticmethod
