@@ -117,8 +117,16 @@ class BumblehiveRuntime:
                 if context_window_tokens is not None
                 else self.config.runtime.context_window_tokens
             ),
-            max_tool_result_chars=max_tool_result_chars,
-            max_iterations=max_iterations,
+            max_tool_result_chars=(
+                max_tool_result_chars
+                if max_tool_result_chars is not None
+                else self.config.runtime.max_tool_result_chars
+            ),
+            max_iterations=(
+                max_iterations
+                if max_iterations is not None
+                else self.config.runtime.max_iterations
+            ),
             agent_instructions=(
                 agent_instructions
                 if agent_instructions is not None

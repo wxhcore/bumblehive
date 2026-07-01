@@ -35,6 +35,8 @@ class RuntimeConfig:
     workspace: str | None = None
     timezone: str | None = None
     context_window_tokens: int | None = None
+    max_tool_result_chars: int | None = None
+    max_iterations: int | None = None
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,8 @@ class RuntimeArguments:
     workspace: str | Path | None = None
     timezone: str | None = None
     context_window_tokens: int | None = None
+    max_tool_result_chars: int | None = None
+    max_iterations: int | None = None
     agent_instructions: str | None = None
     dynamic_context: dict[str, Any] = field(default_factory=dict)
     skill_names: tuple[str, ...] | None = None
@@ -87,6 +91,8 @@ class RuntimeArguments:
                 ),
                 timezone=self.timezone,
                 context_window_tokens=self.context_window_tokens,
+                max_tool_result_chars=self.max_tool_result_chars,
+                max_iterations=self.max_iterations,
             ),
             mcp_servers=self.mcp_servers,
         )
@@ -208,13 +214,12 @@ def _agent_config(value: Any) -> AgentConfig:
 
 def _runtime_config(value: Any) -> RuntimeConfig:
     data = _mapping(value, "runtime")
-    context_window_tokens = data.get("context_window_tokens")
     return RuntimeConfig(
         workspace=_optional_str(data.get("workspace")),
         timezone=_optional_str(data.get("timezone")),
-        context_window_tokens=(
-            None if context_window_tokens is None else int(context_window_tokens)
-        ),
+        context_window_tokens=_optional_int(data.get("context_window_tokens")),
+        max_tool_result_chars=_optional_int(data.get("max_tool_result_chars")),
+        max_iterations=_optional_int(data.get("max_iterations")),
     )
 
 
@@ -289,6 +294,12 @@ def _optional_float(value: Any) -> float | None:
     return float(value)
 
 
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
 def _provider_to_dict(config: ProviderConfig) -> dict[str, Any]:
     data: dict[str, Any] = {
         "type": config.type,
@@ -326,6 +337,8 @@ def _runtime_to_dict(config: RuntimeConfig) -> dict[str, Any]:
     _set_if_not_none(data, "workspace", config.workspace)
     _set_if_not_none(data, "timezone", config.timezone)
     _set_if_not_none(data, "context_window_tokens", config.context_window_tokens)
+    _set_if_not_none(data, "max_tool_result_chars", config.max_tool_result_chars)
+    _set_if_not_none(data, "max_iterations", config.max_iterations)
     return data
 
 
