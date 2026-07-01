@@ -40,6 +40,8 @@ class AgentLoop:
         skill_names: list[str] | None = None,
         tool_names: list[str] | None = None,
         context_window_tokens: int | None = None,
+        max_tool_result_chars: int | None = None,
+        max_iterations: int | None = None,
         agent_instructions: str | None = None,
     ) -> AgentRunResult:
         """Run one user turn with optional skill and tool filtering.
@@ -71,6 +73,8 @@ class AgentLoop:
             workspace=workspace,
             tool_names=tool_names,
             context_window_tokens=context_window_tokens,
+            max_tool_result_chars=max_tool_result_chars,
+            max_iterations=max_iterations,
         )
         self.history.replace_run_messages(result.messages)
         return result

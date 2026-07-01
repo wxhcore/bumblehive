@@ -75,6 +75,8 @@ class BumblehiveRuntime:
         skill_names: list[str] | None = None,
         tool_names: list[str] | None = None,
         context_window_tokens: int | None = None,
+        max_tool_result_chars: int | None = None,
+        max_iterations: int | None = None,
         agent_instructions: str | None = None,
     ) -> AgentRunResult:
         """Run one turn using runtime defaults, with optional per-turn overrides."""
@@ -115,6 +117,8 @@ class BumblehiveRuntime:
                 if context_window_tokens is not None
                 else self.config.runtime.context_window_tokens
             ),
+            max_tool_result_chars=max_tool_result_chars,
+            max_iterations=max_iterations,
             agent_instructions=(
                 agent_instructions
                 if agent_instructions is not None

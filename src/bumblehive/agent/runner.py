@@ -7,14 +7,13 @@ from ..contracts.errors import AgentError
 from ..providers.base import GenerationConfig, ModelProvider, ModelRequest
 from ..tools.calls import ToolCall, ToolResult
 from ..tools.manager import ToolManager
-from .history import prepare_history
-from .tokens import fit_context_window
+from .context_governor import ContextGovernanceConfig, ContextGovernor
 
 
 Message = dict[str, Any]
 
-MAX_ITERATIONS = 300
-MAX_ITERATIONS_MESSAGE = (
+_MAX_ITERATIONS = 300
+_MAX_ITERATIONS_MESSAGE = (
     "I reached the maximum number of tool iterations before producing "
     "a final response."
 )
@@ -46,6 +45,8 @@ class ToolCallingRunner:
         workspace: Path | str | None = None,
         tool_names: list[str] | None = None,
         context_window_tokens: int | None = None,
+        max_tool_result_chars: int | None = None,
+        max_iterations: int | None = None,
     ) -> AgentRunResult:
         """Run model/tool iterations until a final model response is produced."""
 
@@ -54,23 +55,30 @@ class ToolCallingRunner:
         tools_used: list[str] = []
         usage: dict[str, int] = {}
 
-        for _iteration in range(MAX_ITERATIONS):
-            request_generation = generation or GenerationConfig()
-            request_messages = prepare_history(run_messages)
-            request_messages = fit_context_window(
-                provider=provider,
-                model=model,
-                messages=request_messages,
-                tools=tool_definitions,
-                context_window_tokens=context_window_tokens,
-                max_output_tokens=request_generation.max_tokens,
+        effective_max_iterations = (
+            _MAX_ITERATIONS if max_iterations is None else max_iterations
+        )
+
+        for _iteration in range(effective_max_iterations):
+            request_generation = (
+                generation if generation is not None else GenerationConfig()
             )
-            request_messages = prepare_history(request_messages)
+            request_messages = ContextGovernor.prepare_for_model(
+                run_messages,
+                config=ContextGovernanceConfig(
+                    provider=provider,
+                    model=model,
+                    tools=tool_definitions,
+                    context_window_tokens=context_window_tokens,
+                    max_output_tokens=request_generation.max_tokens,
+                    max_tool_result_chars=max_tool_result_chars,
+                ),
+            )
             request = ModelRequest(
                 messages=request_messages,
                 tools=tool_definitions,
                 model=model,
-                generation=generation,
+                generation=request_generation,
             )
             response = await provider.generate_with_retry(request)
             self._accumulate_usage(usage, response.usage)
@@ -113,7 +121,7 @@ class ToolCallingRunner:
                 stop_reason="completed",
             )
 
-        final_content = MAX_ITERATIONS_MESSAGE
+        final_content = _MAX_ITERATIONS_MESSAGE
         run_messages.append(self._assistant_message(final_content))
         return AgentRunResult(
             final_content=final_content,
