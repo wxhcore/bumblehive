@@ -6,7 +6,7 @@ from typing import Any
 
 Message = dict[str, Any]
 
-SNIP_SAFETY_BUFFER = 1024
+_SNIP_SAFETY_BUFFER = 1024
 
 
 def fit_context_window(
@@ -22,7 +22,7 @@ def fit_context_window(
     if not messages or not context_window_tokens:
         return messages
 
-    budget = context_window_tokens - max(1, max_output_tokens) - SNIP_SAFETY_BUFFER
+    budget = context_window_tokens - max(1, max_output_tokens) - _SNIP_SAFETY_BUFFER
     if budget <= 0:
         return messages
 
@@ -67,11 +67,7 @@ def fit_context_window(
         kept_tokens += message_tokens
     kept.reverse()
 
-    kept = _start_at_user_message(kept, non_system)
-    if not kept:
-        kept = _start_at_user_message(non_system[-min(len(non_system), 4):], non_system)
-
-    return system_messages + kept
+    return system_messages + _legal_history_tail(kept, non_system)
 
 
 def estimate_prompt_tokens(
@@ -148,16 +144,79 @@ def _tiktoken_encoder() -> Any | None:
     return None
 
 
-def _start_at_user_message(
+def _legal_history_tail(
     kept: list[Message],
     fallback: list[Message],
 ) -> list[Message]:
-    for index, message in enumerate(kept):
-        if message.get("role") == "user":
-            return kept[index:]
+    fallback_tail = kept if kept else fallback[-1:] if fallback else []
+    tail = _user_tail(kept) or _user_tail(fallback, last=True) or fallback_tail
 
-    for index in range(len(fallback) - 1, -1, -1):
-        if fallback[index].get("role") == "user":
-            return fallback[index:]
+    while tail:
+        start = _find_legal_message_start(tail)
+        if start:
+            tail = tail[start:]
+            continue
 
-    return kept
+        incomplete_index = _first_incomplete_tool_call_index(tail)
+        if incomplete_index is None:
+            return tail
+
+        next_user_tail = _user_tail(tail[incomplete_index + 1:])
+        if not next_user_tail:
+            return tail
+        tail = next_user_tail
+
+    return tail
+
+
+def _user_tail(messages: list[Message], *, last: bool = False) -> list[Message]:
+    indexes = range(len(messages) - 1, -1, -1) if last else range(len(messages))
+    for index in indexes:
+        if messages[index].get("role") == "user":
+            return messages[index:]
+    return []
+
+
+def _find_legal_message_start(messages: list[Message]) -> int:
+    declared: set[str] = set()
+    start = 0
+    for index, message in enumerate(messages):
+        role = message.get("role")
+        if role == "assistant":
+            declared.update(_tool_call_ids(message))
+        elif role == "tool":
+            tool_call_id = message.get("tool_call_id")
+            if not isinstance(tool_call_id, str) or tool_call_id not in declared:
+                start = index + 1
+                declared.clear()
+    return start
+
+
+def _first_incomplete_tool_call_index(messages: list[Message]) -> int | None:
+    fulfilled = {
+        tool_call_id
+        for message in messages
+        if message.get("role") == "tool"
+        for tool_call_id in [message.get("tool_call_id")]
+        if isinstance(tool_call_id, str)
+    }
+    for index, message in enumerate(messages):
+        call_ids = _tool_call_ids(message)
+        if call_ids and not call_ids <= fulfilled:
+            return index
+    return None
+
+
+def _tool_call_ids(message: Message) -> set[str]:
+    if message.get("role") != "assistant":
+        return set()
+    calls = message.get("tool_calls")
+    if not isinstance(calls, list):
+        return set()
+    return {
+        call_id
+        for call in calls
+        if isinstance(call, dict)
+        for call_id in [call.get("id")]
+        if isinstance(call_id, str) and call_id
+    }
