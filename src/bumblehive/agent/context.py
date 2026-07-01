@@ -27,8 +27,8 @@ def load_prompt(name: str) -> str:
     )
 
 
-DEFAULT_AGENT_INSTRUCTIONS = load_prompt("agent_instructions.md")
-TOOL_USE_INSTRUCTIONS = load_prompt("tool_use_instructions.md")
+_DEFAULT_AGENT_INSTRUCTIONS = load_prompt("agent_instructions.md")
+_TOOL_USE_INSTRUCTIONS = load_prompt("tool_use_instructions.md")
 
 
 class ContextBuilder:
@@ -68,7 +68,7 @@ class ContextBuilder:
         active_timezone = timezone if timezone is not None else self.timezone
         system_content = self._build_system_content(
             workspace=active_workspace,
-            agent_instructions=agent_instructions or DEFAULT_AGENT_INSTRUCTIONS,
+            agent_instructions=agent_instructions or _DEFAULT_AGENT_INSTRUCTIONS,
             available_skills=available_skills,
         )
         runtime_context = self._build_runtime_context(
@@ -126,7 +126,7 @@ class ContextBuilder:
         return f"<capability_context>\n{body}\n</capability_context>"
 
     def _build_tool_use(self) -> str:
-        instructions = self._wrap_text("instructions", TOOL_USE_INSTRUCTIONS)
+        instructions = self._wrap_text("instructions", _TOOL_USE_INSTRUCTIONS)
         return (
             "<tool_use>\n"
             f"{self._indent(instructions, 2)}\n"

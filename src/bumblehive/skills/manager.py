@@ -7,7 +7,7 @@ from .render import render_skills_summary
 
 SkillFilesSnapshot = tuple[tuple[str, int, int], ...]
 SkillsCacheKey = tuple[str, ...]
-BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin" / "skills"
+_BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin" / "skills"
 
 
 class SkillsManager:
@@ -102,7 +102,7 @@ class SkillsManager:
             else self.workspace
         )
         return [
-            BUILTIN_SKILLS_DIR.resolve(),
+            _BUILTIN_SKILLS_DIR.resolve(),
             active_workspace / "skills",
         ]
 

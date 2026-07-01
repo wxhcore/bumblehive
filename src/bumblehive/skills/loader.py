@@ -6,7 +6,7 @@ import yaml
 from .models import Skill, SkillError, SkillLoadResult
 
 
-FRONTMATTER_DELIMITER = "---"
+_FRONTMATTER_DELIMITER = "---"
 
 
 def load_skills(skills_root: Path) -> SkillLoadResult:
@@ -48,11 +48,11 @@ def _parse_skill_file(path: Path) -> Skill:
 
 def _extract_frontmatter(content: str) -> str:
     lines = content.splitlines()
-    if not lines or lines[0].strip() != FRONTMATTER_DELIMITER:
+    if not lines or lines[0].strip() != _FRONTMATTER_DELIMITER:
         raise ValueError("missing YAML frontmatter")
 
     for index, line in enumerate(lines[1:], start=1):
-        if line.strip() == FRONTMATTER_DELIMITER:
+        if line.strip() == _FRONTMATTER_DELIMITER:
             return "\n".join(lines[1:index])
 
     raise ValueError("unterminated YAML frontmatter")

@@ -4,7 +4,7 @@ from pathlib import Path
 from .models import Skill
 
 
-SKILLS_INSTRUCTIONS = (
+_SKILLS_INSTRUCTIONS = (
     "These skills extend your capabilities. To use a skill, call read_file "
     "on its path, then follow the SKILL.md instructions. Resolve relative "
     "paths such as scripts/foo.py or references/bar.md from the directory "
@@ -22,7 +22,7 @@ def render_skills_summary(skills: list[Skill]) -> str:
     lines = [
         "<available_skills>",
         "  <instructions>",
-        f"    {escape(SKILLS_INSTRUCTIONS)}",
+        f"    {escape(_SKILLS_INSTRUCTIONS)}",
         "  </instructions>",
     ]
     for skill in skills:
