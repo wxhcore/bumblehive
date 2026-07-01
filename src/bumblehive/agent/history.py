@@ -100,7 +100,7 @@ class MessageHistoryManager:
         self,
         *,
         max_tool_result_chars: int | None = None,
-        missing_tool_result_content: str = _MISSING_TOOL_RESULT_CONTENT,
+        missing_tool_result_content: str | None = None,
     ) -> list[Message]:
         """Return provider-ready history using per-call preparation options."""
         return prepare_history(
@@ -146,7 +146,7 @@ def prepare_history(
     messages: Sequence[Mapping[str, Any]],
     *,
     max_tool_result_chars: int | None = None,
-    missing_tool_result_content: str = _MISSING_TOOL_RESULT_CONTENT,
+    missing_tool_result_content: str | None = None,
 ) -> list[Message]:
     """Return provider-ready history without mutating caller-owned messages."""
     prepared = repair_message_sequence(
@@ -168,7 +168,7 @@ def prepare_history(
 def repair_message_sequence(
     messages: Sequence[Mapping[str, Any]],
     *,
-    missing_tool_result_content: str = _MISSING_TOOL_RESULT_CONTENT,
+    missing_tool_result_content: str | None = None,
 ) -> list[Message]:
     """Return provider-ready message structure without applying size budgets."""
     repaired = sanitize_messages(messages)
@@ -264,7 +264,7 @@ def drop_orphan_tool_results(
 def backfill_missing_tool_results(
     messages: Sequence[Mapping[str, Any]],
     *,
-    missing_tool_result_content: str = _MISSING_TOOL_RESULT_CONTENT,
+    missing_tool_result_content: str | None = None,
 ) -> list[Message]:
     """Insert synthetic tool results for assistant tool calls without results."""
     declared: list[tuple[int, str, str]] = []
@@ -300,7 +300,11 @@ def backfill_missing_tool_results(
                 "role": "tool",
                 "tool_call_id": call_id,
                 "name": name,
-                "content": missing_tool_result_content,
+                "content": (
+                    _MISSING_TOOL_RESULT_CONTENT
+                    if missing_tool_result_content is None
+                    else missing_tool_result_content
+                ),
             },
         )
         offset += 1
