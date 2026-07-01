@@ -99,7 +99,7 @@ class MessageHistoryManager:
     def prepare(
         self,
         *,
-        max_tool_result_chars: int | None = _DEFAULT_MAX_TOOL_RESULT_CHARS,
+        max_tool_result_chars: int | None = None,
         missing_tool_result_content: str = _MISSING_TOOL_RESULT_CONTENT,
     ) -> list[Message]:
         """Return provider-ready history using per-call preparation options."""
@@ -145,24 +145,40 @@ def _strip_user_runtime_context(message: Message) -> Message:
 def prepare_history(
     messages: Sequence[Mapping[str, Any]],
     *,
-    max_tool_result_chars: int | None = _DEFAULT_MAX_TOOL_RESULT_CHARS,
+    max_tool_result_chars: int | None = None,
     missing_tool_result_content: str = _MISSING_TOOL_RESULT_CONTENT,
 ) -> list[Message]:
     """Return provider-ready history without mutating caller-owned messages."""
-    prepared = sanitize_messages(messages)
-    prepared = drop_empty_messages(prepared)
-    prepared = merge_consecutive_text_messages(prepared)
-    prepared = drop_orphan_tool_results(prepared)
-    prepared = backfill_missing_tool_results(
-        prepared,
+    prepared = repair_message_sequence(
+        messages,
         missing_tool_result_content=missing_tool_result_content,
     )
-    if max_tool_result_chars is not None:
-        prepared = truncate_tool_results(
-            prepared,
-            max_chars=max_tool_result_chars,
-        )
+    max_chars = (
+        _DEFAULT_MAX_TOOL_RESULT_CHARS
+        if max_tool_result_chars is None
+        else max_tool_result_chars
+    )
+    prepared = truncate_tool_results(
+        prepared,
+        max_chars=max_chars,
+    )
     return prepared
+
+
+def repair_message_sequence(
+    messages: Sequence[Mapping[str, Any]],
+    *,
+    missing_tool_result_content: str = _MISSING_TOOL_RESULT_CONTENT,
+) -> list[Message]:
+    """Return provider-ready message structure without applying size budgets."""
+    repaired = sanitize_messages(messages)
+    repaired = drop_empty_messages(repaired)
+    repaired = merge_consecutive_text_messages(repaired)
+    repaired = drop_orphan_tool_results(repaired)
+    return backfill_missing_tool_results(
+        repaired,
+        missing_tool_result_content=missing_tool_result_content,
+    )
 
 
 def sanitize_messages(messages: Sequence[Mapping[str, Any]]) -> list[Message]:
