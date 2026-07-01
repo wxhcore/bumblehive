@@ -40,12 +40,12 @@ _BENIGN_DEVICE_PATHS = frozenset(
     }
 )
 
-EXEC_DESCRIPTION = (
+_EXEC_DESCRIPTION = (
     "Execute a shell command. Use yield_time_ms for long-running commands; "
     "running commands return a session_id that can be polled or controlled with write_stdin."
 )
 
-EXEC_PARAMETERS: dict[str, Any] = {
+_EXEC_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "command": {"type": "string", "description": "The shell command to execute."},
@@ -91,12 +91,12 @@ EXEC_PARAMETERS: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-WRITE_STDIN_DESCRIPTION = (
+_WRITE_STDIN_DESCRIPTION = (
     "Interact with a running exec session. Poll output, write stdin, close stdin, "
     "wait for text, or terminate the process."
 )
 
-WRITE_STDIN_PARAMETERS: dict[str, Any] = {
+_WRITE_STDIN_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "session_id": {"type": "string", "description": "Session id returned by exec."},
@@ -145,9 +145,9 @@ WRITE_STDIN_PARAMETERS: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-LIST_EXEC_SESSIONS_DESCRIPTION = "List active long-running exec sessions."
+_LIST_EXEC_SESSIONS_DESCRIPTION = "List active long-running exec sessions."
 
-LIST_EXEC_SESSIONS_PARAMETERS: dict[str, Any] = {
+_LIST_EXEC_SESSIONS_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {},
     "additionalProperties": False,
@@ -920,8 +920,8 @@ def register_exec_tool(
     return registry.register(
         CallableTool(
             name="exec",
-            description=EXEC_DESCRIPTION,
-            parameters=EXEC_PARAMETERS,
+            description=_EXEC_DESCRIPTION,
+            parameters=_EXEC_PARAMETERS,
             handler=runner.exec,
             exclusive=True,
         )
@@ -939,8 +939,8 @@ def register_write_stdin_tool(
     return registry.register(
         CallableTool(
             name="write_stdin",
-            description=WRITE_STDIN_DESCRIPTION,
-            parameters=WRITE_STDIN_PARAMETERS,
+            description=_WRITE_STDIN_DESCRIPTION,
+            parameters=_WRITE_STDIN_PARAMETERS,
             handler=runner.write_stdin,
             exclusive=True,
         )
@@ -958,8 +958,8 @@ def register_list_exec_sessions_tool(
     return registry.register(
         CallableTool(
             name="list_exec_sessions",
-            description=LIST_EXEC_SESSIONS_DESCRIPTION,
-            parameters=LIST_EXEC_SESSIONS_PARAMETERS,
+            description=_LIST_EXEC_SESSIONS_DESCRIPTION,
+            parameters=_LIST_EXEC_SESSIONS_PARAMETERS,
             handler=runner.list_exec_sessions,
             read_only=True,
         )

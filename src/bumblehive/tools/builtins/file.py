@@ -15,7 +15,7 @@ from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
 from .state import BuiltinToolState
 from .workspace import (
-    DEFAULT_IGNORE_DIRS,
+    _DEFAULT_IGNORE_DIRS,
     FileStates,
     WorkspaceAccess,
     current_workspace_access,
@@ -90,12 +90,12 @@ def _collect_pptx_shape_text(shape: Any, out: list[str]) -> None:
         out.append(text)
 
 
-READ_FILE_DESCRIPTION = (
+_READ_FILE_DESCRIPTION = (
     "Read a UTF-8 text file, PDF, DOCX, XLSX, or PPTX inside the project workspace. "
     "Text files use line-numbered pagination; PDF files support a pages range."
 )
 
-READ_FILE_PARAMETERS: dict[str, Any] = {
+_READ_FILE_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "path": {
@@ -125,9 +125,9 @@ READ_FILE_PARAMETERS: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-WRITE_FILE_DESCRIPTION = "Create or overwrite a UTF-8 text file inside the project workspace."
+_WRITE_FILE_DESCRIPTION = "Create or overwrite a UTF-8 text file inside the project workspace."
 
-WRITE_FILE_PARAMETERS: dict[str, Any] = {
+_WRITE_FILE_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "path": {
@@ -143,11 +143,11 @@ WRITE_FILE_PARAMETERS: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-LIST_DIR_DESCRIPTION = (
+_LIST_DIR_DESCRIPTION = (
     "List directory contents inside the project workspace, optionally recursively."
 )
 
-LIST_DIR_PARAMETERS: dict[str, Any] = {
+_LIST_DIR_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "path": {
@@ -168,11 +168,11 @@ LIST_DIR_PARAMETERS: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-EDIT_FILE_DESCRIPTION = (
+_EDIT_FILE_DESCRIPTION = (
     "Perform a small exact replacement in one UTF-8 text file inside the workspace."
 )
 
-EDIT_FILE_PARAMETERS: dict[str, Any] = {
+_EDIT_FILE_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "path": {
@@ -547,12 +547,12 @@ class WorkspaceFiles:
         if not recursive:
             return sorted(
                 item for item in path.iterdir()
-                if item.name not in DEFAULT_IGNORE_DIRS
+                if item.name not in _DEFAULT_IGNORE_DIRS
             )
 
         entries: list[Path] = []
         for dirpath, dirnames, filenames in os.walk(path):
-            dirnames[:] = sorted(name for name in dirnames if name not in DEFAULT_IGNORE_DIRS)
+            dirnames[:] = sorted(name for name in dirnames if name not in _DEFAULT_IGNORE_DIRS)
             current = Path(dirpath)
             entries.extend(current / dirname for dirname in dirnames)
             entries.extend(current / filename for filename in sorted(filenames))
@@ -949,8 +949,8 @@ def register_read_file_tool(
     return registry.register(
         CallableTool(
             name="read_file",
-            description=READ_FILE_DESCRIPTION,
-            parameters=READ_FILE_PARAMETERS,
+            description=_READ_FILE_DESCRIPTION,
+            parameters=_READ_FILE_PARAMETERS,
             handler=files.read_file,
             read_only=True,
         )
@@ -967,8 +967,8 @@ def register_write_file_tool(
     return registry.register(
         CallableTool(
             name="write_file",
-            description=WRITE_FILE_DESCRIPTION,
-            parameters=WRITE_FILE_PARAMETERS,
+            description=_WRITE_FILE_DESCRIPTION,
+            parameters=_WRITE_FILE_PARAMETERS,
             handler=files.write_file,
             exclusive=True,
         )
@@ -985,8 +985,8 @@ def register_list_dir_tool(
     return registry.register(
         CallableTool(
             name="list_dir",
-            description=LIST_DIR_DESCRIPTION,
-            parameters=LIST_DIR_PARAMETERS,
+            description=_LIST_DIR_DESCRIPTION,
+            parameters=_LIST_DIR_PARAMETERS,
             handler=files.list_dir,
             read_only=True,
         )
@@ -1003,8 +1003,8 @@ def register_edit_file_tool(
     return registry.register(
         CallableTool(
             name="edit_file",
-            description=EDIT_FILE_DESCRIPTION,
-            parameters=EDIT_FILE_PARAMETERS,
+            description=_EDIT_FILE_DESCRIPTION,
+            parameters=_EDIT_FILE_PARAMETERS,
             handler=files.edit_file,
             exclusive=True,
         )

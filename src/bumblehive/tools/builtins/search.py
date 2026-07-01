@@ -8,18 +8,18 @@ from typing import Any
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
 from .workspace import (
-    DEFAULT_IGNORE_DIRS,
+    _DEFAULT_IGNORE_DIRS,
     WorkspaceAccess,
     current_workspace_access,
     is_binary_bytes,
 )
 
 
-FIND_FILES_DESCRIPTION = (
+_FIND_FILES_DESCRIPTION = (
     "Find files by path fragment, glob, or file type inside the project workspace."
 )
 
-FIND_FILES_PARAMETERS: dict[str, Any] = {
+_FIND_FILES_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "path": {
@@ -63,11 +63,11 @@ FIND_FILES_PARAMETERS: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-GREP_DESCRIPTION = (
+_GREP_DESCRIPTION = (
     "Search file contents with a regex or plain text pattern inside the workspace."
 )
 
-GREP_PARAMETERS: dict[str, Any] = {
+_GREP_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "pattern": {
@@ -376,7 +376,7 @@ class WorkspaceSearch:
 
         paths: list[Path] = []
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = sorted(name for name in dirnames if name not in DEFAULT_IGNORE_DIRS)
+            dirnames[:] = sorted(name for name in dirnames if name not in _DEFAULT_IGNORE_DIRS)
             current = Path(dirpath)
             if include_dirs and current != root:
                 paths.append(current)
@@ -467,8 +467,8 @@ def register_find_files_tool(
     return registry.register(
         CallableTool(
             name="find_files",
-            description=FIND_FILES_DESCRIPTION,
-            parameters=FIND_FILES_PARAMETERS,
+            description=_FIND_FILES_DESCRIPTION,
+            parameters=_FIND_FILES_PARAMETERS,
             handler=search.find_files,
             read_only=True,
         )
@@ -483,8 +483,8 @@ def register_grep_tool(
     return registry.register(
         CallableTool(
             name="grep",
-            description=GREP_DESCRIPTION,
-            parameters=GREP_PARAMETERS,
+            description=_GREP_DESCRIPTION,
+            parameters=_GREP_PARAMETERS,
             handler=search.grep,
             read_only=True,
         )

@@ -14,11 +14,11 @@ from .workspace import (
 )
 
 
-APPLY_PATCH_DESCRIPTION = (
+_APPLY_PATCH_DESCRIPTION = (
     "Apply structured text edits to one or more UTF-8 files inside the workspace."
 )
 
-APPLY_PATCH_PARAMETERS: dict[str, Any] = {
+_APPLY_PATCH_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "edits": {
@@ -330,8 +330,8 @@ def register_apply_patch_tool(
     return registry.register(
         CallableTool(
             name="apply_patch",
-            description=APPLY_PATCH_DESCRIPTION,
-            parameters=APPLY_PATCH_PARAMETERS,
+            description=_APPLY_PATCH_DESCRIPTION,
+            parameters=_APPLY_PATCH_PARAMETERS,
             handler=patch.apply_patch,
             exclusive=True,
         )

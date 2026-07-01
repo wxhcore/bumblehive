@@ -7,7 +7,7 @@ from ..scope import current_tool_workspace
 from ...config import get_workspace_path
 
 
-DEFAULT_IGNORE_DIRS = frozenset(
+_DEFAULT_IGNORE_DIRS = frozenset(
     {
         ".git",
         ".coverage",
@@ -151,7 +151,7 @@ class WorkspaceAccess:
             return path.as_posix()
 
     @staticmethod
-    def is_ignored(path: Path, ignore_dirs: frozenset[str] = DEFAULT_IGNORE_DIRS) -> bool:
+    def is_ignored(path: Path, ignore_dirs: frozenset[str] = _DEFAULT_IGNORE_DIRS) -> bool:
         return any(part in ignore_dirs for part in path.parts)
 
 
