@@ -7,7 +7,7 @@ from ..contracts.errors import AgentError
 from ..providers.base import GenerationConfig, ModelProvider, ModelRequest
 from ..tools.calls import ToolCall, ToolResult
 from ..tools.manager import ToolManager
-from .context_governor import ContextGovernanceConfig, ContextGovernor
+from .context import ContextGovernanceConfig, ContextGovernor
 
 
 Message = dict[str, Any]

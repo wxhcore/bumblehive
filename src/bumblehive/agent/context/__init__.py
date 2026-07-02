@@ -1,10 +1,8 @@
-"""Agent context assembly primitives."""
+"""Agent context assembly, history preparation, and window management."""
 
-from .context import (
-    ContextBuilder,
-    ContextGovernanceConfig,
-    ContextGovernor,
-    DynamicValue,
+from .builder import ContextBuilder, DynamicValue
+from .governor import ContextGovernanceConfig, ContextGovernor
+from .history import (
     MessageHistoryManager,
     backfill_missing_tool_results,
     drop_empty_messages,
@@ -15,16 +13,11 @@ from .context import (
     sanitize_messages,
     truncate_tool_results,
 )
-from .loop import AgentLoop
-from .runner import AgentRunResult, ToolCallingRunner
 
 __all__ = [
-    "AgentLoop",
-    "AgentRunResult",
-    "ToolCallingRunner",
+    "ContextBuilder",
     "ContextGovernanceConfig",
     "ContextGovernor",
-    "ContextBuilder",
     "DynamicValue",
     "MessageHistoryManager",
     "backfill_missing_tool_results",

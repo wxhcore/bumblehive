@@ -4,8 +4,7 @@ from typing import Mapping
 from ..providers.base import GenerationConfig, ModelProvider
 from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
-from .context import ContextBuilder, DynamicValue
-from .history import MessageHistoryManager
+from .context import ContextBuilder, DynamicValue, MessageHistoryManager
 from .runner import AgentRunResult, ToolCallingRunner
 
 

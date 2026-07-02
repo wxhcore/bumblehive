@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .history import prepare_history, repair_message_sequence
-from .tokens import fit_context_window
+from .window import fit_context_window
 
 
 Message = dict[str, Any]
