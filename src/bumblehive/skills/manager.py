@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ..config import get_workspace_path
+from ..paths import get_workspace_path
 from .loader import load_skills
 from .models import Skill, SkillLoadResult
 from .render import render_skills_summary

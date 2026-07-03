@@ -1,25 +1,15 @@
 import re
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport, infer_transport
 from mcp.types import Tool as MCPToolDefinition
 
+from ...protocols.mcp import MCPServerConfig
 from ..adapters.mcp import MCPToolWrapper
 from ..policy import ToolPolicy
 from ..registry import ToolRegistry
-
-
-@dataclass(frozen=True)
-class MCPServerConfig:
-    """Configuration for one FastMCP-connectable server."""
-
-    name: str
-    url: str = ""
-    headers: dict[str, str] = field(default_factory=dict)
-    tool_timeout: int = 30
-    enabled_tools: list[str] = field(default_factory=lambda: ["*"])
 
 
 @dataclass(frozen=True)

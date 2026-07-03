@@ -3,12 +3,14 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Mapping
 
-from .calls import ToolCall, ToolResult
+from ..observability import EventEmitter
+from ..protocols import MCPServerConfig
+from ..protocols.tool_calls import ToolCall, ToolResult
 from .base import Tool
 from .builtins import _register_builtin_tools
 from .builtins.state import BuiltinToolState
 from .executor import ToolExecutor
-from .mcp import MCPManager, MCPServerConfig, MCPServerStatus
+from .mcp import MCPManager, MCPServerStatus
 from .policy import ToolPolicy
 from .registry import ToolRegistry
 
@@ -190,11 +192,13 @@ class ToolManager:
         *,
         allowed_tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
+        emitter: EventEmitter | None = None,
     ) -> ToolResult:
         return await self._executor.execute_call(
             call,
             allowed_tool_names=allowed_tool_names,
             workspace=workspace,
+            emitter=emitter,
         )
 
     async def execute_many(
@@ -203,11 +207,13 @@ class ToolManager:
         *,
         allowed_tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
+        emitter: EventEmitter | None = None,
     ) -> list[ToolResult]:
         return await self._executor.execute_many(
             calls,
             allowed_tool_names=allowed_tool_names,
             workspace=workspace,
+            emitter=emitter,
         )
 
     async def close_mcp_server(self, server_name: str) -> None:

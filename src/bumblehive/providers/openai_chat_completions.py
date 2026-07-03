@@ -5,9 +5,10 @@ from email.utils import parsedate_to_datetime
 from inspect import isawaitable
 from typing import Any
 
-from ..contracts.errors import AgentError
-from ..tools.calls import ToolCall, parse_tool_call
-from .base import GenerationConfig, ModelProvider, ModelRequest, ModelResponse
+from ..protocols.errors import AgentError
+from ..protocols.generation import GenerationConfig
+from ..protocols.tool_calls import ToolCall, parse_tool_call
+from .base import ModelProvider, ModelRequest, ModelResponse
 
 
 _ALLOWED_MESSAGE_KEYS = frozenset(

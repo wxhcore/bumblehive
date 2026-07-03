@@ -1,7 +1,6 @@
 """Bumblehive agent framework."""
 
 from .agent import AgentLoop, MessageHistoryManager, ToolCallingRunner
-from .config import get_workspace_path
 from .config.schema import (
     AgentConfig,
     BumblehiveConfig,
@@ -9,19 +8,22 @@ from .config.schema import (
     RuntimeArguments,
     RuntimeConfig,
 )
-from .providers import GenerationConfig, ProviderManager
+from .observability import AgentEvent, AgentHook, EventEmitter, EventRecorder
+from .paths import get_workspace_path
+from .providers import ProviderManager
 from .runtime import BumblehiveRuntime, from_config
 from .skills import SkillsManager
-from .tools.mcp.manager import MCPServerConfig
 from .tools.manager import ToolManager
 
 __all__ = [
     "AgentConfig",
+    "AgentEvent",
+    "AgentHook",
     "AgentLoop",
     "BumblehiveConfig",
     "BumblehiveRuntime",
-    "GenerationConfig",
-    "MCPServerConfig",
+    "EventRecorder",
+    "EventEmitter",
     "MessageHistoryManager",
     "ProviderConfig",
     "RuntimeArguments",

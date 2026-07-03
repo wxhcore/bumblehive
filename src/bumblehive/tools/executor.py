@@ -1,8 +1,16 @@
 import asyncio
+import time
 from pathlib import Path
 
-from ..contracts.errors import AgentError
-from .calls import ToolCall, ToolResult
+from ..protocols.errors import AgentError
+from ..protocols.tool_calls import ToolCall, ToolResult
+from ..observability import (
+    TOOL_CALL_FINISHED,
+    TOOL_CALL_STARTED,
+    EventEmitter,
+    tool_call_payload,
+    tool_result_payload,
+)
 from .scope import (
     bind_tool_workspace,
     reset_tool_workspace,
@@ -25,8 +33,36 @@ class ToolExecutor:
         *,
         allowed_tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
+        emitter: EventEmitter | None = None,
     ) -> ToolResult:
         """Execute a parsed tool call and return a structured result."""
+        emitter = emitter or EventEmitter.noop()
+        started_at = time.perf_counter()
+        await self._emit_tool_call_started(
+            emitter,
+            call=call,
+        )
+
+        result = await self._execute_call_core(
+            call,
+            allowed_tool_names=allowed_tool_names,
+            workspace=workspace,
+        )
+        await self._emit_tool_call_finished(
+            emitter,
+            call=call,
+            result=result,
+            started_at=started_at,
+        )
+        return result
+
+    async def _execute_call_core(
+        self,
+        call: ToolCall,
+        *,
+        allowed_tool_names: list[str] | None = None,
+        workspace: Path | str | None = None,
+    ) -> ToolResult:
         allowed = None if allowed_tool_names is None else frozenset(allowed_tool_names)
         if (
             allowed is not None
@@ -52,13 +88,14 @@ class ToolExecutor:
                 ),
             )
 
+        result: ToolResult | None = None
         token = None
         try:
             assert prepared.tool is not None
             token = bind_tool_workspace(workspace)
             content = await prepared.tool.execute(**prepared.arguments)
         except Exception as exc:
-            return ToolResult(
+            result = ToolResult(
                 call_id=call.id,
                 name=call.name,
                 error=AgentError(
@@ -69,8 +106,9 @@ class ToolExecutor:
         finally:
             if token is not None:
                 reset_tool_workspace(token)
-
-        return ToolResult(call_id=call.id, name=call.name, content=content)
+        if result is None:
+            result = ToolResult(call_id=call.id, name=call.name, content=content)
+        return result
 
     async def execute_many(
         self,
@@ -78,8 +116,10 @@ class ToolExecutor:
         *,
         allowed_tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
+        emitter: EventEmitter | None = None,
     ) -> list[ToolResult]:
         """Execute tool calls, parallelizing adjacent concurrency-safe tools."""
+        emitter = emitter or EventEmitter.noop()
         results: list[ToolResult] = []
         for batch in self._partition_calls(calls):
             if len(batch) == 1:
@@ -88,6 +128,7 @@ class ToolExecutor:
                         batch[0],
                         allowed_tool_names=allowed_tool_names,
                         workspace=workspace,
+                        emitter=emitter,
                     )
                 )
                 continue
@@ -99,12 +140,40 @@ class ToolExecutor:
                             call,
                             allowed_tool_names=allowed_tool_names,
                             workspace=workspace,
+                            emitter=emitter,
                         )
                         for call in batch
                     )
                 )
             )
         return results
+
+    @classmethod
+    async def _emit_tool_call_started(
+        cls,
+        emitter: EventEmitter,
+        *,
+        call: ToolCall,
+    ) -> None:
+        await emitter.emit(
+            TOOL_CALL_STARTED,
+            **tool_call_payload(call),
+        )
+
+    @classmethod
+    async def _emit_tool_call_finished(
+        cls,
+        emitter: EventEmitter,
+        *,
+        call: ToolCall,
+        result: ToolResult,
+        started_at: float,
+    ) -> None:
+        await emitter.emit(
+            TOOL_CALL_FINISHED,
+            **tool_result_payload(result, call=call),
+            duration_ms=int((time.perf_counter() - started_at) * 1000),
+        )
 
     def _partition_calls(self, calls: list[ToolCall]) -> list[list[ToolCall]]:
         batches: list[list[ToolCall]] = []

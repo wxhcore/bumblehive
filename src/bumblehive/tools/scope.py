@@ -1,7 +1,7 @@
 from contextvars import ContextVar, Token
 from pathlib import Path
 
-from ..config import get_workspace_path
+from ..paths import get_workspace_path
 
 
 _CURRENT_TOOL_WORKSPACE: ContextVar[Path | None] = ContextVar(

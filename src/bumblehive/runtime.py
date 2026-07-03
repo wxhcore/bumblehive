@@ -12,7 +12,9 @@ from .agent import (
 from .agent.context import DynamicValue
 from .config.loader import ConfigInput, load_config
 from .config.schema import BumblehiveConfig
-from .providers import GenerationConfig, ModelProvider, ProviderManager
+from .observability import HookInput
+from .protocols import GenerationConfig
+from .providers import ModelProvider, ProviderManager
 from .skills import SkillsManager
 from .tools import ToolManager
 
@@ -78,6 +80,7 @@ class BumblehiveRuntime:
         max_tool_result_chars: int | None = None,
         max_iterations: int | None = None,
         agent_instructions: str | None = None,
+        hooks: HookInput = None,
     ) -> AgentRunResult:
         """Run one turn using runtime defaults, with optional per-turn overrides."""
         self.reload_config()
@@ -132,6 +135,7 @@ class BumblehiveRuntime:
                 if agent_instructions is not None
                 else self.config.agent.instructions
             ),
+            hooks=hooks,
         )
 
     async def close(self) -> None:

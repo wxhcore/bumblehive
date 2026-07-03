@@ -17,15 +17,20 @@ from .context import (
 )
 from .loop import AgentLoop
 from .runner import AgentRunResult, ToolCallingRunner
+from ..observability import AgentEvent, AgentHook, EventEmitter, EventRecorder
 
 __all__ = [
     "AgentLoop",
     "AgentRunResult",
+    "AgentEvent",
+    "AgentHook",
     "ToolCallingRunner",
     "ContextGovernanceConfig",
     "ContextGovernor",
     "ContextBuilder",
     "DynamicValue",
+    "EventRecorder",
+    "EventEmitter",
     "MessageHistoryManager",
     "backfill_missing_tool_results",
     "drop_empty_messages",

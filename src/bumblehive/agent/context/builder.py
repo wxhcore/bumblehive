@@ -10,7 +10,7 @@ from pathlib import Path, PureWindowsPath
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from ...config import get_workspace_path
+from ...paths import get_workspace_path
 
 
 Message = dict[str, Any]

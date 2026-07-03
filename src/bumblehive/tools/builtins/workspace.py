@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..scope import current_tool_workspace
-from ...config import get_workspace_path
+from ...paths import get_workspace_path
 
 
 _DEFAULT_IGNORE_DIRS = frozenset(

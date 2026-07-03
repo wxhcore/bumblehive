@@ -4,8 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..providers.base import GenerationConfig
-from ..tools.mcp.manager import MCPServerConfig
+from ..protocols import GenerationConfig, MCPServerConfig
 
 
 @dataclass(frozen=True)

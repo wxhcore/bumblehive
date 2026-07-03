@@ -3,17 +3,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..contracts.errors import AgentError
-from ..tools.calls import ToolCall
-
-
-@dataclass(frozen=True)
-class GenerationConfig:
-    """Provider-agnostic generation settings for one model request."""
-    max_tokens: int = 8192
-    temperature: float | None = None
-    reasoning_effort: str | None = None
-    extra_body: dict[str, Any] | None = None
+from ..protocols.errors import AgentError
+from ..protocols.generation import GenerationConfig
+from ..protocols.tool_calls import ToolCall
 
 
 @dataclass(frozen=True)
