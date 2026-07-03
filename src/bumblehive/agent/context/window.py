@@ -6,6 +6,7 @@ from typing import Any
 
 Message = dict[str, Any]
 
+_DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000
 _SNIP_SAFETY_BUFFER = 1024
 
 
@@ -19,10 +20,22 @@ def fit_context_window(
     max_output_tokens: int,
 ) -> list[Message]:
     """Return messages trimmed to fit a rough context-window budget."""
-    if not messages or not context_window_tokens:
+    if not messages:
         return messages
 
-    budget = context_window_tokens - max(1, max_output_tokens) - _SNIP_SAFETY_BUFFER
+    effective_context_window_tokens = (
+        _DEFAULT_CONTEXT_WINDOW_TOKENS
+        if context_window_tokens is None
+        else context_window_tokens
+    )
+    if effective_context_window_tokens <= 0:
+        return messages
+
+    budget = (
+        effective_context_window_tokens
+        - max(1, max_output_tokens)
+        - _SNIP_SAFETY_BUFFER
+    )
     if budget <= 0:
         return messages
 
