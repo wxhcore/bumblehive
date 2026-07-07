@@ -6,7 +6,6 @@ from ..observability import (
     TURN_ERROR,
     TURN_FINISHED,
     TURN_STARTED,
-    USER_MESSAGE,
     EventEmitter,
     HookInput,
 )
@@ -64,11 +63,6 @@ class AgentLoop:
         emitter = EventEmitter.from_hooks(hooks, run_id=run_id)
         await emitter.emit(
             TURN_STARTED,
-            model=model,
-            workspace=str(workspace) if workspace is not None else None,
-        )
-        await emitter.emit(
-            USER_MESSAGE,
             message={
                 "role": "user",
                 "content": current_user_message,
