@@ -53,8 +53,6 @@ ITERATION_FINISHED = "iteration.finished"
 MODEL_REQUEST_STARTED = "model.request.started"
 MODEL_RESPONSE_FINISHED = "model.response.finished"
 
-TOOL_MESSAGE = "tool.message"
-
 TOOL_CALLS_STARTED = "tool.calls.started"
 TOOL_CALL_STARTED = "tool.call.started"
 TOOL_CALL_FINISHED = "tool.call.finished"

@@ -8,6 +8,7 @@ from ..observability import (
     TURN_STARTED,
     EventEmitter,
     HookInput,
+    error_payload,
 )
 from ..protocols import GenerationConfig
 from ..providers.base import ModelProvider
@@ -150,5 +151,6 @@ class AgentLoop:
             message_count=len(result.messages),
             tools_used=list(result.tools_used),
             usage=dict(result.usage),
+            error=error_payload(result.error),
         )
         return result

@@ -1,10 +1,9 @@
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..protocols.errors import AgentError
-from ..protocols.tool_calls import ToolCall, ToolResult
+from ..protocols.tool_calls import ToolCall, tool_result_to_openai_message
 from ..observability import (
     FINAL_RESULT,
     ITERATION_FINISHED,
@@ -16,7 +15,6 @@ from ..observability import (
     RUN_STARTED,
     TOOL_CALLS_FINISHED,
     TOOL_CALLS_STARTED,
-    TOOL_MESSAGE,
     EventEmitter,
     error_payload,
 )
@@ -210,13 +208,11 @@ class ToolCallingRunner:
                 for tool_call, tool_result in zip(response.tool_calls, tool_results):
                     if tool_result.error is None:
                         tools_used.append(tool_call.name)
-                    tool_message = self._tool_result_message(tool_call, tool_result)
-                    run_messages.append(tool_message)
-                    await self._emit_tool_message(
-                        iteration_emitter,
-                        message=tool_message,
-                        result=tool_result,
+                    tool_message = tool_result_to_openai_message(
+                        tool_result,
+                        call=tool_call,
                     )
+                    run_messages.append(tool_message)
                 await iteration_emitter.emit(
                     TOOL_CALLS_FINISHED,
                     tool_count=len(response.tool_calls),
@@ -280,6 +276,7 @@ class ToolCallingRunner:
             FINAL_RESULT,
             final_content=final_content,
             stop_reason=result.stop_reason,
+            error=error_payload(result.error),
         )
         await self._emit_run_finished(emitter, result=result)
         return result
@@ -313,20 +310,6 @@ class ToolCallingRunner:
             refusal=response.refusal,
             error=error_payload(response.error),
             message=dict(message) if message is not None else None,
-        )
-
-    @classmethod
-    async def _emit_tool_message(
-        cls,
-        emitter: EventEmitter,
-        *,
-        message: Message,
-        result: ToolResult,
-    ) -> None:
-        await emitter.emit(
-            TOOL_MESSAGE,
-            error=error_payload(result.error),
-            message=dict(message),
         )
 
     @classmethod
@@ -386,44 +369,6 @@ class ToolCallingRunner:
             for tool_call in response.tool_calls
         ]
         return message
-
-    @classmethod
-    def _tool_result_message(
-        cls,
-        tool_call: ToolCall,
-        result: ToolResult,
-    ) -> Message:
-        return {
-            "role": "tool",
-            "tool_call_id": result.call_id or tool_call.id,
-            "name": result.name or tool_call.name,
-            "content": cls._tool_result_content(result),
-        }
-
-    @classmethod
-    def _tool_result_content(cls, result: ToolResult) -> str:
-        if result.error is not None:
-            return cls._stringify(
-                {
-                    "error": {
-                        "code": result.error.code,
-                        "message": result.error.message,
-                        "recoverable": result.error.recoverable,
-                    }
-                }
-            )
-        return cls._stringify(result.content)
-
-    @staticmethod
-    def _stringify(value: Any) -> str:
-        if isinstance(value, str):
-            return value
-        if value is None:
-            return ""
-        try:
-            return json.dumps(value, ensure_ascii=False)
-        except (TypeError, ValueError):
-            return str(value)
 
     @staticmethod
     def _accumulate_usage(

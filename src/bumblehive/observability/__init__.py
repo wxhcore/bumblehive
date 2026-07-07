@@ -13,7 +13,6 @@ from .events import (
     TOOL_CALL_STARTED,
     TOOL_CALLS_FINISHED,
     TOOL_CALLS_STARTED,
-    TOOL_MESSAGE,
     TURN_CONTEXT_BUILT,
     TURN_ERROR,
     TURN_FINISHED,
@@ -32,7 +31,11 @@ from .hooks import (
     NoopHook,
     normalize_hooks,
 )
-from .payloads import error_payload, tool_call_payload, tool_result_payload
+from .payloads import (
+    error_payload,
+    tool_call_payload,
+    tool_result_payload,
+)
 from .recording import EventRecorder
 
 __all__ = [
@@ -57,7 +60,6 @@ __all__ = [
     "TOOL_CALL_STARTED",
     "TOOL_CALLS_FINISHED",
     "TOOL_CALLS_STARTED",
-    "TOOL_MESSAGE",
     "TURN_CONTEXT_BUILT",
     "TURN_ERROR",
     "TURN_FINISHED",

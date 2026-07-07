@@ -1,6 +1,7 @@
 from typing import Any
 
 from ..protocols import AgentError, ToolCall, ToolResult
+from ..protocols.tool_calls import tool_result_to_openai_message
 
 
 def error_payload(error: AgentError | None) -> dict[str, Any] | None:
@@ -33,8 +34,7 @@ def tool_result_payload(
     """Return the standard event payload for a tool result."""
 
     return {
-        "call_id": result.call_id or (call.id if call is not None else ""),
-        "name": result.name or (call.name if call is not None else ""),
         "ok": result.error is None,
         "error": error_payload(result.error),
+        "message": tool_result_to_openai_message(result, call=call),
     }
