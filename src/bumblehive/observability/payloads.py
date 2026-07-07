@@ -1,7 +1,6 @@
 from typing import Any
 
 from ..protocols import AgentError, ToolCall, ToolResult
-from ..protocols.tool_calls import tool_result_to_openai_message
 
 
 def error_payload(error: AgentError | None) -> dict[str, Any] | None:
@@ -36,5 +35,5 @@ def tool_result_payload(
     return {
         "ok": result.error is None,
         "error": error_payload(result.error),
-        "message": tool_result_to_openai_message(result, call=call),
+        "message": result.to_openai_tool_message(call=call),
     }

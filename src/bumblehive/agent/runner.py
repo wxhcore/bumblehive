@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from ..protocols.errors import AgentError
-from ..protocols.tool_calls import ToolCall, tool_result_to_openai_message
+from ..protocols.tool_calls import ToolCall
 from ..observability import (
     FINAL_RESULT,
     ITERATION_FINISHED,
@@ -208,10 +208,7 @@ class ToolCallingRunner:
                 for tool_call, tool_result in zip(response.tool_calls, tool_results):
                     if tool_result.error is None:
                         tools_used.append(tool_call.name)
-                    tool_message = tool_result_to_openai_message(
-                        tool_result,
-                        call=tool_call,
-                    )
+                    tool_message = tool_result.to_openai_tool_message(call=tool_call)
                     run_messages.append(tool_message)
                 await iteration_emitter.emit(
                     TOOL_CALLS_FINISHED,
