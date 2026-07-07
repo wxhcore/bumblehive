@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from ..protocols.errors import AgentError
-from ..protocols.tool_calls import ToolCall
+from ..protocols.tool_calls import ToolCall, ToolResult
 from ..observability import (
     FINAL_RESULT,
     ITERATION_FINISHED,
@@ -75,12 +75,9 @@ class ToolCallingRunner:
             _MAX_ITERATIONS if max_iterations is None else max_iterations
         )
 
-        await emitter.emit(
-            RUN_STARTED,
-            model=model,
-            tool_count=len(tool_definitions),
+        await self._emit_run_started(
+            emitter,
             message_count=len(run_messages),
-            max_iterations=effective_max_iterations,
         )
 
         try:
@@ -101,11 +98,7 @@ class ToolCallingRunner:
                 emitter=emitter,
             )
         except Exception as exc:
-            await emitter.emit(
-                RUN_ERROR,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-            )
+            await self._emit_run_error(emitter, exc=exc)
             raise
 
     async def _run_iterations(
@@ -128,8 +121,8 @@ class ToolCallingRunner:
     ) -> AgentRunResult:
         for iteration in range(max_iterations):
             iteration_emitter = emitter.with_iteration(iteration)
-            await iteration_emitter.emit(
-                ITERATION_STARTED,
+            await self._emit_iteration_started(
+                iteration_emitter,
                 message_count=len(run_messages),
             )
             request_generation = (
@@ -152,11 +145,9 @@ class ToolCallingRunner:
                 model=model,
                 generation=request_generation,
             )
-            await iteration_emitter.emit(
-                MODEL_REQUEST_STARTED,
-                model=model,
+            await self._emit_model_request_started(
+                iteration_emitter,
                 message_count=len(request_messages),
-                tool_count=len(tool_definitions),
             )
             response = await provider.generate_with_retry(request)
             self._accumulate_usage(usage, response.usage)
@@ -174,16 +165,14 @@ class ToolCallingRunner:
                     stop_reason="model_error",
                     error=response.error,
                 )
-                await iteration_emitter.emit(
-                    FINAL_RESULT,
-                    final_content=result.final_content,
-                    stop_reason=result.stop_reason,
-                    error=error_payload(result.error),
-                )
+                await self._emit_final_result(iteration_emitter, result=result)
                 await self._emit_iteration_finished(
                     iteration_emitter,
-                    result=result,
                     finish_reason=response.finish_reason,
+                    message_count=len(result.messages),
+                    tools_used=result.tools_used,
+                    usage=result.usage,
+                    error=result.error,
                 )
                 await self._emit_run_finished(emitter, result=result)
                 return result
@@ -211,17 +200,16 @@ class ToolCallingRunner:
                         tools_used.append(tool_call.name)
                     tool_message = tool_result.to_openai_tool_message(call=tool_call)
                     run_messages.append(tool_message)
-                await iteration_emitter.emit(
-                    TOOL_CALLS_FINISHED,
-                    tool_count=len(response.tool_calls),
-                    error_count=sum(1 for result in tool_results if result.error),
+                await self._emit_tool_calls_finished(
+                    iteration_emitter,
+                    tool_results=tool_results,
                 )
-                await iteration_emitter.emit(
-                    ITERATION_FINISHED,
+                await self._emit_iteration_finished(
+                    iteration_emitter,
                     finish_reason=response.finish_reason,
                     message_count=len(run_messages),
-                    tools_used=list(tools_used),
-                    usage=dict(usage),
+                    tools_used=tools_used,
+                    usage=usage,
                 )
                 continue
 
@@ -243,15 +231,14 @@ class ToolCallingRunner:
                 usage=usage,
                 stop_reason="completed",
             )
-            await iteration_emitter.emit(
-                FINAL_RESULT,
-                final_content=final_content,
-                stop_reason=result.stop_reason,
-            )
+            await self._emit_final_result(iteration_emitter, result=result)
             await self._emit_iteration_finished(
                 iteration_emitter,
-                result=result,
                 finish_reason=response.finish_reason,
+                message_count=len(result.messages),
+                tools_used=result.tools_used,
+                usage=result.usage,
+                error=result.error,
             )
             await self._emit_run_finished(emitter, result=result)
             return result
@@ -271,14 +258,58 @@ class ToolCallingRunner:
                 recoverable=True,
             ),
         )
-        await emitter.emit(
-            FINAL_RESULT,
-            final_content=final_content,
-            stop_reason=result.stop_reason,
-            error=error_payload(result.error),
-        )
+        await self._emit_final_result(emitter, result=result)
         await self._emit_run_finished(emitter, result=result)
         return result
+
+    @classmethod
+    async def _emit_run_started(
+        cls,
+        emitter: EventEmitter,
+        *,
+        message_count: int,
+    ) -> None:
+        await emitter.emit(
+            RUN_STARTED,
+            message_count=message_count,
+        )
+
+    @classmethod
+    async def _emit_run_error(
+        cls,
+        emitter: EventEmitter,
+        *,
+        exc: Exception,
+    ) -> None:
+        await emitter.emit(
+            RUN_ERROR,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
+
+    @classmethod
+    async def _emit_iteration_started(
+        cls,
+        emitter: EventEmitter,
+        *,
+        message_count: int,
+    ) -> None:
+        await emitter.emit(
+            ITERATION_STARTED,
+            message_count=message_count,
+        )
+
+    @classmethod
+    async def _emit_model_request_started(
+        cls,
+        emitter: EventEmitter,
+        *,
+        message_count: int,
+    ) -> None:
+        await emitter.emit(
+            MODEL_REQUEST_STARTED,
+            message_count=message_count,
+        )
 
     @classmethod
     async def _emit_tool_calls_started(
@@ -289,7 +320,33 @@ class ToolCallingRunner:
     ) -> None:
         await emitter.emit(
             TOOL_CALLS_STARTED,
-            tool_count=len(tool_calls),
+            tool_call_count=len(tool_calls),
+        )
+
+    @classmethod
+    async def _emit_tool_calls_finished(
+        cls,
+        emitter: EventEmitter,
+        *,
+        tool_results: list[ToolResult],
+    ) -> None:
+        await emitter.emit(
+            TOOL_CALLS_FINISHED,
+            error_count=sum(1 for result in tool_results if result.error),
+        )
+
+    @classmethod
+    async def _emit_final_result(
+        cls,
+        emitter: EventEmitter,
+        *,
+        result: AgentRunResult,
+    ) -> None:
+        await emitter.emit(
+            FINAL_RESULT,
+            final_content=result.final_content,
+            stop_reason=result.stop_reason,
+            error=error_payload(result.error),
         )
 
     @classmethod
@@ -304,7 +361,6 @@ class ToolCallingRunner:
             MODEL_RESPONSE_FINISHED,
             finish_reason=response.finish_reason,
             is_error=response.is_error,
-            tool_call_count=len(response.tool_calls),
             usage=dict(response.usage),
             refusal=response.refusal,
             error=error_payload(response.error),
@@ -316,16 +372,19 @@ class ToolCallingRunner:
         cls,
         emitter: EventEmitter,
         *,
-        result: AgentRunResult,
         finish_reason: str,
+        message_count: int,
+        tools_used: list[str],
+        usage: dict[str, int],
+        error: AgentError | None = None,
     ) -> None:
         await emitter.emit(
             ITERATION_FINISHED,
             finish_reason=finish_reason,
-            message_count=len(result.messages),
-            tools_used=list(result.tools_used),
-            usage=dict(result.usage),
-            error=error_payload(result.error),
+            message_count=message_count,
+            tools_used=list(tools_used),
+            usage=dict(usage),
+            error=error_payload(error),
         )
 
     @classmethod

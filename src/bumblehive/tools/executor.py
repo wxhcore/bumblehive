@@ -37,22 +37,23 @@ class ToolExecutor:
     ) -> ToolResult:
         """Execute a parsed tool call and return a structured result."""
         emitter = emitter or EventEmitter.noop()
-        started_at = time.perf_counter()
         await self._emit_tool_call_started(
             emitter,
             call=call,
         )
 
+        started_at_ns = time.perf_counter_ns()
         result = await self._execute_call_core(
             call,
             allowed_tool_names=allowed_tool_names,
             workspace=workspace,
         )
+        duration_s = (time.perf_counter_ns() - started_at_ns) / 1_000_000_000
         await self._emit_tool_call_finished(
             emitter,
             call=call,
             result=result,
-            started_at=started_at,
+            duration_s=duration_s,
         )
         return result
 
@@ -167,12 +168,12 @@ class ToolExecutor:
         *,
         call: ToolCall,
         result: ToolResult,
-        started_at: float,
+        duration_s: float,
     ) -> None:
         await emitter.emit(
             TOOL_CALL_FINISHED,
             **tool_result_payload(result, call=call),
-            duration_ms=int((time.perf_counter() - started_at) * 1000),
+            duration_s=round(duration_s, 4),
         )
 
     def _partition_calls(self, calls: list[ToolCall]) -> list[list[ToolCall]]:
