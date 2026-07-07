@@ -311,6 +311,7 @@ class ToolCallingRunner:
             tool_call_count=len(response.tool_calls),
             usage=dict(response.usage),
             refusal=response.refusal,
+            error=error_payload(response.error),
             message=dict(message) if message is not None else None,
         )
 
