@@ -183,6 +183,7 @@ class ToolCallingRunner:
                 await self._emit_iteration_finished(
                     iteration_emitter,
                     result=result,
+                    finish_reason=response.finish_reason,
                 )
                 await self._emit_run_finished(emitter, result=result)
                 return result
@@ -217,7 +218,7 @@ class ToolCallingRunner:
                 )
                 await iteration_emitter.emit(
                     ITERATION_FINISHED,
-                    stop_reason="tool_calls",
+                    finish_reason=response.finish_reason,
                     message_count=len(run_messages),
                     tools_used=list(tools_used),
                     usage=dict(usage),
@@ -250,6 +251,7 @@ class ToolCallingRunner:
             await self._emit_iteration_finished(
                 iteration_emitter,
                 result=result,
+                finish_reason=response.finish_reason,
             )
             await self._emit_run_finished(emitter, result=result)
             return result
@@ -315,10 +317,11 @@ class ToolCallingRunner:
         emitter: EventEmitter,
         *,
         result: AgentRunResult,
+        finish_reason: str,
     ) -> None:
         await emitter.emit(
             ITERATION_FINISHED,
-            stop_reason=result.stop_reason,
+            finish_reason=finish_reason,
             message_count=len(result.messages),
             tools_used=list(result.tools_used),
             usage=dict(result.usage),
