@@ -6,7 +6,6 @@ from typing import Any
 from ..protocols.errors import AgentError
 from ..protocols.tool_calls import ToolCall, ToolResult
 from ..observability import (
-    ASSISTANT_MESSAGE,
     FINAL_RESULT,
     ITERATION_FINISHED,
     ITERATION_STARTED,
@@ -163,15 +162,12 @@ class ToolCallingRunner:
             )
             response = await provider.generate_with_retry(request)
             self._accumulate_usage(usage, response.usage)
-            await iteration_emitter.emit(
-                MODEL_RESPONSE_FINISHED,
-                finish_reason=response.finish_reason,
-                is_error=response.is_error,
-                tool_call_count=len(response.tool_calls),
-                usage=dict(response.usage),
-            )
 
             if response.is_error:
+                await self._emit_model_response_finished(
+                    iteration_emitter,
+                    response=response,
+                )
                 result = AgentRunResult(
                     final_content=response.content,
                     messages=run_messages,
@@ -196,11 +192,10 @@ class ToolCallingRunner:
             if response.should_execute_tools:
                 assistant_message = self._assistant_tool_call_message(response)
                 run_messages.append(assistant_message)
-                await self._emit_assistant_message(
+                await self._emit_model_response_finished(
                     iteration_emitter,
+                    response=response,
                     message=assistant_message,
-                    finish_reason=response.finish_reason,
-                    refusal=response.refusal,
                 )
                 await self._emit_tool_calls_started(
                     iteration_emitter,
@@ -242,11 +237,10 @@ class ToolCallingRunner:
                 reasoning_content=response.reasoning_content,
             )
             run_messages.append(assistant_message)
-            await self._emit_assistant_message(
+            await self._emit_model_response_finished(
                 iteration_emitter,
+                response=response,
                 message=assistant_message,
-                finish_reason=response.finish_reason,
-                refusal=response.refusal,
             )
             result = AgentRunResult(
                 final_content=final_content,
@@ -282,11 +276,6 @@ class ToolCallingRunner:
                 recoverable=True,
             ),
         )
-        await self._emit_assistant_message(
-            emitter,
-            message=assistant_message,
-            finish_reason=result.stop_reason,
-        )
         await emitter.emit(
             FINAL_RESULT,
             final_content=final_content,
@@ -308,19 +297,21 @@ class ToolCallingRunner:
         )
 
     @classmethod
-    async def _emit_assistant_message(
+    async def _emit_model_response_finished(
         cls,
         emitter: EventEmitter,
         *,
-        message: Message,
-        finish_reason: str,
-        refusal: str | None = None,
+        response: Any,
+        message: Message | None = None,
     ) -> None:
         await emitter.emit(
-            ASSISTANT_MESSAGE,
-            refusal=refusal,
-            finish_reason=finish_reason,
-            message=dict(message),
+            MODEL_RESPONSE_FINISHED,
+            finish_reason=response.finish_reason,
+            is_error=response.is_error,
+            tool_call_count=len(response.tool_calls),
+            usage=dict(response.usage),
+            refusal=response.refusal,
+            message=dict(message) if message is not None else None,
         )
 
     @classmethod

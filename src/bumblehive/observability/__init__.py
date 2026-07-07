@@ -1,7 +1,6 @@
 """Lifecycle events and hooks for observing bumblehive agent runs."""
 
 from .events import (
-    ASSISTANT_MESSAGE,
     FINAL_RESULT,
     ITERATION_FINISHED,
     ITERATION_STARTED,
@@ -39,7 +38,6 @@ from .recording import EventRecorder
 __all__ = [
     "AgentEvent",
     "AgentHook",
-    "ASSISTANT_MESSAGE",
     "CallbackHook",
     "CompositeHook",
     "EventCallback",
