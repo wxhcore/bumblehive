@@ -19,9 +19,11 @@ def tool_call_payload(call: ToolCall) -> dict[str, Any]:
     """Return the standard event payload for a tool call."""
 
     return {
-        "call_id": call.id,
-        "name": call.name,
-        "arguments": dict(call.arguments),
+        "tool_call": {
+            "call_id": call.id,
+            "name": call.name,
+            "arguments": dict(call.arguments),
+        },
     }
 
 
@@ -32,8 +34,11 @@ def tool_result_payload(
 ) -> dict[str, Any]:
     """Return the standard event payload for a tool result."""
 
-    return {
+    payload: dict[str, Any] = {
         "ok": result.error is None,
-        "error": error_payload(result.error),
-        "message": result.to_openai_tool_message(call=call),
+        "tool_result": result.to_openai_tool_message(call=call),
     }
+    error = error_payload(result.error)
+    if error is not None:
+        payload["error"] = error
+    return payload
