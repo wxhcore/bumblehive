@@ -338,9 +338,6 @@ class ToolCallingRunner:
         await emitter.emit(
             RUN_FINISHED,
             stop_reason=result.stop_reason,
-            message_count=len(result.messages),
-            tools_used=list(result.tools_used),
-            usage=dict(result.usage),
             error=error_payload(result.error),
         )
 
