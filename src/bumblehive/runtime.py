@@ -94,6 +94,34 @@ class BumblehiveRuntime:
 
         return AsyncEventStream(_run_with_stream_hook, maxsize=max_queue_size)
 
+    async def run_console(
+        self,
+        message: str,
+        *,
+        config: Mapping[str, Any] | None = None,
+        hooks: HookInput = None,
+        renderer: Any | None = None,
+        max_queue_size: int = 256,
+    ) -> None:
+        """Run one turn and render native stream events to the console."""
+
+        if renderer is None:
+            from .console import ConsoleStreamRenderer
+
+            renderer = ConsoleStreamRenderer()
+
+        renderer.start(message)
+        try:
+            async for event in self.stream(
+                message,
+                config=config,
+                hooks=hooks,
+                max_queue_size=max_queue_size,
+            ):
+                await renderer.on_event(event)
+        finally:
+            await renderer.finish()
+
     async def _run(
         self,
         message: str,
