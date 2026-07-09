@@ -1,3 +1,5 @@
+import asyncio
+
 from .base import ModelProvider
 from .openai_chat_completions import OpenAIChatCompletionsProvider
 
@@ -16,6 +18,7 @@ class ProviderManager:
     def __init__(self) -> None:
         self._key: ProviderKey | None = None
         self._provider: ModelProvider | None = None
+        self._lock = asyncio.Lock()
 
     async def get(
         self,
@@ -23,22 +26,24 @@ class ProviderManager:
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> ModelProvider:
-        key = (api_key, base_url)
+        async with self._lock:
+            key = (api_key, base_url)
 
-        if self._provider is not None and key == self._key:
+            if self._provider is not None and key == self._key:
+                return self._provider
+
+            await self._discard_current_provider()
+            self._provider = self._create_provider(
+                api_key=api_key,
+                base_url=base_url,
+            )
+            self._key = key
             return self._provider
-
-        await self._discard_current_provider()
-        self._provider = self._create_provider(
-            api_key=api_key,
-            base_url=base_url,
-        )
-        self._key = key
-        return self._provider
 
     async def close(self) -> None:
         """Close and forget the currently cached provider."""
-        await self._discard_current_provider()
+        async with self._lock:
+            await self._discard_current_provider()
 
     async def _discard_current_provider(self) -> None:
         """Remove the cached provider and release its resources."""
