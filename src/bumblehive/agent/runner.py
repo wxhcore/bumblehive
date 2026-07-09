@@ -27,6 +27,7 @@ _MAX_ITERATIONS_MESSAGE = (
     "I reached the maximum number of tool iterations before producing "
     "a final response."
 )
+_MODEL_ERROR_PLACEHOLDER = "[Assistant reply unavailable due to model error.]"
 
 
 @dataclass(frozen=True)
@@ -152,12 +153,14 @@ class ToolCallingRunner:
             self._accumulate_usage(usage, response.usage)
 
             if response.is_error:
+                assistant_message = self._append_model_error_placeholder(run_messages)
                 await model_events.response_finished(
                     finish_reason=response.finish_reason,
                     is_error=response.is_error,
                     usage=response.usage,
                     refusal=response.refusal,
                     error=response.error,
+                    message=assistant_message,
                 )
                 result = AgentRunResult(
                     final_content=response.content,
@@ -339,6 +342,21 @@ class ToolCallingRunner:
             tool_call.to_openai_tool_call()
             for tool_call in response.tool_calls
         ]
+        return message
+
+    @classmethod
+    def _append_model_error_placeholder(
+        cls,
+        messages: list[Message],
+    ) -> Message | None:
+        if (
+            messages
+            and messages[-1].get("role") == "assistant"
+            and not messages[-1].get("tool_calls")
+        ):
+            return None
+        message = cls._assistant_message(_MODEL_ERROR_PLACEHOLDER)
+        messages.append(message)
         return message
 
     @staticmethod
