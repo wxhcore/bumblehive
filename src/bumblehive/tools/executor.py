@@ -5,11 +5,8 @@ from pathlib import Path
 from ..protocols.errors import AgentError
 from ..protocols.tool_calls import ToolCall, ToolResult
 from ..observability import (
-    TOOL_CALL_FINISHED,
-    TOOL_CALL_STARTED,
     EventEmitter,
-    tool_call_payload,
-    tool_result_payload,
+    ToolEvents,
 )
 from .scope import (
     bind_tool_workspace,
@@ -37,10 +34,8 @@ class ToolExecutor:
     ) -> ToolResult:
         """Execute a parsed tool call and return a structured result."""
         emitter = emitter or EventEmitter.noop()
-        await self._emit_tool_call_started(
-            emitter,
-            call=call,
-        )
+        tool_events = ToolEvents(emitter)
+        await tool_events.call_started(call)
 
         started_at_ns = time.perf_counter_ns()
         result = await self._execute_call_core(
@@ -49,8 +44,7 @@ class ToolExecutor:
             workspace=workspace,
         )
         duration_s = (time.perf_counter_ns() - started_at_ns) / 1_000_000_000
-        await self._emit_tool_call_finished(
-            emitter,
+        await tool_events.call_finished(
             call=call,
             result=result,
             duration_s=duration_s,
@@ -148,33 +142,6 @@ class ToolExecutor:
                 )
             )
         return results
-
-    @classmethod
-    async def _emit_tool_call_started(
-        cls,
-        emitter: EventEmitter,
-        *,
-        call: ToolCall,
-    ) -> None:
-        await emitter.emit(
-            TOOL_CALL_STARTED,
-            **tool_call_payload(call),
-        )
-
-    @classmethod
-    async def _emit_tool_call_finished(
-        cls,
-        emitter: EventEmitter,
-        *,
-        call: ToolCall,
-        result: ToolResult,
-        duration_s: float,
-    ) -> None:
-        await emitter.emit(
-            TOOL_CALL_FINISHED,
-            **tool_result_payload(result, call=call),
-            duration_s=round(duration_s, 4),
-        )
 
     def _partition_calls(self, calls: list[ToolCall]) -> list[list[ToolCall]]:
         batches: list[list[ToolCall]] = []

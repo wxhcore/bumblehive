@@ -2,13 +2,9 @@ from pathlib import Path
 from typing import Mapping
 
 from ..observability import (
-    TURN_CONTEXT_BUILT,
-    TURN_ERROR,
-    TURN_FINISHED,
-    TURN_STARTED,
     EventEmitter,
     HookInput,
-    error_payload,
+    TurnEvents,
 )
 from ..protocols import GenerationConfig
 from ..providers.base import ModelProvider
@@ -63,10 +59,8 @@ class AgentLoop:
         list exposes only the named items in the given order.
         """
         emitter = EventEmitter.from_hooks(hooks, run_id=run_id)
-        await self._emit_turn_started(
-            emitter,
-            current_user_message=current_user_message,
-        )
+        turn_events = TurnEvents(emitter)
+        await turn_events.started(current_user_message)
 
         try:
             return await self._run_turn(
@@ -87,7 +81,7 @@ class AgentLoop:
                 stream=stream,
             )
         except Exception as exc:
-            await self._emit_turn_error(emitter, exc=exc)
+            await turn_events.error(exc)
             raise
 
     async def _run_turn(
@@ -122,10 +116,8 @@ class AgentLoop:
             agent_instructions=agent_instructions,
             available_skills=available_skills,
         )
-        await self._emit_turn_context_built(
-            emitter,
-            message_count=len(messages),
-        )
+        turn_events = TurnEvents(emitter)
+        await turn_events.context_built(message_count=len(messages))
 
         result = await self.runner.run(
             provider=provider,
@@ -142,58 +134,8 @@ class AgentLoop:
             stream=stream,
         )
         self.history.replace_run_messages(result.messages)
-        await self._emit_turn_finished(emitter, result=result)
-        return result
-
-    @classmethod
-    async def _emit_turn_started(
-        cls,
-        emitter: EventEmitter,
-        *,
-        current_user_message: str,
-    ) -> None:
-        await emitter.emit(
-            TURN_STARTED,
-            message={
-                "role": "user",
-                "content": current_user_message,
-            },
-        )
-
-    @classmethod
-    async def _emit_turn_error(
-        cls,
-        emitter: EventEmitter,
-        *,
-        exc: Exception,
-    ) -> None:
-        await emitter.emit(
-            TURN_ERROR,
-            error_type=type(exc).__name__,
-            error_message=str(exc),
-        )
-
-    @classmethod
-    async def _emit_turn_context_built(
-        cls,
-        emitter: EventEmitter,
-        *,
-        message_count: int,
-    ) -> None:
-        await emitter.emit(
-            TURN_CONTEXT_BUILT,
-            message_count=message_count,
-        )
-
-    @classmethod
-    async def _emit_turn_finished(
-        cls,
-        emitter: EventEmitter,
-        *,
-        result: AgentRunResult,
-    ) -> None:
-        await emitter.emit(
-            TURN_FINISHED,
+        await turn_events.finished(
             stop_reason=result.stop_reason,
-            error=error_payload(result.error),
+            error=result.error,
         )
+        return result

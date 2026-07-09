@@ -26,6 +26,7 @@ from .events import (
     new_run_id,
 )
 from .emitter import EventEmitter
+from .emitters import ModelEvents, RunEvents, ToolEvents, TurnEvents
 from .hooks import (
     AgentHook,
     CallbackHook,
@@ -63,18 +64,22 @@ __all__ = [
     "MODEL_STREAM_REASONING_DELTA",
     "MODEL_STREAM_RECOVERED",
     "MODEL_STREAM_TOOL_CALL_DELTA",
+    "ModelEvents",
     "NoopHook",
     "RUN_ERROR",
     "RUN_FINISHED",
     "RUN_STARTED",
+    "RunEvents",
     "TOOL_CALL_FINISHED",
     "TOOL_CALL_STARTED",
     "TOOL_CALLS_FINISHED",
     "TOOL_CALLS_STARTED",
+    "ToolEvents",
     "TURN_CONTEXT_BUILT",
     "TURN_ERROR",
     "TURN_FINISHED",
     "TURN_STARTED",
+    "TurnEvents",
     "error_payload",
     "make_event",
     "new_run_id",
