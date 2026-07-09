@@ -54,6 +54,7 @@ class AgentLoop:
         agent_instructions: str | None = None,
         hooks: HookInput = None,
         run_id: str | None = None,
+        stream: bool = False,
     ) -> AgentRunResult:
         """Run one user turn with optional skill and tool filtering.
 
@@ -86,6 +87,7 @@ class AgentLoop:
                 max_iterations=max_iterations,
                 agent_instructions=agent_instructions,
                 emitter=emitter,
+                stream=stream,
             )
         except Exception as exc:
             await emitter.emit(
@@ -112,6 +114,7 @@ class AgentLoop:
         max_iterations: int | None,
         agent_instructions: str | None,
         emitter: EventEmitter,
+        stream: bool,
     ) -> AgentRunResult:
         available_skills = self.skills.build_skills_summary(
             skill_names,
@@ -143,6 +146,7 @@ class AgentLoop:
             max_tool_result_chars=max_tool_result_chars,
             max_iterations=max_iterations,
             emitter=emitter,
+            stream=stream,
         )
         self.history.replace_run_messages(result.messages)
         await emitter.emit(

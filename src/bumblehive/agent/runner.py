@@ -10,6 +10,9 @@ from ..observability import (
     ITERATION_STARTED,
     MODEL_REQUEST_STARTED,
     MODEL_RESPONSE_FINISHED,
+    MODEL_STREAM_CONTENT_DELTA,
+    MODEL_STREAM_REASONING_DELTA,
+    MODEL_STREAM_TOOL_CALL_DELTA,
     RUN_ERROR,
     RUN_FINISHED,
     RUN_STARTED,
@@ -19,7 +22,12 @@ from ..observability import (
     error_payload,
 )
 from ..protocols import GenerationConfig
-from ..providers.base import ModelProvider, ModelRequest
+from ..providers.base import (
+    ModelProvider,
+    ModelRequest,
+    ModelResponse,
+    ModelStreamCallbacks,
+)
 from ..tools.manager import ToolManager
 from .context import ContextGovernanceConfig, ContextGovernor
 
@@ -62,6 +70,7 @@ class ToolCallingRunner:
         max_tool_result_chars: int | None = None,
         max_iterations: int | None = None,
         emitter: EventEmitter | None = None,
+        stream: bool = False,
     ) -> AgentRunResult:
         """Run model/tool iterations until a final model response is produced."""
 
@@ -96,6 +105,7 @@ class ToolCallingRunner:
                 max_tool_result_chars=max_tool_result_chars,
                 max_iterations=effective_max_iterations,
                 emitter=emitter,
+                stream=stream,
             )
         except Exception as exc:
             await self._emit_run_error(emitter, exc=exc)
@@ -118,6 +128,7 @@ class ToolCallingRunner:
         max_tool_result_chars: int | None,
         max_iterations: int,
         emitter: EventEmitter,
+        stream: bool,
     ) -> AgentRunResult:
         for iteration in range(max_iterations):
             iteration_emitter = emitter.with_iteration(iteration)
@@ -149,7 +160,12 @@ class ToolCallingRunner:
                 iteration_emitter,
                 message_count=len(request_messages),
             )
-            response = await provider.generate_with_retry(request)
+            response = await self._request_model(
+                provider,
+                request,
+                emitter=iteration_emitter,
+                stream=stream,
+            )
             self._accumulate_usage(usage, response.usage)
 
             if response.is_error:
@@ -275,6 +291,36 @@ class ToolCallingRunner:
         )
 
     @classmethod
+    async def _request_model(
+        cls,
+        provider: ModelProvider,
+        request: ModelRequest,
+        *,
+        emitter: EventEmitter,
+        stream: bool,
+    ) -> ModelResponse:
+        if not stream:
+            return await provider.generate_with_retry(request)
+
+        async def _content_delta(delta: str) -> None:
+            await cls._emit_model_stream_content_delta(emitter, delta=delta)
+
+        async def _reasoning_delta(delta: str) -> None:
+            await cls._emit_model_stream_reasoning_delta(emitter, delta=delta)
+
+        async def _tool_call_delta(delta: dict[str, Any]) -> None:
+            await cls._emit_model_stream_tool_call_delta(emitter, delta=delta)
+
+        return await provider.generate_stream_with_retry(
+            request,
+            callbacks=ModelStreamCallbacks(
+                on_content_delta=_content_delta,
+                on_reasoning_delta=_reasoning_delta,
+                on_tool_call_delta=_tool_call_delta,
+            ),
+        )
+
+    @classmethod
     async def _emit_run_error(
         cls,
         emitter: EventEmitter,
@@ -309,6 +355,48 @@ class ToolCallingRunner:
         await emitter.emit(
             MODEL_REQUEST_STARTED,
             message_count=message_count,
+        )
+
+    @classmethod
+    async def _emit_model_stream_content_delta(
+        cls,
+        emitter: EventEmitter,
+        *,
+        delta: str,
+    ) -> None:
+        if not delta:
+            return
+        await emitter.emit(
+            MODEL_STREAM_CONTENT_DELTA,
+            delta=delta,
+        )
+
+    @classmethod
+    async def _emit_model_stream_reasoning_delta(
+        cls,
+        emitter: EventEmitter,
+        *,
+        delta: str,
+    ) -> None:
+        if not delta:
+            return
+        await emitter.emit(
+            MODEL_STREAM_REASONING_DELTA,
+            delta=delta,
+        )
+
+    @classmethod
+    async def _emit_model_stream_tool_call_delta(
+        cls,
+        emitter: EventEmitter,
+        *,
+        delta: dict[str, Any],
+    ) -> None:
+        if not delta:
+            return
+        await emitter.emit(
+            MODEL_STREAM_TOOL_CALL_DELTA,
+            **delta,
         )
 
     @classmethod

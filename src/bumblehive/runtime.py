@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from types import TracebackType
 from typing import Any
 
@@ -11,7 +11,12 @@ from .agent import (
 )
 from .config.loader import ConfigInput, load_config
 from .config.schema import BumblehiveConfig, ProviderConfig
-from .observability import HookInput
+from .observability import (
+    AgentHook,
+    AsyncEventStream,
+    AsyncEventStreamHook,
+    HookInput,
+)
 from .providers import ModelProvider, ProviderManager
 from .skills import SkillsManager
 from .tools import ToolManager
@@ -60,6 +65,44 @@ class BumblehiveRuntime:
         hooks: HookInput = None,
     ) -> AgentRunResult:
         """Run one turn using runtime defaults plus optional per-turn config."""
+        return await self._run(
+            message,
+            config=config,
+            hooks=hooks,
+            stream=False,
+        )
+
+    def stream(
+        self,
+        message: str,
+        *,
+        config: Mapping[str, Any] | None = None,
+        hooks: HookInput = None,
+        max_queue_size: int = 256,
+    ) -> AsyncEventStream:
+        """Stream native Bumblehive events for one turn."""
+
+        async def _run_with_stream_hook(
+            stream_hook: AsyncEventStreamHook,
+        ) -> AgentRunResult:
+            return await self._run(
+                message,
+                config=config,
+                hooks=_append_hook(hooks, stream_hook),
+                stream=True,
+            )
+
+        return AsyncEventStream(_run_with_stream_hook, maxsize=max_queue_size)
+
+    async def _run(
+        self,
+        message: str,
+        *,
+        config: Mapping[str, Any] | None = None,
+        hooks: HookInput = None,
+        stream: bool = False,
+    ) -> AgentRunResult:
+        """Run one turn using runtime defaults plus optional per-turn config."""
         run_config = self._resolve_run_config(config)
         self.tools.register_builtin_tools()
         await self.tools.sync_mcp_servers(run_config.mcp_servers)
@@ -79,6 +122,7 @@ class BumblehiveRuntime:
             max_iterations=run_config.runtime.max_iterations,
             agent_instructions=run_config.agent.instructions,
             hooks=hooks,
+            stream=stream,
         )
 
     async def close(self) -> None:
@@ -114,6 +158,16 @@ def _list_or_none(values: tuple[str, ...] | None) -> list[str] | None:
     if values is None:
         return None
     return list(values)
+
+
+def _append_hook(hooks: HookInput, hook: AgentHook) -> HookInput:
+    if hooks is None:
+        return hook
+    if isinstance(hooks, AgentHook) or callable(hooks):
+        return [hook, hooks]
+    if isinstance(hooks, Iterable):
+        return [hook, *hooks]
+    return [hook, hooks]
 
 
 def _deep_merge(base: Mapping[str, Any], overlay: Mapping[str, Any]) -> dict[str, Any]:

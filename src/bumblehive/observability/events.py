@@ -51,6 +51,10 @@ ITERATION_STARTED = "iteration.started"
 ITERATION_FINISHED = "iteration.finished"
 
 MODEL_REQUEST_STARTED = "model.request.started"
+MODEL_STREAM_CONTENT_DELTA = "model.stream.content_delta"
+MODEL_STREAM_REASONING_DELTA = "model.stream.reasoning_delta"
+MODEL_STREAM_TOOL_CALL_DELTA = "model.stream.tool_call_delta"
+MODEL_STREAM_RECOVERED = "model.stream.recovered"
 MODEL_RESPONSE_FINISHED = "model.response.finished"
 
 TOOL_CALLS_STARTED = "tool.calls.started"

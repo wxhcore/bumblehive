@@ -8,7 +8,14 @@ from .config.schema import (
     RuntimeArguments,
     RuntimeConfig,
 )
-from .observability import AgentEvent, AgentHook, EventEmitter, EventRecorder
+from .observability import (
+    AgentEvent,
+    AgentHook,
+    AsyncEventStream,
+    AsyncEventStreamHook,
+    EventEmitter,
+    EventRecorder,
+)
 from .paths import get_workspace_path
 from .providers import ProviderManager
 from .runtime import BumblehiveRuntime, from_config
@@ -19,6 +26,8 @@ __all__ = [
     "AgentConfig",
     "AgentEvent",
     "AgentHook",
+    "AsyncEventStream",
+    "AsyncEventStreamHook",
     "AgentLoop",
     "BumblehiveConfig",
     "BumblehiveRuntime",
