@@ -18,6 +18,7 @@ from .observability import (
     HookInput,
 )
 from .providers import ModelProvider, ProviderManager
+from .session import SessionManager
 from .skills import SkillsManager
 from .tools import ToolManager
 
@@ -32,14 +33,7 @@ class BumblehiveRuntime:
         self.context = ContextBuilder()
         self.skills = SkillsManager()
         self.runner = ToolCallingRunner()
-        self.history = MessageHistoryManager()
-        self.loop = AgentLoop(
-            tools=self.tools,
-            context=self.context,
-            skills=self.skills,
-            runner=self.runner,
-            history=self.history,
-        )
+        self.sessions = SessionManager()
 
     @classmethod
     def from_config(cls, config: ConfigInput = None) -> "BumblehiveRuntime":
@@ -63,12 +57,14 @@ class BumblehiveRuntime:
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
+        session_id: str | None = None,
     ) -> AgentRunResult:
         """Run one turn using runtime defaults plus optional per-turn config."""
         return await self._run(
             message,
             config=config,
             hooks=hooks,
+            session_id=session_id,
             stream=False,
         )
 
@@ -78,6 +74,7 @@ class BumblehiveRuntime:
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
+        session_id: str | None = None,
         max_queue_size: int = 256,
     ) -> AsyncEventStream:
         """Stream native Bumblehive events for one turn."""
@@ -89,6 +86,7 @@ class BumblehiveRuntime:
                 message,
                 config=config,
                 hooks=_append_hook(hooks, stream_hook),
+                session_id=session_id,
                 stream=True,
             )
 
@@ -100,6 +98,7 @@ class BumblehiveRuntime:
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
+        session_id: str | None = None,
         renderer: Any | None = None,
         max_queue_size: int = 256,
     ) -> None:
@@ -116,6 +115,7 @@ class BumblehiveRuntime:
                 message,
                 config=config,
                 hooks=hooks,
+                session_id=session_id,
                 max_queue_size=max_queue_size,
             ):
                 await renderer.on_event(event)
@@ -128,6 +128,7 @@ class BumblehiveRuntime:
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
+        session_id: str | None = None,
         stream: bool = False,
     ) -> AgentRunResult:
         """Run one turn using runtime defaults plus optional per-turn config."""
@@ -135,23 +136,27 @@ class BumblehiveRuntime:
         self.tools.register_builtin_tools()
         await self.tools.sync_mcp_servers(run_config.mcp_servers)
         provider = await self._get_provider(run_config.provider)
-        return await self.loop.run_turn(
-            message,
-            provider=provider,
-            model=run_config.provider.model,
-            generation=run_config.generation,
-            workspace=run_config.runtime.workspace,
-            timezone=run_config.runtime.timezone,
-            dynamic_context=run_config.agent.dynamic_context,
-            skill_names=_list_or_none(run_config.agent.skill_names),
-            tool_names=_list_or_none(run_config.agent.tool_names),
-            context_window_tokens=run_config.runtime.context_window_tokens,
-            max_tool_result_chars=run_config.runtime.max_tool_result_chars,
-            max_iterations=run_config.runtime.max_iterations,
-            agent_instructions=run_config.agent.instructions,
-            hooks=hooks,
-            stream=stream,
-        )
+        session = self.sessions.get(session_id)
+        async with session.lock:
+            loop = self._build_loop(session.history)
+            return await loop.run_turn(
+                message,
+                provider=provider,
+                model=run_config.provider.model,
+                generation=run_config.generation,
+                workspace=run_config.runtime.workspace,
+                timezone=run_config.runtime.timezone,
+                dynamic_context=run_config.agent.dynamic_context,
+                skill_names=_list_or_none(run_config.agent.skill_names),
+                tool_names=_list_or_none(run_config.agent.tool_names),
+                context_window_tokens=run_config.runtime.context_window_tokens,
+                max_tool_result_chars=run_config.runtime.max_tool_result_chars,
+                max_iterations=run_config.runtime.max_iterations,
+                agent_instructions=run_config.agent.instructions,
+                hooks=hooks,
+                session_id=session.session_id,
+                stream=stream,
+            )
 
     async def close(self) -> None:
         """Release resources owned by this runtime."""
@@ -174,6 +179,15 @@ class BumblehiveRuntime:
         return await self.providers.get(
             api_key=config.api_key,
             base_url=config.base_url,
+        )
+
+    def _build_loop(self, history: MessageHistoryManager) -> AgentLoop:
+        return AgentLoop(
+            tools=self.tools,
+            context=self.context,
+            skills=self.skills,
+            runner=self.runner,
+            history=history,
         )
 
 
