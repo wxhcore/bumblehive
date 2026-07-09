@@ -1,5 +1,6 @@
 import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -55,6 +56,16 @@ class ModelResponse:
         return bool(self.tool_calls) and self.finish_reason in {"tool_calls", "stop"}
 
 
+@dataclass(frozen=True)
+class ModelStreamCallbacks:
+    """Callbacks used by providers to report native streaming deltas."""
+
+    on_content_delta: Callable[[str], Awaitable[None]] | None = None
+    on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None
+    on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+    on_stream_recover: Callable[[], Awaitable[None]] | None = None
+
+
 class ModelProvider(ABC):
     """Base interface for model providers."""
 
@@ -62,6 +73,17 @@ class ModelProvider(ABC):
     async def generate(self, request: ModelRequest) -> ModelResponse:
         """Generate one non-streaming model response."""
         ...
+
+    async def generate_stream(
+        self,
+        request: ModelRequest,
+        *,
+        callbacks: ModelStreamCallbacks | None = None,
+    ) -> ModelResponse:
+        """Generate one response while reporting provider-native deltas."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support streaming"
+        )
 
     async def generate_with_retry(
         self,
@@ -92,6 +114,70 @@ class ModelProvider(ABC):
                 await asyncio.sleep(delay)
 
         # Unreachable, but keeps type checkers happy if the loop shape changes.
+        assert response is not None
+        return response
+
+    async def generate_stream_with_retry(
+        self,
+        request: ModelRequest,
+        *,
+        callbacks: ModelStreamCallbacks | None = None,
+        retry: RetryConfig | None = None,
+    ) -> ModelResponse:
+        """Return one streaming model response, retrying before deltas escape."""
+        config = retry or RetryConfig()
+        max_retries = max(0, config.max_retries)
+        response: ModelResponse | None = None
+        has_streamed_delta = False
+
+        async def _content_delta(delta: str) -> None:
+            nonlocal has_streamed_delta
+            if delta:
+                has_streamed_delta = True
+            if callbacks and callbacks.on_content_delta:
+                await callbacks.on_content_delta(delta)
+
+        async def _reasoning_delta(delta: str) -> None:
+            nonlocal has_streamed_delta
+            if delta:
+                has_streamed_delta = True
+            if callbacks and callbacks.on_reasoning_delta:
+                await callbacks.on_reasoning_delta(delta)
+
+        async def _tool_call_delta(delta: dict[str, Any]) -> None:
+            nonlocal has_streamed_delta
+            if delta:
+                has_streamed_delta = True
+            if callbacks and callbacks.on_tool_call_delta:
+                await callbacks.on_tool_call_delta(delta)
+
+        wrapped_callbacks = ModelStreamCallbacks(
+            on_content_delta=(
+                _content_delta if callbacks and callbacks.on_content_delta else None
+            ),
+            on_reasoning_delta=(
+                _reasoning_delta if callbacks and callbacks.on_reasoning_delta else None
+            ),
+            on_tool_call_delta=(
+                _tool_call_delta if callbacks and callbacks.on_tool_call_delta else None
+            ),
+            on_stream_recover=callbacks.on_stream_recover if callbacks else None,
+        )
+
+        for attempt in range(max_retries + 1):
+            response = await self.generate_stream(
+                request,
+                callbacks=wrapped_callbacks,
+            )
+            if not self._should_retry_response(response) or has_streamed_delta:
+                return response
+            if attempt >= max_retries:
+                return response
+
+            delay = self._retry_delay(response, attempt + 1, config)
+            if delay > 0:
+                await asyncio.sleep(delay)
+
         assert response is not None
         return response
 

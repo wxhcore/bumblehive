@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from datetime import datetime, timezone
@@ -8,7 +9,13 @@ from typing import Any
 from ..protocols.errors import AgentError
 from ..protocols.generation import GenerationConfig
 from ..protocols.tool_calls import ToolCall, parse_tool_call
-from .base import ModelProvider, ModelRequest, ModelResponse
+from .base import (
+    ModelProvider,
+    ModelRequest,
+    ModelResponse,
+    ModelStreamCallbacks,
+)
+from .streaming import resolve_stream_idle_timeout_s
 
 
 _ALLOWED_MESSAGE_KEYS = frozenset(
@@ -88,6 +95,73 @@ class OpenAIChatCompletionsProvider(ModelProvider):
                     message=str(exc),
                 ),
             )
+
+    async def generate_stream(
+        self,
+        request: ModelRequest,
+        *,
+        callbacks: ModelStreamCallbacks | None = None,
+    ) -> ModelResponse:
+        payload = self._build_payload(request)
+        payload["stream"] = True
+        payload["stream_options"] = {"include_usage": True}
+        idle_timeout_s = resolve_stream_idle_timeout_s()
+        try:
+            stream = await self._create_stream(payload)
+            chunks: list[Any] = []
+            stream_iter = stream.__aiter__()
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(
+                        stream_iter.__anext__(),
+                        timeout=idle_timeout_s,
+                    )
+                except StopAsyncIteration:
+                    break
+                chunks.append(chunk)
+                await self._emit_stream_chunk_callbacks(chunk, callbacks)
+        except asyncio.TimeoutError:
+            return ModelResponse(
+                content=(
+                    f"Error calling model: stream stalled for more than "
+                    f"{idle_timeout_s:g} seconds"
+                ),
+                finish_reason="error",
+                error=AgentError(
+                    code="model_timeout",
+                    message=(
+                        f"stream stalled for more than {idle_timeout_s:g} seconds"
+                    ),
+                    recoverable=True,
+                ),
+                error_kind="timeout",
+            )
+        except Exception as exc:
+            return self._error_response_from_exception(exc)
+
+        try:
+            return self._parse_stream_chunks(chunks)
+        except Exception as exc:
+            return ModelResponse(
+                content=f"Error parsing model stream response: {exc}",
+                finish_reason="error",
+                error=AgentError(
+                    code="model_response_parse_error",
+                    message=str(exc),
+                ),
+            )
+
+    async def _create_stream(self, payload: dict[str, Any]) -> Any:
+        completions = self._client_or_create().chat.completions
+        try:
+            return await completions.create(**payload)
+        except Exception as exc:
+            if not self._should_retry_stream_without_options(exc):
+                raise
+
+        fallback_payload = dict(payload)
+        fallback_payload.pop("stream_options", None)
+        return await completions.create(**fallback_payload)
 
     def _client_or_create(self) -> Any:
         if self._client is not None:
@@ -220,6 +294,197 @@ class OpenAIChatCompletionsProvider(ModelProvider):
                 },
             }
         )
+
+    @classmethod
+    async def _emit_stream_chunk_callbacks(
+        cls,
+        chunk: Any,
+        callbacks: ModelStreamCallbacks | None,
+    ) -> None:
+        if callbacks is None:
+            return
+
+        choice = cls._stream_choice(chunk)
+        if choice is None:
+            return
+        delta = cls._get(choice, "delta")
+        if delta is None:
+            return
+
+        content = cls._extract_text(cls._get(delta, "content"))
+        if content and callbacks.on_content_delta:
+            await callbacks.on_content_delta(content)
+
+        reasoning = (
+            cls._extract_text(cls._get(delta, "reasoning_content"))
+            or cls._extract_text(cls._get(delta, "reasoning"))
+        )
+        if reasoning and callbacks.on_reasoning_delta:
+            await callbacks.on_reasoning_delta(reasoning)
+
+        if callbacks.on_tool_call_delta:
+            for index, tool_delta in enumerate(cls._get(delta, "tool_calls") or []):
+                function = cls._get(tool_delta, "function")
+                tool_index = cls._get(tool_delta, "index")
+                await callbacks.on_tool_call_delta(
+                    {
+                        "index": tool_index if tool_index is not None else index,
+                        "call_id": str(cls._get(tool_delta, "id") or ""),
+                        "name": (
+                            str(cls._get(function, "name") or "")
+                            if function is not None
+                            else ""
+                        ),
+                        "arguments_delta": (
+                            str(cls._get(function, "arguments") or "")
+                            if function is not None
+                            else ""
+                        ),
+                    }
+                )
+
+    @classmethod
+    def _parse_stream_chunks(cls, chunks: list[Any]) -> ModelResponse:
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        tool_buffers: dict[int, dict[str, str]] = {}
+        finish_reason = "stop"
+        usage: dict[str, int] = {}
+
+        for chunk in chunks:
+            parsed_usage = cls._parse_usage(cls._get(chunk, "usage"))
+            if parsed_usage:
+                usage = parsed_usage
+
+            choice = cls._stream_choice(chunk)
+            if choice is None:
+                continue
+            finish_reason = cls._get(choice, "finish_reason") or finish_reason
+            delta = cls._get(choice, "delta")
+            if delta is None:
+                continue
+
+            content = cls._extract_text(cls._get(delta, "content"))
+            if content:
+                content_parts.append(content)
+
+            reasoning = (
+                cls._extract_text(cls._get(delta, "reasoning_content"))
+                or cls._extract_text(cls._get(delta, "reasoning"))
+            )
+            if reasoning:
+                reasoning_parts.append(reasoning)
+
+            for index, tool_delta in enumerate(cls._get(delta, "tool_calls") or []):
+                cls._accumulate_tool_delta(tool_buffers, tool_delta, index)
+
+        return ModelResponse(
+            content="".join(content_parts) or None,
+            tool_calls=cls._parse_stream_tool_calls(tool_buffers),
+            finish_reason=finish_reason,
+            usage=usage,
+            reasoning_content="".join(reasoning_parts) or None,
+        )
+
+    @classmethod
+    def _accumulate_tool_delta(
+        cls,
+        tool_buffers: dict[int, dict[str, str]],
+        tool_delta: Any,
+        index_hint: int,
+    ) -> None:
+        tool_index = cls._get(tool_delta, "index")
+        index = tool_index if isinstance(tool_index, int) else index_hint
+        buffer = tool_buffers.setdefault(
+            index,
+            {
+                "id": "",
+                "name": "",
+                "arguments": "",
+            },
+        )
+
+        call_id = cls._get(tool_delta, "id")
+        if call_id:
+            buffer["id"] = str(call_id)
+
+        function = cls._get(tool_delta, "function")
+        if function is None:
+            return
+
+        name = cls._get(function, "name")
+        if name:
+            buffer["name"] = str(name)
+        arguments = cls._get(function, "arguments")
+        if arguments:
+            buffer["arguments"] += str(arguments)
+
+    @classmethod
+    def _parse_stream_tool_calls(
+        cls,
+        tool_buffers: dict[int, dict[str, str]],
+    ) -> list[ToolCall]:
+        tool_calls: list[ToolCall] = []
+        for index in sorted(tool_buffers):
+            buffer = tool_buffers[index]
+            if not buffer["name"]:
+                continue
+            tool_calls.append(
+                parse_tool_call(
+                    {
+                        "id": buffer["id"] or f"call_{index}",
+                        "function": {
+                            "name": buffer["name"],
+                            "arguments": buffer["arguments"] or "{}",
+                        },
+                    }
+                )
+            )
+        return tool_calls
+
+    @classmethod
+    def _stream_choice(cls, chunk: Any) -> Any:
+        choices = cls._get(chunk, "choices")
+        if not choices:
+            return None
+        return choices[0]
+
+    @classmethod
+    def _extract_text(cls, value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            return "".join(parts)
+        return ""
+
+    @classmethod
+    def _should_retry_stream_without_options(cls, exc: Exception) -> bool:
+        metadata = cls._extract_error_metadata(exc)
+        if metadata["error_status_code"] not in {400, 422}:
+            return False
+
+        message = cls._format_error_message(exc).lower()
+        if "stream_options" not in message and "stream options" not in message:
+            return False
+
+        markers = (
+            "unknown",
+            "unsupported",
+            "unrecognized",
+            "invalid",
+            "extra",
+            "not permitted",
+            "not allowed",
+        )
+        return any(marker in message for marker in markers)
 
     @staticmethod
     def _parse_reasoning_content(message: Any) -> str | None:
