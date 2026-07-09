@@ -12,6 +12,7 @@ class AgentEvent:
     run_id: str
     payload: dict[str, Any] = field(default_factory=dict)
     iteration: int | None = None
+    session_id: str | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -26,6 +27,7 @@ def make_event(
     *,
     run_id: str,
     iteration: int | None = None,
+    session_id: str | None = None,
     **payload: Any,
 ) -> AgentEvent:
     """Build an event, omitting payload entries whose value is None."""
@@ -34,6 +36,7 @@ def make_event(
         kind=kind,
         run_id=run_id,
         iteration=iteration,
+        session_id=session_id,
         payload={key: value for key, value in payload.items() if value is not None},
     )
 

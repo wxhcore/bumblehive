@@ -11,6 +11,7 @@ class EventEmitter:
 
     hook: AgentHook
     run_id: str
+    session_id: str | None = None
     iteration: int | None = None
 
     @classmethod
@@ -19,19 +20,26 @@ class EventEmitter:
         hooks: HookInput = None,
         *,
         run_id: str | None = None,
+        session_id: str | None = None,
     ) -> "EventEmitter":
         """Create an emitter from user-provided hooks and an optional run id."""
 
         return cls(
             hook=normalize_hooks(hooks),
             run_id=run_id or new_run_id(),
+            session_id=session_id,
         )
 
     @classmethod
-    def noop(cls, *, run_id: str | None = None) -> "EventEmitter":
+    def noop(
+        cls,
+        *,
+        run_id: str | None = None,
+        session_id: str | None = None,
+    ) -> "EventEmitter":
         """Create an emitter that drops events but still carries a run id."""
 
-        return cls.from_hooks(None, run_id=run_id)
+        return cls.from_hooks(None, run_id=run_id, session_id=session_id)
 
     def with_iteration(self, iteration: int | None) -> "EventEmitter":
         """Return an emitter that attaches a default iteration to events."""
@@ -39,6 +47,7 @@ class EventEmitter:
         return EventEmitter(
             hook=self.hook,
             run_id=self.run_id,
+            session_id=self.session_id,
             iteration=iteration,
         )
 
@@ -55,6 +64,7 @@ class EventEmitter:
             make_event(
                 kind,
                 run_id=self.run_id,
+                session_id=self.session_id,
                 iteration=self.iteration if iteration is None else iteration,
                 **payload,
             )

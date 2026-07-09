@@ -50,6 +50,7 @@ class AgentLoop:
         agent_instructions: str | None = None,
         hooks: HookInput = None,
         run_id: str | None = None,
+        session_id: str | None = None,
         stream: bool = False,
     ) -> AgentRunResult:
         """Run one user turn with optional skill and tool filtering.
@@ -58,7 +59,11 @@ class AgentLoop:
         ``None`` exposes everything, ``[]`` exposes nothing, and a non-empty
         list exposes only the named items in the given order.
         """
-        emitter = EventEmitter.from_hooks(hooks, run_id=run_id)
+        emitter = EventEmitter.from_hooks(
+            hooks,
+            run_id=run_id,
+            session_id=session_id,
+        )
         turn_events = TurnEvents(emitter)
         await turn_events.started(current_user_message)
 
