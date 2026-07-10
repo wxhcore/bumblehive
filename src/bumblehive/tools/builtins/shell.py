@@ -12,6 +12,7 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
+from ..scope import current_tool_session_id
 from .state import BuiltinToolState
 from .workspace import WorkspaceAccess, current_workspace_access
 
@@ -173,11 +174,13 @@ class ExecSession:
         command: str,
         cwd: str,
         timeout: int | None,
+        owner_session_id: str,
     ) -> None:
         self.session_id = session_id
         self.process = process
         self.command = command
         self.cwd = cwd
+        self.owner_session_id = owner_session_id
         self.started_at = time.monotonic()
         self.last_access = time.monotonic()
         self.deadline = time.monotonic() + timeout if timeout else float("inf")
@@ -310,6 +313,7 @@ class ExecSessionManager:
         prepared: PreparedCommand,
         yield_time_ms: int,
         max_output_chars: int,
+        owner_session_id: str,
     ) -> tuple[str, SessionPoll]:
         async with self._lock:
             await self._cleanup_locked()
@@ -330,6 +334,7 @@ class ExecSessionManager:
                 command=prepared.command,
                 cwd=prepared.cwd,
                 timeout=prepared.timeout,
+                owner_session_id=owner_session_id,
             )
             self._sessions[session_id] = session
 
@@ -348,11 +353,14 @@ class ExecSessionManager:
         terminate: bool,
         yield_time_ms: int,
         max_output_chars: int,
+        owner_session_id: str,
     ) -> SessionPoll:
         async with self._lock:
             await self._cleanup_locked()
             session = self._sessions.get(session_id)
         if session is None:
+            raise KeyError(session_id)
+        if session.owner_session_id != owner_session_id:
             raise KeyError(session_id)
 
         if chars:
@@ -379,7 +387,7 @@ class ExecSessionManager:
                 self._sessions.pop(session_id, None)
         return poll
 
-    async def list(self) -> list[dict[str, Any]]:
+    async def list(self, *, owner_session_id: str) -> list[dict[str, Any]]:
         async with self._lock:
             await self._cleanup_locked()
             now = time.monotonic()
@@ -399,6 +407,7 @@ class ExecSessionManager:
                     ),
                 }
                 for session_id, session in sorted(self._sessions.items())
+                if session.owner_session_id == owner_session_id
             ]
 
     async def _cleanup_locked(self) -> None:
@@ -471,6 +480,7 @@ class ExecRunner:
                     prepared=prepared,
                     yield_time_ms=_clamp_int(yield_time_ms, _DEFAULT_YIELD_MS, 0, _MAX_YIELD_MS),
                     max_output_chars=output_limit,
+                    owner_session_id=current_tool_session_id(),
                 )
             except Exception as exc:
                 return {"error": str(exc)}
@@ -561,6 +571,7 @@ class ExecRunner:
                 terminate=terminate,
                 yield_time_ms=_clamp_int(yield_time_ms, _DEFAULT_YIELD_MS, 0, _MAX_YIELD_MS),
                 max_output_chars=output_limit,
+                owner_session_id=current_tool_session_id(),
             )
             return _poll_dict(session_id, poll)
         except KeyError:
@@ -569,7 +580,11 @@ class ExecRunner:
             return {"error": str(exc)}
 
     async def list_exec_sessions(self) -> dict[str, Any]:
-        return {"sessions": await self.manager.list()}
+        return {
+            "sessions": await self.manager.list(
+                owner_session_id=current_tool_session_id(),
+            )
+        }
 
     async def _wait_for_output(
         self,
@@ -596,6 +611,7 @@ class ExecRunner:
                 terminate=terminate if first else False,
                 yield_time_ms=step_ms,
                 max_output_chars=max_output_chars,
+                owner_session_id=current_tool_session_id(),
             )
             first = False
             if last.output:

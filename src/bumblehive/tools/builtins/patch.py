@@ -6,10 +6,11 @@ from typing import Any
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from .state import BuiltinToolState
+from .state import BuiltinToolState, _session_scoped_file_handler
 from .workspace import (
     FileStates,
     WorkspaceAccess,
+    current_file_states,
     current_workspace_access,
 )
 
@@ -99,7 +100,14 @@ class StructuredPatch:
         self,
         file_states: FileStates | None = None,
     ) -> None:
-        self.file_states = file_states or FileStates()
+        self._explicit_file_states = file_states
+        self._fallback_file_states = FileStates()
+
+    @property
+    def file_states(self) -> FileStates:
+        if self._explicit_file_states is not None:
+            return self._explicit_file_states
+        return current_file_states(self._fallback_file_states)
 
     def apply_patch(
         self,
@@ -324,15 +332,13 @@ def register_apply_patch_tool(
     state: BuiltinToolState,
 ) -> CallableTool:
     """Register the apply_patch tool on a registry."""
-    patch = StructuredPatch(
-        file_states=state.file_states,
-    )
+    patch = StructuredPatch()
     return registry.register(
         CallableTool(
             name="apply_patch",
             description=_APPLY_PATCH_DESCRIPTION,
             parameters=_APPLY_PATCH_PARAMETERS,
-            handler=patch.apply_patch,
+            handler=_session_scoped_file_handler(state, patch.apply_patch),
             exclusive=True,
         )
     )

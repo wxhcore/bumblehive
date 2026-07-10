@@ -1,7 +1,9 @@
 import hashlib
-import os
+from collections import OrderedDict
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 
 from ..scope import current_tool_workspace
 from ...paths import get_workspace_path
@@ -24,6 +26,7 @@ _DEFAULT_IGNORE_DIRS = frozenset(
         "venv",
     }
 )
+_MAX_TOOL_STATE_SESSIONS = 256
 
 
 @dataclass(slots=True)
@@ -31,9 +34,6 @@ class ReadState:
     mtime: float
     size: int
     content_hash: str | None
-    offset: int
-    limit: int | None
-    can_dedup: bool
 
 
 def _hash_file(path: Path) -> str | None:
@@ -48,6 +48,10 @@ class FileStates:
 
     def __init__(self) -> None:
         self._state: dict[str, ReadState] = {}
+        self._read_cache: dict[
+            tuple[str, int, int | None],
+            tuple[float, int, str | None],
+        ] = {}
 
     def record_read(self, path: str | Path, offset: int = 1, limit: int | None = None) -> None:
         resolved = Path(path).resolve()
@@ -55,30 +59,34 @@ class FileStates:
             stat = resolved.stat()
         except OSError:
             return
-        self._state[str(resolved)] = ReadState(
+        path_key = str(resolved)
+        content_hash = _hash_file(resolved)
+        self._state[path_key] = ReadState(
             mtime=stat.st_mtime,
             size=stat.st_size,
-            content_hash=_hash_file(resolved),
-            offset=offset,
-            limit=limit,
-            can_dedup=True,
+            content_hash=content_hash,
+        )
+        self._read_cache[(path_key, offset, limit)] = (
+            stat.st_mtime,
+            stat.st_size,
+            content_hash,
         )
 
     def record_write(self, path: str | Path) -> None:
         resolved = Path(path).resolve()
+        path_key = str(resolved)
         try:
             stat = resolved.stat()
         except OSError:
-            self._state.pop(str(resolved), None)
+            self._state.pop(path_key, None)
+            self._invalidate_read_cache(path_key)
             return
-        self._state[str(resolved)] = ReadState(
+        self._state[path_key] = ReadState(
             mtime=stat.st_mtime,
             size=stat.st_size,
             content_hash=_hash_file(resolved),
-            offset=1,
-            limit=None,
-            can_dedup=False,
         )
+        self._invalidate_read_cache(path_key)
 
     def check_read(self, path: str | Path) -> str | None:
         resolved = Path(path).resolve()
@@ -106,23 +114,73 @@ class FileStates:
 
     def is_unchanged(self, path: str | Path, offset: int = 1, limit: int | None = None) -> bool:
         resolved = Path(path).resolve()
-        entry = self._state.get(str(resolved))
-        if entry is None or not entry.can_dedup:
-            return False
-        if entry.offset != offset or entry.limit != limit:
+        path_key = str(resolved)
+        cached = self._read_cache.get((path_key, offset, limit))
+        if cached is None:
             return False
         try:
-            current_mtime = os.path.getmtime(resolved)
+            stat = resolved.stat()
         except OSError:
             return False
-        if current_mtime != entry.mtime:
-            current_hash = _hash_file(resolved)
-            if current_hash != entry.content_hash:
-                entry.can_dedup = False
-                return False
-            entry.can_dedup = False
-            return True
+        current_hash = _hash_file(resolved)
+        current = (stat.st_mtime, stat.st_size, current_hash)
+        if current != cached:
+            self._invalidate_read_cache(path_key)
+            return False
         return True
+
+    def _invalidate_read_cache(self, path_key: str) -> None:
+        stale_keys = [key for key in self._read_cache if key[0] == path_key]
+        for key in stale_keys:
+            self._read_cache.pop(key, None)
+
+
+class FileStateStore:
+    """Bounded LRU store for per-session file tool state."""
+
+    def __init__(self, max_entries: int = _MAX_TOOL_STATE_SESSIONS) -> None:
+        if max_entries <= 0:
+            raise ValueError("max_entries must be positive")
+        self.max_entries = max_entries
+        self._states: OrderedDict[str, FileStates] = OrderedDict()
+        self._lock = Lock()
+
+    def for_session(self, session_id: str | None) -> FileStates:
+        key = session_id or "default"
+        with self._lock:
+            state = self._states.pop(key, None)
+            if state is None:
+                state = FileStates()
+            self._states[key] = state
+            while len(self._states) > self.max_entries:
+                self._states.popitem(last=False)
+            return state
+
+    def clear(self) -> None:
+        with self._lock:
+            self._states.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._states)
+
+
+_CURRENT_FILE_STATES: ContextVar[FileStates | None] = ContextVar(
+    "bumblehive_file_states",
+    default=None,
+)
+
+
+def bind_file_states(file_states: FileStates) -> Token[FileStates | None]:
+    return _CURRENT_FILE_STATES.set(file_states)
+
+
+def reset_file_states(token: Token[FileStates | None]) -> None:
+    _CURRENT_FILE_STATES.reset(token)
+
+
+def current_file_states(default: FileStates) -> FileStates:
+    return _CURRENT_FILE_STATES.get() or default
 
 
 class WorkspaceAccess:

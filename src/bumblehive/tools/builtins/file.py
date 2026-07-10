@@ -1,5 +1,4 @@
 import difflib
-import hashlib
 import os
 import re
 from dataclasses import dataclass
@@ -13,11 +12,12 @@ from pptx import Presentation as PptxPresentation
 
 from ..adapters.function import CallableTool
 from ..registry import ToolRegistry
-from .state import BuiltinToolState
+from .state import BuiltinToolState, _session_scoped_file_handler
 from .workspace import (
     _DEFAULT_IGNORE_DIRS,
     FileStates,
     WorkspaceAccess,
+    current_file_states,
     current_workspace_access,
     is_binary_bytes,
 )
@@ -226,8 +226,14 @@ class WorkspaceFiles:
         self,
         file_states: FileStates | None = None,
     ) -> None:
-        self.file_states = file_states or FileStates()
-        self._read_cache: dict[tuple[str, int, int | None], tuple[float, int, str]] = {}
+        self._explicit_file_states = file_states
+        self._fallback_file_states = FileStates()
+
+    @property
+    def file_states(self) -> FileStates:
+        if self._explicit_file_states is not None:
+            return self._explicit_file_states
+        return current_file_states(self._fallback_file_states)
 
     def read_file(
         self,
@@ -276,14 +282,10 @@ class WorkspaceFiles:
         if is_binary_bytes(raw):
             return {"error": "file is not valid UTF-8 text", "path": str(resolved)}
 
-        content_hash = hashlib.sha256(raw).hexdigest()
-        stat = resolved.stat()
-        cache_key = (str(resolved), read_offset, read_limit)
-        cached = self._read_cache.get(cache_key)
-        if (
-            not force
-            and cached is not None
-            and cached == (stat.st_mtime, stat.st_size, content_hash)
+        if not force and self.file_states.is_unchanged(
+            resolved,
+            offset=read_offset,
+            limit=read_limit,
         ):
             return {
                 "path": str(resolved),
@@ -335,7 +337,6 @@ class WorkspaceFiles:
             end = start + len(trimmed)
         has_more = end < total_lines
 
-        self._read_cache[cache_key] = (stat.st_mtime, stat.st_size, content_hash)
         self.file_states.record_read(resolved, offset=read_offset, limit=read_limit)
         return {
             "path": str(resolved),
@@ -934,7 +935,7 @@ def _nearest_match(content: str, old_text: str) -> dict[str, Any] | None:
 def _workspace_files_from_state(state: BuiltinToolState) -> WorkspaceFiles:
     files = state.workspace_files
     if not isinstance(files, WorkspaceFiles):
-        files = WorkspaceFiles(file_states=state.file_states)
+        files = WorkspaceFiles()
         state.workspace_files = files
     return files
 
@@ -951,7 +952,7 @@ def register_read_file_tool(
             name="read_file",
             description=_READ_FILE_DESCRIPTION,
             parameters=_READ_FILE_PARAMETERS,
-            handler=files.read_file,
+            handler=_session_scoped_file_handler(state, files.read_file),
             read_only=True,
         )
     )
@@ -969,7 +970,7 @@ def register_write_file_tool(
             name="write_file",
             description=_WRITE_FILE_DESCRIPTION,
             parameters=_WRITE_FILE_PARAMETERS,
-            handler=files.write_file,
+            handler=_session_scoped_file_handler(state, files.write_file),
             exclusive=True,
         )
     )
@@ -1005,7 +1006,7 @@ def register_edit_file_tool(
             name="edit_file",
             description=_EDIT_FILE_DESCRIPTION,
             parameters=_EDIT_FILE_PARAMETERS,
-            handler=files.edit_file,
+            handler=_session_scoped_file_handler(state, files.edit_file),
             exclusive=True,
         )
     )

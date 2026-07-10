@@ -10,6 +10,7 @@ from ..protocols import GenerationConfig
 from ..providers.base import ModelProvider
 from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
+from ..tools.scope import bind_tool_session, reset_tool_session
 from .context import ContextBuilder, DynamicValue, MessageHistoryManager
 from .runner import AgentRunResult, ToolCallingRunner
 
@@ -65,29 +66,32 @@ class AgentLoop:
             session_id=session_id,
         )
         turn_events = TurnEvents(emitter)
-        await turn_events.started(current_user_message)
-
+        session_token = bind_tool_session(session_id)
         try:
-            return await self._run_turn(
-                current_user_message,
-                provider=provider,
-                model=model,
-                generation=generation,
-                workspace=workspace,
-                timezone=timezone,
-                dynamic_context=dynamic_context,
-                skill_names=skill_names,
-                tool_names=tool_names,
-                context_window_tokens=context_window_tokens,
-                max_tool_result_chars=max_tool_result_chars,
-                max_iterations=max_iterations,
-                agent_instructions=agent_instructions,
-                emitter=emitter,
-                stream=stream,
-            )
-        except Exception as exc:
-            await turn_events.error(exc)
-            raise
+            await turn_events.started(current_user_message)
+            try:
+                return await self._run_turn(
+                    current_user_message,
+                    provider=provider,
+                    model=model,
+                    generation=generation,
+                    workspace=workspace,
+                    timezone=timezone,
+                    dynamic_context=dynamic_context,
+                    skill_names=skill_names,
+                    tool_names=tool_names,
+                    context_window_tokens=context_window_tokens,
+                    max_tool_result_chars=max_tool_result_chars,
+                    max_iterations=max_iterations,
+                    agent_instructions=agent_instructions,
+                    emitter=emitter,
+                    stream=stream,
+                )
+            except Exception as exc:
+                await turn_events.error(exc)
+                raise
+        finally:
+            reset_tool_session(session_token)
 
     async def _run_turn(
         self,
