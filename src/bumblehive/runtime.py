@@ -94,7 +94,7 @@ class BumblehiveRuntime:
         hooks: HookInput = None,
         session_id: str | None = None,
         max_queue_size: int = 256,
-    ) -> AsyncEventStream:
+    ) -> AsyncEventStream[AgentRunResult]:
         """Stream native Bumblehive events for one turn."""
 
         async def _run_with_stream_hook(
@@ -119,25 +119,28 @@ class BumblehiveRuntime:
         session_id: str | None = None,
         renderer: Any | None = None,
         max_queue_size: int = 256,
-    ) -> None:
-        """Run one turn and render native stream events to the console."""
+    ) -> AgentRunResult:
+        """Run one turn, render its events, and return the final result."""
 
         if renderer is None:
             from .console import ConsoleStreamRenderer
 
             renderer = ConsoleStreamRenderer()
 
+        stream = self.stream(
+            message,
+            config=config,
+            hooks=hooks,
+            session_id=session_id,
+            max_queue_size=max_queue_size,
+        )
         renderer.start(message)
         try:
-            async for event in self.stream(
-                message,
-                config=config,
-                hooks=hooks,
-                session_id=session_id,
-                max_queue_size=max_queue_size,
-            ):
+            async for event in stream:
                 await renderer.on_event(event)
+            return await stream.result()
         finally:
+            await stream.aclose()
             await renderer.finish()
 
     async def _run(

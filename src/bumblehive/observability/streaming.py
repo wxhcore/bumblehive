@@ -1,13 +1,14 @@
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Generic, TypeVar
 
 from .events import AgentEvent
 
 
 _STREAM_END = object()
 DEFAULT_STREAM_QUEUE_SIZE = 256
+ResultT = TypeVar("ResultT")
 
 
 class AsyncEventStreamHook:
@@ -21,16 +22,16 @@ class AsyncEventStreamHook:
 
 
 @dataclass(slots=True)
-class AsyncEventStream:
+class AsyncEventStream(Generic[ResultT]):
     """Async iterator over events produced by one background agent run."""
 
-    run_with_hook: Callable[[AsyncEventStreamHook], Awaitable[Any]]
+    run_with_hook: Callable[[AsyncEventStreamHook], Awaitable[ResultT]]
     maxsize: int = DEFAULT_STREAM_QUEUE_SIZE
     _queue: asyncio.Queue[AgentEvent | object] = field(init=False)
-    _task: asyncio.Task[Any] | None = field(default=None, init=False)
-    _error: BaseException | None = field(default=None, init=False)
+    _task: asyncio.Task[ResultT] | None = field(default=None, init=False)
     _started: bool = field(default=False, init=False)
     _closed: bool = field(default=False, init=False)
+    _exhausted: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
         self._queue = asyncio.Queue(maxsize=max(0, self.maxsize))
@@ -43,13 +44,9 @@ class AsyncEventStream:
         self._task = asyncio.create_task(self._run_background(hook))
         return self._iterate()
 
-    async def _run_background(self, hook: AsyncEventStreamHook) -> None:
+    async def _run_background(self, hook: AsyncEventStreamHook) -> ResultT:
         try:
-            await self.run_with_hook(hook)
-        except asyncio.CancelledError:
-            raise
-        except BaseException as exc:
-            self._error = exc
+            return await self.run_with_hook(hook)
         finally:
             await self._put_end()
 
@@ -58,25 +55,49 @@ class AsyncEventStream:
             while True:
                 item = await self._queue.get()
                 if item is _STREAM_END:
-                    if self._error is not None:
-                        raise self._error
+                    self._exhausted = True
+                    task = self._task
+                    if task is None:
+                        raise RuntimeError("AsyncEventStream has not started")
+                    await task
                     break
                 yield item
         finally:
             await self.aclose()
+
+    async def result(self) -> ResultT:
+        """Return the completed background run result."""
+        task = self._task
+        if task is None:
+            raise RuntimeError(
+                "AsyncEventStream must be consumed before requesting its result"
+            )
+        if task.cancelled():
+            raise RuntimeError(
+                "AsyncEventStream was closed before producing a result"
+            )
+        if not self._exhausted:
+            raise RuntimeError(
+                "AsyncEventStream must be consumed to completion before "
+                "requesting its result"
+            )
+        if not task.done():
+            raise RuntimeError("AsyncEventStream background run is still finishing")
+        return task.result()
 
     async def aclose(self) -> None:
         if self._closed:
             return
         self._closed = True
         task = self._task
-        if task is None or task.done():
+        if task is None:
+            return
+        if task.done():
+            if not task.cancelled():
+                task.exception()
             return
         task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        await asyncio.gather(task, return_exceptions=True)
 
     async def _put_end(self) -> None:
         if self._closed:
