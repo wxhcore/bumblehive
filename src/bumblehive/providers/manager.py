@@ -8,16 +8,14 @@ ProviderKey = tuple[str | None, str | None]
 
 
 class ProviderManager:
-    """Single-runtime cache for one active provider.
+    """Runtime-scoped cache of providers by connection settings.
 
-    Reuses the provider while connection settings stay unchanged. When the API
-    key or base URL changes, the previous provider is closed before a new one is
-    created.
+    Providers with different API keys or base URLs may be used concurrently.
+    Cached providers remain open until the manager is closed.
     """
 
     def __init__(self) -> None:
-        self._key: ProviderKey | None = None
-        self._provider: ModelProvider | None = None
+        self._providers: dict[ProviderKey, ModelProvider] = {}
         self._lock = asyncio.Lock()
 
     async def get(
@@ -28,30 +26,23 @@ class ProviderManager:
     ) -> ModelProvider:
         async with self._lock:
             key = (api_key, base_url)
+            provider = self._providers.get(key)
+            if provider is not None:
+                return provider
 
-            if self._provider is not None and key == self._key:
-                return self._provider
-
-            await self._discard_current_provider()
-            self._provider = self._create_provider(
+            provider = self._create_provider(
                 api_key=api_key,
                 base_url=base_url,
             )
-            self._key = key
-            return self._provider
+            self._providers[key] = provider
+            return provider
 
     async def close(self) -> None:
-        """Close and forget the currently cached provider."""
+        """Close and forget every cached provider."""
         async with self._lock:
-            await self._discard_current_provider()
-
-    async def _discard_current_provider(self) -> None:
-        """Remove the cached provider and release its resources."""
-        provider = self._provider
-        self._provider = None
-        self._key = None
-        if provider is not None:
-            await provider.close()
+            providers = list(self._providers.values())
+            self._providers.clear()
+            await asyncio.gather(*(provider.close() for provider in providers))
 
     @staticmethod
     def _create_provider(
