@@ -6,7 +6,7 @@ from typing import Any
 class GenerationConfig:
     """Provider-agnostic generation settings for one model request."""
 
-    max_tokens: int = 8192
+    max_completion_tokens: int = 16384
     temperature: float | None = None
     reasoning_effort: str | None = None
     extra_body: dict[str, Any] | None = None

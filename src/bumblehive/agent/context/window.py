@@ -17,7 +17,7 @@ def fit_context_window(
     messages: list[Message],
     tools: list[dict[str, Any]],
     context_window_tokens: int | None,
-    max_output_tokens: int,
+    max_completion_tokens: int,
 ) -> list[Message]:
     """Return messages trimmed to fit a rough context-window budget."""
     if not messages:
@@ -33,7 +33,7 @@ def fit_context_window(
 
     budget = (
         effective_context_window_tokens
-        - max(1, max_output_tokens)
+        - max(1, max_completion_tokens)
         - _SNIP_SAFETY_BUFFER
     )
     if budget <= 0:

@@ -81,12 +81,6 @@ _EXEC_PARAMETERS: dict[str, Any] = {
             "minimum": 1000,
             "maximum": _MAX_OUTPUT_CHARS,
         },
-        "max_output_tokens": {
-            "type": "integer",
-            "description": "Alias for max_output_chars.",
-            "minimum": 1000,
-            "maximum": _MAX_OUTPUT_CHARS,
-        },
     },
     "additionalProperties": False,
 }
@@ -131,12 +125,6 @@ _WRITE_STDIN_PARAMETERS: dict[str, Any] = {
         "max_output_chars": {
             "type": "integer",
             "description": "Maximum output characters to return.",
-            "minimum": 1000,
-            "maximum": _MAX_OUTPUT_CHARS,
-        },
-        "max_output_tokens": {
-            "type": "integer",
-            "description": "Alias for max_output_chars.",
             "minimum": 1000,
             "maximum": _MAX_OUTPUT_CHARS,
         },
@@ -461,14 +449,11 @@ class ExecRunner:
         login: bool | None = None,
         yield_time_ms: int | None = None,
         max_output_chars: int | None = None,
-        max_output_tokens: int | None = None,
     ) -> dict[str, Any]:
         command = command or cmd
         working_dir = working_dir or workdir
         if not command:
             return {"error": "missing command"}
-        if max_output_chars is None:
-            max_output_chars = max_output_tokens
         output_limit = _clamp_int(
             max_output_chars,
             _DEFAULT_MAX_OUTPUT_CHARS,
@@ -546,10 +531,7 @@ class ExecRunner:
         wait_for: str | None = None,
         wait_timeout_ms: int | None = None,
         max_output_chars: int | None = None,
-        max_output_tokens: int | None = None,
     ) -> dict[str, Any]:
-        if max_output_chars is None:
-            max_output_chars = max_output_tokens
         output_limit = _clamp_int(
             max_output_chars,
             _DEFAULT_MAX_OUTPUT_CHARS,

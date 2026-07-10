@@ -133,7 +133,7 @@ class ToolCallingRunner:
                     model=model,
                     tools=tool_definitions,
                     context_window_tokens=context_window_tokens,
-                    max_output_tokens=request_generation.max_tokens,
+                    max_completion_tokens=request_generation.max_completion_tokens,
                     max_tool_result_chars=max_tool_result_chars,
                 ),
             )

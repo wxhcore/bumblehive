@@ -46,7 +46,7 @@ class RuntimeArguments:
     model: str = "gpt-5.4"
     api_key: str | None = None
     base_url: str | None = None
-    max_tokens: int = 8192
+    max_completion_tokens: int = 16384
     temperature: float | None = None
     reasoning_effort: str | None = None
     extra_body: dict[str, Any] | None = None
@@ -71,7 +71,7 @@ class RuntimeArguments:
                 base_url=self.base_url,
             ),
             generation=GenerationConfig(
-                max_tokens=self.max_tokens,
+                max_completion_tokens=self.max_completion_tokens,
                 temperature=self.temperature,
                 reasoning_effort=self.reasoning_effort,
                 extra_body=self.extra_body,
@@ -194,7 +194,12 @@ def _provider_config(value: Any) -> ProviderConfig:
 def _generation_config(value: Any) -> GenerationConfig:
     data = _mapping(value, "generation")
     return GenerationConfig(
-        max_tokens=int(data.get("max_tokens", GenerationConfig.max_tokens)),
+        max_completion_tokens=int(
+            data.get(
+                "max_completion_tokens",
+                GenerationConfig.max_completion_tokens,
+            )
+        ),
         temperature=_optional_float(data.get("temperature")),
         reasoning_effort=_optional_str(data.get("reasoning_effort")),
         extra_body=_optional_dict(data.get("extra_body"), "generation.extra_body"),
@@ -311,7 +316,7 @@ def _provider_to_dict(config: ProviderConfig) -> dict[str, Any]:
 
 def _generation_to_dict(config: GenerationConfig) -> dict[str, Any]:
     data: dict[str, Any] = {
-        "max_tokens": config.max_tokens,
+        "max_completion_tokens": config.max_completion_tokens,
     }
     _set_if_not_none(data, "temperature", config.temperature)
     _set_if_not_none(data, "reasoning_effort", config.reasoning_effort)

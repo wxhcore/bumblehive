@@ -16,7 +16,7 @@ class ContextGovernanceConfig:
     model: str | None
     tools: list[dict[str, Any]]
     context_window_tokens: int | None
-    max_output_tokens: int
+    max_completion_tokens: int
     max_tool_result_chars: int | None = None
 
 
@@ -40,7 +40,7 @@ class ContextGovernor:
             messages=prepared,
             tools=config.tools,
             context_window_tokens=config.context_window_tokens,
-            max_output_tokens=config.max_output_tokens,
+            max_completion_tokens=config.max_completion_tokens,
         )
         return repair_message_sequence(fitted)
 

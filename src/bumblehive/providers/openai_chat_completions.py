@@ -226,7 +226,10 @@ class OpenAIChatCompletionsProvider(ModelProvider):
         payload: dict[str, Any],
         generation: GenerationConfig,
     ) -> None:
-        payload["max_completion_tokens"] = max(1, generation.max_tokens)
+        payload["max_completion_tokens"] = max(
+            1,
+            generation.max_completion_tokens,
+        )
         if generation.temperature is not None:
             payload["temperature"] = generation.temperature
         if generation.reasoning_effort is not None:
