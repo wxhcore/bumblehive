@@ -1,6 +1,7 @@
 """Console rendering helpers for Bumblehive native stream events."""
 
 import json
+import re
 import sys
 from contextlib import contextmanager, nullcontext
 from typing import Any
@@ -16,6 +17,7 @@ from .observability import AgentEvent
 
 
 PHASE_LINE_PREFIX = "  │ "
+TOOL_PROGRESS_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
 def compact_json(data: Any, *, max_chars: int = 120) -> str:
@@ -34,6 +36,75 @@ def format_tool_hint(name: str, arguments: Any) -> str:
     if "command" in arguments:
         return f"{name} {arguments['command']}"
     return f"{name} {compact_json(arguments)}"
+
+
+_STREAMED_HINT_RE = re.compile(
+    r'"(?P<key>path|command)"\s*:\s*"(?P<value>(?:\\.|[^"\\])*)"'
+)
+
+
+def _streamed_tool_hint(arguments: str, *, max_chars: int = 120) -> str:
+    """Extract a stable path/command hint from incomplete JSON arguments."""
+    match = _STREAMED_HINT_RE.search(arguments)
+    if match is None or max_chars <= 0:
+        return ""
+    try:
+        value = json.loads(f'"{match.group("value")}"')
+    except (json.JSONDecodeError, TypeError):
+        value = match.group("value")
+    hint = str(value).replace("\r", "\\r").replace("\n", "\\n")
+    if len(hint) <= max_chars:
+        return hint
+    if max_chars == 1:
+        return "…"
+    return f"{hint[:max_chars - 1]}…"
+
+
+_STREAMED_TEXT_RE = re.compile(r'"(?:content|new_text)"\s*:\s*"')
+
+
+def _streamed_text_line_count(arguments: str) -> int | None:
+    """Count lines in complete or partial streamed JSON text arguments."""
+    total_lines = 0
+    search_from = 0
+    while True:
+        match = _STREAMED_TEXT_RE.search(arguments, search_from)
+        if match is None:
+            break
+
+        total_lines += 1
+        index = match.end()
+        while index < len(arguments):
+            char = arguments[index]
+            if char == "\\" and index + 1 < len(arguments):
+                escaped = arguments[index + 1]
+                if escaped == "n":
+                    total_lines += 1
+                    index += 2
+                    continue
+                if (
+                    escaped == "u"
+                    and index + 5 < len(arguments)
+                    and arguments[index + 2:index + 6].lower() == "000a"
+                ):
+                    total_lines += 1
+                    index += 6
+                    continue
+                index += 2
+                continue
+            if char == '"':
+                search_from = index + 1
+                break
+            if char == "\n":
+                total_lines += 1
+            index += 1
+        else:
+            search_from = len(arguments)
+
+        if search_from >= len(arguments):
+            break
+
+    return total_lines or None
 
 
 def tool_result_summary(payload: dict[str, Any]) -> str:
@@ -124,11 +195,13 @@ class ConsoleStreamRenderer:
         self._finished = False
         self._answer = ""
         self._live: Live | None = None
+        self._tool_progress_live: Live | None = None
         self._status = None
         self._reasoning_line_open = False
         self._tool_args: dict[tuple[int | None, int], str] = {}
         self._tool_names: dict[tuple[int | None, int], str] = {}
         self._started_tool_counts: dict[int | None, int] = {}
+        self._tool_progress_frames: dict[tuple[int | None, int], int] = {}
 
     def start(self, prompt: str) -> None:
         self.console.print("[bold blue]You:[/bold blue]")
@@ -146,7 +219,7 @@ class ConsoleStreamRenderer:
         elif kind == "model.stream.content_delta":
             await self.on_content_delta(str(payload.get("delta") or ""))
         elif kind == "model.stream.tool_call_delta":
-            self.on_tool_call_delta(payload, iteration=event.iteration)
+            await self.on_tool_call_delta(payload, iteration=event.iteration)
         elif kind == "tool.call.started":
             await self.on_tool_started(payload, iteration=event.iteration)
         elif kind == "tool.call.finished":
@@ -154,6 +227,7 @@ class ConsoleStreamRenderer:
         elif kind == "model.response.finished":
             self._add_usage(payload.get("usage"))
             await self.end_response_segment()
+            self.end_tool_call_segment()
         elif kind == "final_result":
             await self.finish()
             error = payload.get("error")
@@ -163,11 +237,13 @@ class ConsoleStreamRenderer:
     async def on_reasoning_delta(self, delta: str) -> None:
         if not delta:
             return
+        self.end_tool_call_segment()
         self._print_reasoning_delta(delta)
 
     async def on_content_delta(self, delta: str) -> None:
         if not delta:
             return
+        self.end_tool_call_segment()
         self._close_reasoning_line()
         self._answer += delta
         if not self._answer.strip():
@@ -186,7 +262,7 @@ class ConsoleStreamRenderer:
             self._live.update(self._answer_renderable())
         self._live.refresh()
 
-    def on_tool_call_delta(
+    async def on_tool_call_delta(
         self,
         payload: dict[str, Any],
         *,
@@ -197,12 +273,35 @@ class ConsoleStreamRenderer:
         tool_key = (iteration, tool_index)
 
         name = str(payload.get("name") or "")
+        name_started = bool(name and not self._tool_names.get(tool_key))
         if name:
             self._tool_names[tool_key] = name
 
         arguments_delta = str(payload.get("arguments_delta") or "")
         if arguments_delta:
             self._tool_args[tool_key] = self._tool_args.get(tool_key, "") + arguments_delta
+            self._tool_progress_frames[tool_key] = (
+                self._tool_progress_frames.get(tool_key, -1) + 1
+            ) % len(TOOL_PROGRESS_FRAMES)
+
+        if not name_started and not arguments_delta:
+            return
+
+        self._close_reasoning_line()
+        await self.end_response_segment()
+        self._stop_spinner()
+        self._ensure_header()
+        self._ensure_phase("tool_call", style="yellow dim")
+
+        if self._tool_progress_live is None:
+            self._tool_progress_live = Live(
+                self._tool_call_renderable(iteration),
+                console=self.console,
+                transient=self.console.is_terminal,
+            )
+            self._tool_progress_live.start()
+        else:
+            self._tool_progress_live.update(self._tool_call_renderable(iteration))
 
     async def on_tool_started(
         self,
@@ -211,6 +310,7 @@ class ConsoleStreamRenderer:
         iteration: int | None,
     ) -> None:
         self._close_reasoning_line()
+        self.end_tool_call_segment()
         await self.end_response_segment()
 
         tool = payload.get("tool_call") or {}
@@ -235,6 +335,7 @@ class ConsoleStreamRenderer:
 
     async def on_tool_finished(self, payload: dict[str, Any]) -> None:
         self._close_reasoning_line()
+        self.end_tool_call_segment()
         await self.end_response_segment()
 
         tool_call = payload.get("tool_call") or {}
@@ -279,6 +380,7 @@ class ConsoleStreamRenderer:
             return
         self._finished = True
         self._close_reasoning_line()
+        self.end_tool_call_segment()
         await self.end_response_segment()
         self._stop_spinner()
         self._print_usage()
@@ -287,6 +389,44 @@ class ConsoleStreamRenderer:
         answer = self._answer.rstrip()
         renderable = Markdown(answer) if self.render_markdown else Text(answer, style="white")
         return PhaseBlock(renderable)
+
+    def _tool_call_renderable(self, iteration: int | None) -> PhaseBlock:
+        lines: list[str] = []
+        keys = sorted(
+            {
+                key
+                for key in (*self._tool_names, *self._tool_args)
+                if key[0] == iteration
+            },
+            key=lambda key: key[1],
+        )
+        for key in keys:
+            lines.extend(self._tool_call_progress_lines(key))
+        return PhaseBlock(Text("\n".join(lines), style="yellow dim"))
+
+    def _tool_call_progress_lines(self, tool_key: tuple[int | None, int]) -> list[str]:
+        name = self._tool_names.get(tool_key) or "tool"
+        arguments = self._tool_args.get(tool_key, "")
+        hint = _streamed_tool_hint(arguments)
+        label = f"{name} {hint}" if hint else name
+        frame_index = self._tool_progress_frames.get(tool_key, 0)
+        frame = TOOL_PROGRESS_FRAMES[frame_index]
+        line_count = _streamed_text_line_count(arguments)
+        lines = [f"preparing {label}"]
+        if line_count is None:
+            lines.append(f"generating arguments {frame}")
+        else:
+            noun = "line" if line_count == 1 else "lines"
+            lines.append(f"generating... {frame}  {line_count} {noun}")
+        return lines
+
+    def end_tool_call_segment(self) -> None:
+        if self._tool_progress_live is None:
+            return
+        self._tool_progress_live.update(self._tool_call_renderable(self._current_iteration))
+        self._tool_progress_live.refresh()
+        self._tool_progress_live.stop()
+        self._tool_progress_live = None
 
     def _ensure_header(self) -> None:
         self._stop_spinner()
@@ -299,6 +439,7 @@ class ConsoleStreamRenderer:
         if iteration is None or iteration == self._current_iteration:
             return
         self._close_reasoning_line()
+        self.end_tool_call_segment()
         await self.end_response_segment()
         self._current_iteration = iteration
         self._phase = None
@@ -398,6 +539,11 @@ class ConsoleStreamRenderer:
             live.stop()
             self._live = None
 
+        tool_progress_live = self._tool_progress_live
+        if tool_progress_live is not None:
+            tool_progress_live.stop()
+            self._tool_progress_live = None
+
         spinner = self._status
         if spinner is not None:
             spinner.stop()
@@ -417,9 +563,21 @@ class ConsoleStreamRenderer:
                 )
                 self._live.start()
                 self._live.refresh()
+            if tool_progress_live is not None:
+                self._tool_progress_live = Live(
+                    self._tool_call_renderable(self._current_iteration),
+                    console=self.console,
+                    transient=self.console.is_terminal,
+                )
+                self._tool_progress_live.start()
+                self._tool_progress_live.refresh()
 
     def pause(self):
-        return self._pause_transient_output() if self._status or self._live else nullcontext()
+        return (
+            self._pause_transient_output()
+            if self._status or self._live or self._tool_progress_live
+            else nullcontext()
+        )
 
 
 __all__ = ["ConsoleStreamRenderer", "PhaseBlock"]
