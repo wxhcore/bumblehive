@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Iterable, Mapping
 from types import TracebackType
 from typing import Any
@@ -35,12 +36,16 @@ class BumblehiveRuntime:
         self.runner = ToolCallingRunner()
         self.sessions = SessionManager()
 
+        self._tools_initialized = False
+        self._tools_init_lock = asyncio.Lock()
+
     @classmethod
     def from_config(cls, config: ConfigInput = None) -> "BumblehiveRuntime":
         """Create a runtime from a JSON file, mapping, config object, or defaults."""
         return cls(config)
 
     async def __aenter__(self) -> "BumblehiveRuntime":
+        await self.initialize_tools()
         return self
 
     async def __aexit__(
@@ -50,6 +55,19 @@ class BumblehiveRuntime:
         traceback: TracebackType | None,
     ) -> None:
         await self.close()
+
+    async def initialize_tools(self) -> None:
+        """Register built-ins and connect the runtime-scoped MCP servers once."""
+        if self._tools_initialized:
+            return
+
+        async with self._tools_init_lock:
+            if self._tools_initialized:
+                return
+
+            self.tools.register_builtin_tools()
+            await self.tools.sync_mcp_servers(self.config.mcp_servers)
+            self._tools_initialized = True
 
     async def run(
         self,
@@ -133,8 +151,7 @@ class BumblehiveRuntime:
     ) -> AgentRunResult:
         """Run one turn using runtime defaults plus optional per-turn config."""
         run_config = self._resolve_run_config(config)
-        self.tools.register_builtin_tools()
-        await self.tools.sync_mcp_servers(run_config.mcp_servers)
+        await self.initialize_tools()
         provider = await self._get_provider(run_config.provider)
         session = self.sessions.get(session_id)
         async with session.lock:
@@ -167,6 +184,8 @@ class BumblehiveRuntime:
         self,
         config: Mapping[str, Any] | None = None,
     ) -> BumblehiveConfig:
+        if config is not None and "mcp_servers" in config:
+            raise ValueError("mcp_servers cannot be changed per run")
         if config is None:
             return self.config
 
