@@ -7,7 +7,7 @@ from .agent import (
     AgentLoop,
     AgentRunResult,
     ContextBuilder,
-    MessageHistoryManager,
+    MessageHistory,
     ToolCallingRunner,
 )
 from .config.loader import ConfigInput, load_config
@@ -203,7 +203,7 @@ class BumblehiveRuntime:
             base_url=config.base_url,
         )
 
-    def _build_loop(self, history: MessageHistoryManager) -> AgentLoop:
+    def _build_loop(self, history: MessageHistory) -> AgentLoop:
         return AgentLoop(
             tools=self.tools,
             context=self.context,

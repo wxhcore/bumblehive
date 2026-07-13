@@ -22,7 +22,7 @@ _MISSING_TOOL_RESULT_CONTENT = (
 _DEFAULT_MAX_TOOL_RESULT_CHARS = 20_000
 
 
-class MessageHistoryManager:
+class MessageHistory:
     """Mutable conversation history container for library users."""
 
     def __init__(
@@ -86,13 +86,13 @@ class MessageHistoryManager:
         messages before storing them. Use this after ``AgentLoop.run_turn`` or
         ``ToolCallingRunner.run`` when carrying history into the next turn.
         """
-        self._messages = _run_messages_to_history(messages)
+        self._messages = run_messages_to_history(messages)
 
     def clear(self) -> None:
         """Remove all stored messages."""
         self._messages.clear()
 
-    def history(self) -> list[Message]:
+    def get_history(self) -> list[Message]:
         """Return a cloned copy of the raw stored history."""
         return [dict(message) for message in self._messages]
 
@@ -110,9 +110,10 @@ class MessageHistoryManager:
         )
 
 
-def _run_messages_to_history(
+def run_messages_to_history(
     messages: Sequence[Mapping[str, Any]],
 ) -> list[Message]:
+    """Return persistent history from messages used during one model run."""
     history: list[Message] = []
     for message in messages:
         current = dict(message)

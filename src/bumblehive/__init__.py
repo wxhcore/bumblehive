@@ -1,6 +1,6 @@
 """Bumblehive agent framework."""
 
-from .agent import AgentLoop, MessageHistoryManager, ToolCallingRunner
+from .agent import AgentLoop, MessageHistory, ToolCallingRunner
 from .config.schema import (
     AgentConfig,
     BumblehiveConfig,
@@ -33,7 +33,7 @@ __all__ = [
     "BumblehiveRuntime",
     "EventRecorder",
     "EventEmitter",
-    "MessageHistoryManager",
+    "MessageHistory",
     "ProviderConfig",
     "RuntimeArguments",
     "RuntimeConfig",

@@ -11,7 +11,7 @@ from ..providers.base import ModelProvider
 from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
 from ..tools.scope import bind_tool_session, reset_tool_session
-from .context import ContextBuilder, DynamicValue, MessageHistoryManager
+from .context import ContextBuilder, DynamicValue, MessageHistory
 from .runner import AgentRunResult, ToolCallingRunner
 
 
@@ -25,7 +25,7 @@ class AgentLoop:
         context: ContextBuilder,
         skills: SkillsManager,
         runner: ToolCallingRunner,
-        history: MessageHistoryManager,
+        history: MessageHistory,
     ) -> None:
         self.tools = tools
         self.context = context
@@ -121,7 +121,7 @@ class AgentLoop:
             workspace=workspace,
             timezone=timezone,
             dynamic_context=dynamic_context,
-            history=self.history.history(),
+            history=self.history.get_history(),
             agent_instructions=agent_instructions,
             available_skills=available_skills,
         )
