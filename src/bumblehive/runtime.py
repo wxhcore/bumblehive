@@ -6,8 +6,8 @@ from typing import Any
 from .agent import (
     AgentLoop,
     AgentRunResult,
+    CheckpointCallback,
     ContextBuilder,
-    MessageHistory,
     ToolCallingRunner,
 )
 from .config.loader import ConfigInput, load_config
@@ -25,9 +25,12 @@ from .tools import ToolManager
 
 
 class BumblehiveRuntime:
-    """High-level in-memory runtime built from BumblehiveConfig."""
+    """High-level agent runtime built from BumblehiveConfig."""
 
-    def __init__(self, config: ConfigInput = None) -> None:
+    def __init__(
+        self,
+        config: ConfigInput = None,
+    ) -> None:
         self.config = load_config(config)
         self.providers = ProviderManager()
         self.tools = ToolManager()
@@ -40,7 +43,10 @@ class BumblehiveRuntime:
         self._tools_init_lock = asyncio.Lock()
 
     @classmethod
-    def from_config(cls, config: ConfigInput = None) -> "BumblehiveRuntime":
+    def from_config(
+        cls,
+        config: ConfigInput = None,
+    ) -> "BumblehiveRuntime":
         """Create a runtime from a JSON file, mapping, config object, or defaults."""
         return cls(config)
 
@@ -77,7 +83,7 @@ class BumblehiveRuntime:
         hooks: HookInput = None,
         session_id: str | None = None,
     ) -> AgentRunResult:
-        """Run one turn using runtime defaults plus optional per-turn config."""
+        """Run one stateless turn, or persist it when session_id is provided."""
         return await self._run(
             message,
             config=config,
@@ -95,7 +101,7 @@ class BumblehiveRuntime:
         session_id: str | None = None,
         max_queue_size: int = 256,
     ) -> AsyncEventStream[AgentRunResult]:
-        """Stream native Bumblehive events for one turn."""
+        """Stream one stateless or explicitly session-backed turn."""
 
         async def _run_with_stream_hook(
             stream_hook: AsyncEventStreamHook,
@@ -120,7 +126,7 @@ class BumblehiveRuntime:
         renderer: Any | None = None,
         max_queue_size: int = 256,
     ) -> AgentRunResult:
-        """Run one turn, render its events, and return the final result."""
+        """Run and render one stateless or explicitly session-backed turn."""
 
         if renderer is None:
             from .console import ConsoleStreamRenderer
@@ -152,31 +158,78 @@ class BumblehiveRuntime:
         session_id: str | None = None,
         stream: bool = False,
     ) -> AgentRunResult:
-        """Run one turn using runtime defaults plus optional per-turn config."""
+        """Run one stateless turn, or persist it when session_id is provided."""
         run_config = self._resolve_run_config(config)
-        await self.initialize_tools()
-        provider = await self._get_provider(run_config.provider)
-        session = self.sessions.get(session_id)
-        async with session.lock:
-            loop = self._build_loop(session.history)
-            return await loop.run_turn(
+        if session_id is None:
+            return await self._run_agent(
                 message,
-                provider=provider,
-                model=run_config.provider.model,
-                generation=run_config.generation,
-                workspace=run_config.runtime.workspace,
-                timezone=run_config.runtime.timezone,
-                dynamic_context=run_config.agent.dynamic_context,
-                skill_names=_list_or_none(run_config.agent.skill_names),
-                tool_names=_list_or_none(run_config.agent.tool_names),
-                context_window_tokens=run_config.runtime.context_window_tokens,
-                max_tool_result_chars=run_config.runtime.max_tool_result_chars,
-                max_iterations=run_config.runtime.max_iterations,
-                agent_instructions=run_config.agent.instructions,
+                run_config=run_config,
                 hooks=hooks,
-                session_id=session.session_id,
+                session_id=None,
                 stream=stream,
             )
+
+        session = await self.sessions.get(session_id)
+        async with session.lock:
+            await self.sessions.recover(session)
+            history_messages = self.sessions.get_history(session)
+            await self.sessions.append_user(session, message)
+            checkpoint = self.sessions.create_checkpoint_callback(session)
+
+            try:
+                return await self._run_agent(
+                    message,
+                    run_config=run_config,
+                    history_messages=history_messages,
+                    hooks=hooks,
+                    session_id=session.session_id,
+                    stream=stream,
+                    checkpoint_callback=checkpoint,
+                )
+            except Exception as exc:
+                try:
+                    await self.sessions.recover(session)
+                except Exception as recovery_exc:
+                    exc.add_note(
+                        "Failed to persist the interrupted turn: "
+                        f"{type(recovery_exc).__name__}: {recovery_exc}"
+                    )
+                raise
+
+    async def _run_agent(
+        self,
+        message: str,
+        *,
+        run_config: BumblehiveConfig,
+        hooks: HookInput,
+        session_id: str | None,
+        stream: bool,
+        history_messages: list[dict[str, Any]] | None = None,
+        checkpoint_callback: CheckpointCallback | None = None,
+    ) -> AgentRunResult:
+        await self.initialize_tools()
+        provider = await self._get_provider(run_config.provider)
+        loop = self._build_loop()
+        return await loop.run_turn(
+            message,
+            provider=provider,
+            model=run_config.provider.model,
+            history_messages=history_messages,
+            generation=run_config.generation,
+            workspace=run_config.runtime.workspace,
+            timezone=run_config.runtime.timezone,
+            dynamic_context=run_config.agent.dynamic_context,
+            skill_names=_list_or_none(run_config.agent.skill_names),
+            tool_names=_list_or_none(run_config.agent.tool_names),
+            context_window_tokens=run_config.runtime.context_window_tokens,
+            max_tool_result_chars=run_config.runtime.max_tool_result_chars,
+            max_iterations=run_config.runtime.max_iterations,
+            agent_instructions=run_config.agent.instructions,
+            hooks=hooks,
+            session_id=session_id,
+            stream=stream,
+            checkpoint_callback=checkpoint_callback,
+        )
 
     async def close(self) -> None:
         """Release resources owned by this runtime."""
@@ -203,18 +256,19 @@ class BumblehiveRuntime:
             base_url=config.base_url,
         )
 
-    def _build_loop(self, history: MessageHistory) -> AgentLoop:
+    def _build_loop(self) -> AgentLoop:
         return AgentLoop(
             tools=self.tools,
             context=self.context,
             skills=self.skills,
             runner=self.runner,
-            history=history,
         )
 
 
-def from_config(config: ConfigInput = None) -> BumblehiveRuntime:
-    """Create an in-memory runtime from a JSON file, mapping, or config object."""
+def from_config(
+    config: ConfigInput = None,
+) -> BumblehiveRuntime:
+    """Create a runtime from a JSON file, mapping, or config object."""
     return BumblehiveRuntime.from_config(config)
 
 

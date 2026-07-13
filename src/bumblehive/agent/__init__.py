@@ -17,12 +17,13 @@ from .context import (
     truncate_tool_results,
 )
 from .loop import AgentLoop
-from .runner import AgentRunResult, ToolCallingRunner
+from .runner import AgentRunResult, CheckpointCallback, ToolCallingRunner
 from ..observability import AgentEvent, AgentHook, EventEmitter, EventRecorder
 
 __all__ = [
     "AgentLoop",
     "AgentRunResult",
+    "CheckpointCallback",
     "AgentEvent",
     "AgentHook",
     "ToolCallingRunner",

@@ -16,7 +16,7 @@ from .observability import (
     EventEmitter,
     EventRecorder,
 )
-from .paths import get_workspace_path
+from .paths import get_sessions_path, get_workspace_path
 from .providers import ProviderManager
 from .runtime import BumblehiveRuntime, from_config
 from .skills import SkillsManager
@@ -39,6 +39,7 @@ __all__ = [
     "RuntimeConfig",
     "ToolCallingRunner",
     "from_config",
+    "get_sessions_path",
     "get_workspace_path",
     "ProviderManager",
     "SkillsManager",

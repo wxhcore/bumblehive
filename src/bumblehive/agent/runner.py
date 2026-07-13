@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from .context import ContextGovernanceConfig, ContextGovernor
 
 
 Message = dict[str, Any]
+CheckpointCallback = Callable[[list[Message]], Awaitable[None]]
 
 _MAX_ITERATIONS = 300
 _MAX_ITERATIONS_MESSAGE = (
@@ -60,6 +62,7 @@ class ToolCallingRunner:
         max_iterations: int | None = None,
         emitter: EventEmitter | None = None,
         stream: bool = False,
+        checkpoint_callback: CheckpointCallback | None = None,
     ) -> AgentRunResult:
         """Run model/tool iterations until a final model response is produced."""
 
@@ -93,6 +96,7 @@ class ToolCallingRunner:
                 max_iterations=effective_max_iterations,
                 emitter=emitter,
                 stream=stream,
+                checkpoint_callback=checkpoint_callback,
             )
         except Exception as exc:
             await run_events.error(exc)
@@ -116,6 +120,7 @@ class ToolCallingRunner:
         max_iterations: int,
         emitter: EventEmitter,
         stream: bool,
+        checkpoint_callback: CheckpointCallback | None,
     ) -> AgentRunResult:
         for iteration in range(max_iterations):
             iteration_emitter = emitter.with_iteration(iteration)
@@ -154,6 +159,7 @@ class ToolCallingRunner:
 
             if response.is_error:
                 assistant_message = self._append_model_error_placeholder(run_messages)
+                await self._checkpoint(checkpoint_callback, run_messages)
                 await model_events.response_finished(
                     finish_reason=response.finish_reason,
                     is_error=response.is_error,
@@ -191,6 +197,7 @@ class ToolCallingRunner:
             if response.should_execute_tools:
                 assistant_message = self._assistant_tool_call_message(response)
                 run_messages.append(assistant_message)
+                await self._checkpoint(checkpoint_callback, run_messages)
                 await model_events.response_finished(
                     finish_reason=response.finish_reason,
                     is_error=response.is_error,
@@ -211,6 +218,7 @@ class ToolCallingRunner:
                         tools_used.append(tool_call.name)
                     tool_message = tool_result.to_openai_tool_message(call=tool_call)
                     run_messages.append(tool_message)
+                await self._checkpoint(checkpoint_callback, run_messages)
                 await tool_events.calls_finished(tool_results)
                 await run_events.iteration_finished(
                     finish_reason=response.finish_reason,
@@ -226,6 +234,7 @@ class ToolCallingRunner:
                 reasoning_content=response.reasoning_content,
             )
             run_messages.append(assistant_message)
+            await self._checkpoint(checkpoint_callback, run_messages)
             await model_events.response_finished(
                 finish_reason=response.finish_reason,
                 is_error=response.is_error,
@@ -262,6 +271,7 @@ class ToolCallingRunner:
         final_content = _MAX_ITERATIONS_MESSAGE
         assistant_message = self._assistant_message(final_content)
         run_messages.append(assistant_message)
+        await self._checkpoint(checkpoint_callback, run_messages)
         result = AgentRunResult(
             final_content=final_content,
             messages=run_messages,
@@ -285,6 +295,15 @@ class ToolCallingRunner:
             error=result.error,
         )
         return result
+
+    @staticmethod
+    async def _checkpoint(
+        callback: CheckpointCallback | None,
+        messages: list[Message],
+    ) -> None:
+        if callback is None:
+            return
+        await callback([dict(message) for message in messages])
 
     @classmethod
     async def _request_model(
