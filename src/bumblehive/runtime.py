@@ -150,6 +150,10 @@ class BumblehiveRuntime:
             await stream.aclose()
             await renderer.finish()
 
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete a persisted session and evict its cached state."""
+        return await self.sessions.delete(session_id)
+
     async def _run(
         self,
         message: str,
