@@ -64,6 +64,7 @@ class ModelStreamCallbacks:
     on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None
     on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None
     on_stream_recover: Callable[[], Awaitable[None]] | None = None
+    on_refusal_delta: Callable[[str], Awaitable[None]] | None = None
 
 
 class ModelProvider(ABC):
@@ -137,6 +138,13 @@ class ModelProvider(ABC):
             if callbacks and callbacks.on_content_delta:
                 await callbacks.on_content_delta(delta)
 
+        async def _refusal_delta(delta: str) -> None:
+            nonlocal has_streamed_delta
+            if delta:
+                has_streamed_delta = True
+            if callbacks and callbacks.on_refusal_delta:
+                await callbacks.on_refusal_delta(delta)
+
         async def _reasoning_delta(delta: str) -> None:
             nonlocal has_streamed_delta
             if delta:
@@ -154,6 +162,9 @@ class ModelProvider(ABC):
         wrapped_callbacks = ModelStreamCallbacks(
             on_content_delta=(
                 _content_delta if callbacks and callbacks.on_content_delta else None
+            ),
+            on_refusal_delta=(
+                _refusal_delta if callbacks and callbacks.on_refusal_delta else None
             ),
             on_reasoning_delta=(
                 _reasoning_delta if callbacks and callbacks.on_reasoning_delta else None

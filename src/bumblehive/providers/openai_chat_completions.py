@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from inspect import isawaitable
@@ -58,6 +59,14 @@ _NON_RECOVERABLE_QUOTA_MARKERS = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _ParsedStreamChunk:
+    content_delta: str = ""
+    refusal_delta: str = ""
+    reasoning_delta: str = ""
+    tool_call_deltas: list[dict[str, Any]] = field(default_factory=list)
+
+
 class OpenAIChatCompletionsProvider(ModelProvider):
     """Provider for OpenAI-compatible Chat Completions APIs."""
 
@@ -106,50 +115,64 @@ class OpenAIChatCompletionsProvider(ModelProvider):
         payload["stream"] = True
         payload["stream_options"] = {"include_usage": True}
         idle_timeout_s = resolve_stream_idle_timeout_s()
+        accumulator = _ChatStreamAccumulator(type(self))
         try:
             stream = await self._create_stream(payload)
-            chunks: list[Any] = []
             stream_iter = stream.__aiter__()
-            while True:
-                try:
-                    chunk = await asyncio.wait_for(
-                        stream_iter.__anext__(),
-                        timeout=idle_timeout_s,
-                    )
-                except StopAsyncIteration:
-                    break
-                chunks.append(chunk)
-                await self._emit_stream_chunk_callbacks(chunk, callbacks)
         except asyncio.TimeoutError:
-            return ModelResponse(
-                content=(
-                    f"Error calling model: stream stalled for more than "
-                    f"{idle_timeout_s:g} seconds"
-                ),
-                finish_reason="error",
-                error=AgentError(
-                    code="model_timeout",
-                    message=(
-                        f"stream stalled for more than {idle_timeout_s:g} seconds"
-                    ),
-                    recoverable=True,
-                ),
-                error_kind="timeout",
-            )
+            return self._stream_idle_timeout_response(idle_timeout_s)
         except Exception as exc:
             return self._error_response_from_exception(exc)
 
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    stream_iter.__anext__(),
+                    timeout=idle_timeout_s,
+                )
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                return self._stream_idle_timeout_response(idle_timeout_s)
+            except Exception as exc:
+                return self._error_response_from_exception(exc)
+
+            try:
+                parsed_chunk = accumulator.consume(chunk)
+            except Exception as exc:
+                return self._stream_parse_error_response(exc)
+
+            await self._emit_parsed_stream_callbacks(parsed_chunk, callbacks)
+
         try:
-            return self._parse_stream_chunks(chunks)
+            return accumulator.finalize()
         except Exception as exc:
-            return ModelResponse(
-                content=f"Error parsing model stream response: {exc}",
-                finish_reason="error",
-                error=AgentError(
-                    code="model_response_parse_error",
-                    message=str(exc),
-                ),
-            )
+            return self._stream_parse_error_response(exc)
+
+    @staticmethod
+    def _stream_idle_timeout_response(idle_timeout_s: float) -> ModelResponse:
+        message = f"stream stalled for more than {idle_timeout_s:g} seconds"
+        return ModelResponse(
+            content=f"Error calling model: {message}",
+            finish_reason="error",
+            error=AgentError(
+                code="model_timeout",
+                message=message,
+                recoverable=True,
+            ),
+            error_kind="timeout",
+        )
+
+    @staticmethod
+    def _stream_parse_error_response(exc: Exception) -> ModelResponse:
+        return ModelResponse(
+            content=f"Error parsing model stream response: {exc}",
+            finish_reason="error",
+            error=AgentError(
+                code="model_response_parse_error",
+                message=str(exc),
+            ),
+        )
 
     async def _create_stream(self, payload: dict[str, Any]) -> Any:
         completions = self._client_or_create().chat.completions
@@ -298,96 +321,26 @@ class OpenAIChatCompletionsProvider(ModelProvider):
             }
         )
 
-    @classmethod
-    async def _emit_stream_chunk_callbacks(
-        cls,
-        chunk: Any,
+    @staticmethod
+    async def _emit_parsed_stream_callbacks(
+        parsed_chunk: _ParsedStreamChunk,
         callbacks: ModelStreamCallbacks | None,
     ) -> None:
         if callbacks is None:
             return
 
-        choice = cls._stream_choice(chunk)
-        if choice is None:
-            return
-        delta = cls._get(choice, "delta")
-        if delta is None:
-            return
+        if parsed_chunk.content_delta and callbacks.on_content_delta:
+            await callbacks.on_content_delta(parsed_chunk.content_delta)
 
-        content = cls._extract_text(cls._get(delta, "content"))
-        if content and callbacks.on_content_delta:
-            await callbacks.on_content_delta(content)
+        if parsed_chunk.refusal_delta and callbacks.on_refusal_delta:
+            await callbacks.on_refusal_delta(parsed_chunk.refusal_delta)
 
-        reasoning = (
-            cls._extract_text(cls._get(delta, "reasoning_content"))
-            or cls._extract_text(cls._get(delta, "reasoning"))
-        )
-        if reasoning and callbacks.on_reasoning_delta:
-            await callbacks.on_reasoning_delta(reasoning)
+        if parsed_chunk.reasoning_delta and callbacks.on_reasoning_delta:
+            await callbacks.on_reasoning_delta(parsed_chunk.reasoning_delta)
 
         if callbacks.on_tool_call_delta:
-            for index, tool_delta in enumerate(cls._get(delta, "tool_calls") or []):
-                function = cls._get(tool_delta, "function")
-                tool_index = cls._get(tool_delta, "index")
-                await callbacks.on_tool_call_delta(
-                    {
-                        "index": tool_index if tool_index is not None else index,
-                        "call_id": str(cls._get(tool_delta, "id") or ""),
-                        "name": (
-                            str(cls._get(function, "name") or "")
-                            if function is not None
-                            else ""
-                        ),
-                        "arguments_delta": (
-                            str(cls._get(function, "arguments") or "")
-                            if function is not None
-                            else ""
-                        ),
-                    }
-                )
-
-    @classmethod
-    def _parse_stream_chunks(cls, chunks: list[Any]) -> ModelResponse:
-        content_parts: list[str] = []
-        reasoning_parts: list[str] = []
-        tool_buffers: dict[int, dict[str, str]] = {}
-        finish_reason = "stop"
-        usage: dict[str, int] = {}
-
-        for chunk in chunks:
-            parsed_usage = cls._parse_usage(cls._get(chunk, "usage"))
-            if parsed_usage:
-                usage = parsed_usage
-
-            choice = cls._stream_choice(chunk)
-            if choice is None:
-                continue
-            finish_reason = cls._get(choice, "finish_reason") or finish_reason
-            delta = cls._get(choice, "delta")
-            if delta is None:
-                continue
-
-            content = cls._extract_text(cls._get(delta, "content"))
-            if content:
-                content_parts.append(content)
-
-            reasoning = (
-                cls._extract_text(cls._get(delta, "reasoning_content"))
-                or cls._extract_text(cls._get(delta, "reasoning"))
-            )
-            if reasoning:
-                reasoning_parts.append(reasoning)
-
-            for index, tool_delta in enumerate(cls._get(delta, "tool_calls") or []):
-                cls._accumulate_tool_delta(tool_buffers, tool_delta, index)
-
-        return ModelResponse(
-            content="".join(content_parts) or None,
-            tool_calls=cls._parse_stream_tool_calls(tool_buffers),
-            finish_reason=finish_reason,
-            usage=usage,
-            reasoning_content="".join(reasoning_parts) or None,
-        )
+            for tool_delta in parsed_chunk.tool_call_deltas:
+                await callbacks.on_tool_call_delta(tool_delta)
 
     @classmethod
     def _accumulate_tool_delta(
@@ -826,3 +779,129 @@ class OpenAIChatCompletionsProvider(ModelProvider):
         if isinstance(obj, dict):
             return obj.get(key)
         return getattr(obj, key, None)
+
+
+@dataclass(slots=True)
+class _ChatStreamAccumulator:
+    provider_cls: Any
+    content_parts: list[str] = field(default_factory=list)
+    refusal_parts: list[str] = field(default_factory=list)
+    reasoning_parts: list[str] = field(default_factory=list)
+    tool_buffers: dict[int, dict[str, str]] = field(default_factory=dict)
+    finish_reason: str | None = None
+    usage: dict[str, int] = field(default_factory=dict)
+
+    def consume(self, chunk: Any) -> _ParsedStreamChunk:
+        parsed_usage = self.provider_cls._parse_usage(
+            self.provider_cls._get(chunk, "usage")
+        )
+        if parsed_usage:
+            self.usage = parsed_usage
+
+        choice = self.provider_cls._stream_choice(chunk)
+        if choice is None:
+            return _ParsedStreamChunk()
+
+        raw_finish_reason = self.provider_cls._get(choice, "finish_reason")
+        if raw_finish_reason:
+            self.finish_reason = str(raw_finish_reason)
+
+        delta = self.provider_cls._get(choice, "delta")
+        if delta is None:
+            return _ParsedStreamChunk()
+
+        content_delta = self.provider_cls._extract_text(
+            self.provider_cls._get(delta, "content")
+        )
+        if content_delta:
+            self.content_parts.append(content_delta)
+
+        refusal_delta = self.provider_cls._extract_text(
+            self.provider_cls._get(delta, "refusal")
+        )
+        if refusal_delta:
+            self.refusal_parts.append(refusal_delta)
+
+        reasoning_delta = (
+            self.provider_cls._extract_text(
+                self.provider_cls._get(delta, "reasoning_content")
+            )
+            or self.provider_cls._extract_text(
+                self.provider_cls._get(delta, "reasoning")
+            )
+        )
+        if reasoning_delta:
+            self.reasoning_parts.append(reasoning_delta)
+
+        tool_call_deltas: list[dict[str, Any]] = []
+        for index, tool_delta in enumerate(
+            self.provider_cls._get(delta, "tool_calls") or []
+        ):
+            self.provider_cls._accumulate_tool_delta(
+                self.tool_buffers,
+                tool_delta,
+                index,
+            )
+            tool_call_deltas.append(self._tool_call_delta_payload(tool_delta, index))
+
+        return _ParsedStreamChunk(
+            content_delta=content_delta,
+            refusal_delta=refusal_delta,
+            reasoning_delta=reasoning_delta,
+            tool_call_deltas=tool_call_deltas,
+        )
+
+    def finalize(self) -> ModelResponse:
+        if self.finish_reason is None:
+            message = (
+                "model stream ended without a final finish_reason chunk; "
+                "the response may have been interrupted or truncated"
+            )
+            return ModelResponse(
+                content=self._joined(self.content_parts),
+                finish_reason="error",
+                usage=self.usage,
+                refusal=self._joined(self.refusal_parts),
+                reasoning_content=self._joined(self.reasoning_parts),
+                error=AgentError(
+                    code="model_stream_incomplete",
+                    message=message,
+                    recoverable=True,
+                ),
+                error_kind="stream_incomplete",
+            )
+
+        return ModelResponse(
+            content=self._joined(self.content_parts),
+            tool_calls=self.provider_cls._parse_stream_tool_calls(self.tool_buffers),
+            finish_reason=self.finish_reason,
+            usage=self.usage,
+            refusal=self._joined(self.refusal_parts),
+            reasoning_content=self._joined(self.reasoning_parts),
+        )
+
+    def _tool_call_delta_payload(
+        self,
+        tool_delta: Any,
+        index_hint: int,
+    ) -> dict[str, Any]:
+        function = self.provider_cls._get(tool_delta, "function")
+        tool_index = self.provider_cls._get(tool_delta, "index")
+        return {
+            "index": tool_index if tool_index is not None else index_hint,
+            "call_id": str(self.provider_cls._get(tool_delta, "id") or ""),
+            "name": (
+                str(self.provider_cls._get(function, "name") or "")
+                if function is not None
+                else ""
+            ),
+            "arguments_delta": (
+                str(self.provider_cls._get(function, "arguments") or "")
+                if function is not None
+                else ""
+            ),
+        }
+
+    @staticmethod
+    def _joined(parts: list[str]) -> str | None:
+        return "".join(parts) or None
