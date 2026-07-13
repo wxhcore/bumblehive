@@ -1,8 +1,8 @@
 import asyncio
-import base64
 import json
 import os
 from contextlib import suppress
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -97,5 +97,5 @@ class JsonSessionStore:
         return True
 
     def _path(self, session_id: str) -> Path:
-        encoded = base64.urlsafe_b64encode(session_id.encode("utf-8")).decode("ascii")
-        return self.directory / f"{encoded.rstrip('=')}.json"
+        digest = sha256(session_id.encode("utf-8")).hexdigest()
+        return self.directory / f"{digest}.json"

@@ -133,13 +133,20 @@ def _strip_user_runtime_context(message: Message) -> Message:
     if not isinstance(content, str):
         return message
 
-    marker = "<runtime_context>"
-    marker_index = content.find(marker)
-    if marker_index < 0:
+    opening = "<runtime_context>\n"
+    closing = "\n</runtime_context>"
+    if not content.endswith(closing):
         return message
 
+    marker = f"\n\n{opening}"
+    marker_index = content.rfind(marker)
+    if marker_index < 0:
+        if not content.startswith(opening):
+            return message
+        marker_index = 0
+
     cleaned = dict(message)
-    cleaned["content"] = content[:marker_index].rstrip("\n ")
+    cleaned["content"] = content[:marker_index]
     return cleaned
 
 
