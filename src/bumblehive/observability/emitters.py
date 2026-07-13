@@ -11,6 +11,7 @@ from .events import (
     MODEL_REQUEST_STARTED,
     MODEL_RESPONSE_FINISHED,
     MODEL_STREAM_CONTENT_DELTA,
+    MODEL_STREAM_REFUSAL_DELTA,
     MODEL_STREAM_REASONING_DELTA,
     MODEL_STREAM_TOOL_CALL_DELTA,
     RUN_ERROR,
@@ -156,6 +157,14 @@ class ModelEvents:
             return
         await self.emitter.emit(
             MODEL_STREAM_CONTENT_DELTA,
+            delta=delta,
+        )
+
+    async def refusal_delta(self, delta: str) -> None:
+        if not delta:
+            return
+        await self.emitter.emit(
+            MODEL_STREAM_REFUSAL_DELTA,
             delta=delta,
         )
 

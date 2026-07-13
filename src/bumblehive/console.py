@@ -218,6 +218,8 @@ class ConsoleStreamRenderer:
             await self.on_reasoning_delta(str(payload.get("delta") or ""))
         elif kind == "model.stream.content_delta":
             await self.on_content_delta(str(payload.get("delta") or ""))
+        elif kind == "model.stream.refusal_delta":
+            await self.on_content_delta(str(payload.get("delta") or ""))
         elif kind == "model.stream.tool_call_delta":
             await self.on_tool_call_delta(payload, iteration=event.iteration)
         elif kind == "tool.call.started":

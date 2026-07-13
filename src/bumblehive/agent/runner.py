@@ -163,7 +163,7 @@ class ToolCallingRunner:
                     message=assistant_message,
                 )
                 result = AgentRunResult(
-                    final_content=response.content,
+                    final_content=response.content or response.refusal,
                     messages=run_messages,
                     tools_used=tools_used,
                     usage=usage,
@@ -303,6 +303,9 @@ class ToolCallingRunner:
         async def _content_delta(delta: str) -> None:
             await model_events.content_delta(delta)
 
+        async def _refusal_delta(delta: str) -> None:
+            await model_events.refusal_delta(delta)
+
         async def _reasoning_delta(delta: str) -> None:
             await model_events.reasoning_delta(delta)
 
@@ -313,6 +316,7 @@ class ToolCallingRunner:
             request,
             callbacks=ModelStreamCallbacks(
                 on_content_delta=_content_delta,
+                on_refusal_delta=_refusal_delta,
                 on_reasoning_delta=_reasoning_delta,
                 on_tool_call_delta=_tool_call_delta,
             ),
