@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 
-from ..scope import current_tool_workspace
 from ...paths import get_workspace_path
+from ..scope import current_tool_workspace
 
 
 _DEFAULT_IGNORE_DIRS = frozenset(
@@ -142,16 +142,15 @@ class FileStateStore:
         if max_entries <= 0:
             raise ValueError("max_entries must be positive")
         self.max_entries = max_entries
-        self._states: OrderedDict[str, FileStates] = OrderedDict()
+        self._states: OrderedDict[str | None, FileStates] = OrderedDict()
         self._lock = Lock()
 
     def for_session(self, session_id: str | None) -> FileStates:
-        key = session_id or "default"
         with self._lock:
-            state = self._states.pop(key, None)
+            state = self._states.pop(session_id, None)
             if state is None:
                 state = FileStates()
-            self._states[key] = state
+            self._states[session_id] = state
             while len(self._states) > self.max_entries:
                 self._states.popitem(last=False)
             return state

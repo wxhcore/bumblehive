@@ -174,7 +174,7 @@ class ExecSession:
         command: str,
         cwd: str,
         timeout: int | None,
-        owner_session_id: str,
+        owner_session_id: str | None,
     ) -> None:
         self.session_id = session_id
         self.process = process
@@ -313,7 +313,7 @@ class ExecSessionManager:
         prepared: PreparedCommand,
         yield_time_ms: int,
         max_output_chars: int,
-        owner_session_id: str,
+        owner_session_id: str | None,
     ) -> tuple[str, SessionPoll]:
         async with self._lock:
             await self._cleanup_locked()
@@ -353,7 +353,7 @@ class ExecSessionManager:
         terminate: bool,
         yield_time_ms: int,
         max_output_chars: int,
-        owner_session_id: str,
+        owner_session_id: str | None,
     ) -> SessionPoll:
         async with self._lock:
             await self._cleanup_locked()
@@ -387,7 +387,7 @@ class ExecSessionManager:
                 self._sessions.pop(session_id, None)
         return poll
 
-    async def list(self, *, owner_session_id: str) -> list[dict[str, Any]]:
+    async def list(self, *, owner_session_id: str | None) -> list[dict[str, Any]]:
         async with self._lock:
             await self._cleanup_locked()
             now = time.monotonic()

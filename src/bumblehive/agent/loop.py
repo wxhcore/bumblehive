@@ -72,7 +72,8 @@ class AgentLoop:
             session_id=session_id,
         )
         turn_events = TurnEvents(emitter)
-        session_token = bind_tool_session(session_id)
+        tool_session_id = session_id if session_id is not None else emitter.run_id
+        session_token = bind_tool_session(tool_session_id)
         try:
             await turn_events.started(current_user_message)
             try:
