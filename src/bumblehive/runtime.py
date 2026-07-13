@@ -13,6 +13,7 @@ from .agent import (
 from .config.loader import ConfigInput, load_config
 from .config.schema import BumblehiveConfig, ProviderConfig
 from .observability import (
+    DEFAULT_STREAM_QUEUE_SIZE,
     AgentHook,
     AsyncEventStream,
     AsyncEventStreamHook,
@@ -99,7 +100,7 @@ class BumblehiveRuntime:
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
         session_id: str | None = None,
-        max_queue_size: int = 256,
+        max_queue_size: int = DEFAULT_STREAM_QUEUE_SIZE,
     ) -> AsyncEventStream[AgentRunResult]:
         """Stream one stateless or explicitly session-backed turn."""
 
@@ -124,7 +125,7 @@ class BumblehiveRuntime:
         hooks: HookInput = None,
         session_id: str | None = None,
         renderer: Any | None = None,
-        max_queue_size: int = 256,
+        max_queue_size: int = DEFAULT_STREAM_QUEUE_SIZE,
     ) -> AgentRunResult:
         """Run and render one stateless or explicitly session-backed turn."""
 
@@ -233,8 +234,10 @@ class BumblehiveRuntime:
 
     async def close(self) -> None:
         """Release resources owned by this runtime."""
-        await self.tools.close()
-        await self.providers.close()
+        try:
+            await self.tools.close()
+        finally:
+            await self.providers.close()
 
     def _resolve_run_config(
         self,

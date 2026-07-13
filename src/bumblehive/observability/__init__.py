@@ -43,7 +43,11 @@ from .payloads import (
     tool_result_payload,
 )
 from .recording import EventRecorder
-from .streaming import AsyncEventStream, AsyncEventStreamHook
+from .streaming import (
+    DEFAULT_STREAM_QUEUE_SIZE,
+    AsyncEventStream,
+    AsyncEventStreamHook,
+)
 
 __all__ = [
     "AgentEvent",
@@ -52,6 +56,7 @@ __all__ = [
     "AsyncEventStreamHook",
     "CallbackHook",
     "CompositeHook",
+    "DEFAULT_STREAM_QUEUE_SIZE",
     "EventCallback",
     "EventEmitter",
     "EventRecorder",
