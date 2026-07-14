@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -148,7 +148,7 @@ class ToolCallingRunner:
                 model=model,
                 generation=request_generation,
             )
-            await model_events.request_started(message_count=len(request_messages))
+            await model_events.request_started(request=asdict(request))
             response = await self._request_model(
                 provider,
                 request,

@@ -146,10 +146,10 @@ class ModelEvents:
 
     emitter: EventEmitter
 
-    async def request_started(self, *, message_count: int) -> None:
+    async def request_started(self, *, request: dict[str, Any]) -> None:
         await self.emitter.emit(
             MODEL_REQUEST_STARTED,
-            message_count=message_count,
+            request=request,
         )
 
     async def content_delta(self, delta: str) -> None:
