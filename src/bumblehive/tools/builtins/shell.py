@@ -68,7 +68,7 @@ _EXEC_PARAMETERS: dict[str, Any] = {
         },
         "login": {
             "type": "boolean",
-            "description": "Run bash/zsh with login shell semantics. Default true.",
+            "description": "Run bash/zsh with login shell semantics. Default false.",
         },
         "yield_time_ms": {
             "type": "integer",
@@ -654,7 +654,7 @@ class ExecRunner:
             env=_build_env(),
             timeout=self._resolve_timeout(timeout),
             shell_program=shell_program,
-            login=True if login is None else login,
+            login=False if login is None else login,
         )
 
     def _resolve_timeout(self, timeout: int | None) -> int | None:
@@ -740,7 +740,7 @@ async def _spawn(
     cwd: str,
     env: dict[str, str],
     shell_program: str | None = None,
-    login: bool = True,
+    login: bool = False,
     *,
     stdin: int = asyncio.subprocess.DEVNULL,
 ) -> asyncio.subprocess.Process:
