@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -116,7 +117,7 @@ def run_messages_to_history(
     """Return persistent history from messages used during one model run."""
     history: list[Message] = []
     for message in messages:
-        current = dict(message)
+        current = deepcopy(dict(message))
         role = current.get("role")
         if role == "system":
             continue
