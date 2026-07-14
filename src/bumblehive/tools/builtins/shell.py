@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import signal
 import shutil
 import sys
 import time
@@ -188,9 +189,18 @@ class ExecSession:
         self._buffer_chars = 0
         self._dropped_chars = 0
         self._timed_out = False
+        self._closed = False
+        self._termination_requested = False
         self._lock = asyncio.Lock()
+        self._lifecycle_lock = asyncio.Lock()
+        self._termination_lock = asyncio.Lock()
         self._stdout_task = asyncio.create_task(self._read_stream(process.stdout, ""))
         self._stderr_task = asyncio.create_task(self._read_stream(process.stderr, "STDERR:\n"))
+        self._timeout_task = (
+            asyncio.create_task(self._watch_timeout(timeout))
+            if timeout is not None and timeout > 0
+            else None
+        )
 
     async def _read_stream(
         self,
@@ -217,6 +227,8 @@ class ExecSession:
                     self._dropped_chars += len(dropped)
 
     async def write(self, chars: str) -> str | None:
+        if self._closed:
+            return "session is closed"
         if self.process.returncode is not None:
             return "session has already exited"
         if self.process.stdin is None:
@@ -229,6 +241,8 @@ class ExecSession:
         return None
 
     async def close_stdin(self) -> str | None:
+        if self._closed:
+            return "session is closed"
         if self.process.returncode is not None:
             return "session has already exited"
         if self.process.stdin is None:
@@ -285,11 +299,45 @@ class ExecSession:
         )
 
     async def kill(self) -> None:
-        if self.process.returncode is not None:
+        async with self._termination_lock:
+            if self._termination_requested:
+                return
+            await _kill_process(self.process)
+            self._termination_requested = True
+
+    async def close(self) -> None:
+        """Terminate the process and release tasks owned by this session."""
+        async with self._lifecycle_lock:
+            if self._closed:
+                return
+            self._closed = True
+
+            timeout_task = self._timeout_task
+            self._timeout_task = None
+            if timeout_task is not None and timeout_task is not asyncio.current_task():
+                timeout_task.cancel()
+                await asyncio.gather(timeout_task, return_exceptions=True)
+
+            if self.process.stdin is not None:
+                self.process.stdin.close()
+
+            await self.kill()
+            await self._finish_reader_tasks()
+
+    async def _watch_timeout(self, timeout: int) -> None:
+        """Enforce the process deadline even when nobody polls the session."""
+        await asyncio.sleep(timeout)
+        if self._closed or self.process.returncode is not None:
             return
-        self.process.kill()
-        with suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(self.process.wait(), timeout=5.0)
+        self._timed_out = True
+        await self.kill()
+
+    async def _finish_reader_tasks(self) -> None:
+        tasks = (self._stdout_task, self._stderr_task)
+        done, pending = await asyncio.wait(tasks, timeout=2.0)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*done, *pending, return_exceptions=True)
 
     async def _wait_for_buffered_output(self) -> None:
         deadline = time.monotonic() + _OUTPUT_DRAIN_GRACE_S
@@ -306,6 +354,7 @@ class ExecSessionManager:
         self.idle_timeout = idle_timeout
         self._sessions: dict[str, ExecSession] = {}
         self._lock = asyncio.Lock()
+        self._closed = False
 
     async def start(
         self,
@@ -316,6 +365,8 @@ class ExecSessionManager:
         owner_session_id: str | None,
     ) -> tuple[str, SessionPoll]:
         async with self._lock:
+            if self._closed:
+                raise RuntimeError("exec session manager is closed")
             await self._cleanup_locked()
             if len(self._sessions) >= self.max_sessions:
                 raise RuntimeError(f"maximum exec sessions reached ({self.max_sessions})")
@@ -338,10 +389,18 @@ class ExecSessionManager:
             )
             self._sessions[session_id] = session
 
-        poll = await session.poll(yield_time_ms, max_output_chars)
+        try:
+            poll = await session.poll(yield_time_ms, max_output_chars)
+        except BaseException:
+            async with self._lock:
+                if self._sessions.get(session_id) is session:
+                    self._sessions.pop(session_id, None)
+            await session.close()
+            raise
         if poll.done:
             async with self._lock:
                 self._sessions.pop(session_id, None)
+            await session.close()
         return session_id, poll
 
     async def write(
@@ -385,10 +444,13 @@ class ExecSessionManager:
         if poll.done:
             async with self._lock:
                 self._sessions.pop(session_id, None)
+            await session.close()
         return poll
 
     async def list(self, *, owner_session_id: str | None) -> list[dict[str, Any]]:
         async with self._lock:
+            if self._closed:
+                return []
             await self._cleanup_locked()
             now = time.monotonic()
             return [
@@ -410,6 +472,20 @@ class ExecSessionManager:
                 if session.owner_session_id == owner_session_id
             ]
 
+    async def close(self) -> None:
+        """Terminate every tracked process and reject future sessions."""
+        async with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            sessions = list(self._sessions.values())
+            self._sessions.clear()
+
+        await asyncio.gather(
+            *(session.close() for session in sessions),
+            return_exceptions=True,
+        )
+
     async def _cleanup_locked(self) -> None:
         now = time.monotonic()
         stale = [
@@ -419,7 +495,7 @@ class ExecSessionManager:
         ]
         for session_id in stale:
             session = self._sessions.pop(session_id)
-            await session.kill()
+            await session.close()
 
 
 class ExecRunner:
@@ -778,6 +854,7 @@ async def _spawn(
         stderr=asyncio.subprocess.PIPE,
         cwd=cwd,
         env=env,
+        start_new_session=True,
     )
 
 
@@ -807,11 +884,20 @@ def _resolve_shell(shell: str | None) -> tuple[str | None, str | None]:
 
 
 async def _kill_process(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is not None:
-        return
-    process.kill()
-    with suppress(asyncio.TimeoutError):
-        await asyncio.wait_for(process.wait(), timeout=5.0)
+    if _IS_WINDOWS:
+        if process.returncode is not None:
+            return
+        with suppress(ProcessLookupError):
+            process.kill()
+    else:
+        # Every POSIX command is spawned as a new session, so its pid is also
+        # the process-group id. Kill the group to avoid orphaning descendants.
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+
+    if process.returncode is None:
+        with suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(process.wait(), timeout=5.0)
 
 
 def _build_env() -> dict[str, str]:

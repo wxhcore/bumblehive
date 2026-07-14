@@ -226,4 +226,9 @@ class ToolManager:
 
     async def close(self) -> None:
         """Release all resources owned by this manager."""
-        await self.close_mcp()
+        exec_session_manager = self._builtin_state.exec_session_manager
+        try:
+            if exec_session_manager is not None:
+                await exec_session_manager.close()
+        finally:
+            await self.close_mcp()
