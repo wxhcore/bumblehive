@@ -16,7 +16,10 @@ from .workspace import (
 
 
 _APPLY_PATCH_DESCRIPTION = (
-    "Apply structured text edits to one or more UTF-8 files inside the workspace."
+    "Apply structured UTF-8 text changes to one or more files in a single call. "
+    "Use replace with current old_text and new_text, or add to create a file or "
+    "append content. Use dry_run=true to validate and preview without writing. "
+    "Prefer edit_file for one narrow replacement."
 )
 
 _APPLY_PATCH_PARAMETERS: dict[str, Any] = {
@@ -24,7 +27,7 @@ _APPLY_PATCH_PARAMETERS: dict[str, Any] = {
     "properties": {
         "edits": {
             "type": "array",
-            "description": "List of edits to apply.",
+            "description": "Ordered list of 1 to 20 file edits to apply in one operation.",
             "minItems": 1,
             "maxItems": 20,
             "items": {
@@ -32,12 +35,18 @@ _APPLY_PATCH_PARAMETERS: dict[str, Any] = {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Relative file path to edit.",
+                        "description": (
+                            "File to edit. Relative paths resolve from the workspace; "
+                            "absolute paths must be inside a writable root."
+                        ),
                     },
                     "action": {
                         "type": "string",
                         "enum": ["add", "replace"],
-                        "description": "Use add to create/append; replace for exact text replacement.",
+                        "description": (
+                            "add creates a file or appends to it; replace substitutes one "
+                            "unambiguous old_text match."
+                        ),
                     },
                     "old_text": {
                         "type": "string",
@@ -45,7 +54,7 @@ _APPLY_PATCH_PARAMETERS: dict[str, Any] = {
                     },
                     "new_text": {
                         "type": "string",
-                        "description": "Text to add or replace with.",
+                        "description": "Text to append or use as the replacement.",
                     },
                 },
                 "required": ["path", "action"],

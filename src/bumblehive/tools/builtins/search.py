@@ -16,7 +16,10 @@ from .workspace import (
 
 
 _FIND_FILES_DESCRIPTION = (
-    "Find files by path fragment, glob, or file type inside the project workspace."
+    "Locate files by path terms, glob, or file type. Use this before read_file when "
+    "the path is uncertain, and prefer it over shell find or ls for ordinary file "
+    "discovery. Common dependency, build, cache, and version-control directories "
+    "are ignored."
 )
 
 _FIND_FILES_PARAMETERS: dict[str, Any] = {
@@ -24,11 +27,17 @@ _FIND_FILES_PARAMETERS: dict[str, Any] = {
     "properties": {
         "path": {
             "type": "string",
-            "description": "Directory or file to search in. Default '.'.",
+            "description": (
+                "Directory or file to search. Relative paths resolve from the workspace; "
+                "absolute paths must be inside a readable root. Default '.'."
+            ),
         },
         "query": {
             "type": "string",
-            "description": "Case-insensitive path fragment search.",
+            "description": (
+                "Case-insensitive path search. Whitespace-separated terms must all "
+                "appear in the path."
+            ),
         },
         "glob": {
             "type": "string",
@@ -45,7 +54,10 @@ _FIND_FILES_PARAMETERS: dict[str, Any] = {
         "sort": {
             "type": "string",
             "enum": ["path", "modified"],
-            "description": "Sort by path or modified time. Default path.",
+            "description": (
+                "Sort alphabetically by path or by most recently modified first. "
+                "Default path."
+            ),
         },
         "head_limit": {
             "type": "integer",
@@ -64,7 +76,11 @@ _FIND_FILES_PARAMETERS: dict[str, Any] = {
 }
 
 _GREP_DESCRIPTION = (
-    "Search file contents with a regex or plain text pattern inside the workspace."
+    "Search text files with a regular expression, or set fixed_strings=true for a "
+    "literal search. The default output_mode returns matching file paths only; use "
+    "content for matching lines and context, or count for per-file totals. Prefer "
+    "this over shell grep. Binary files and files larger than 2 MB are skipped, and "
+    "content output is capped at 128,000 characters."
 )
 
 _GREP_PARAMETERS: dict[str, Any] = {
@@ -72,12 +88,18 @@ _GREP_PARAMETERS: dict[str, Any] = {
     "properties": {
         "pattern": {
             "type": "string",
-            "description": "Regex or plain text pattern to search for.",
+            "description": (
+                "Regular expression to search for. Set fixed_strings=true to treat it "
+                "as literal text."
+            ),
             "minLength": 1,
         },
         "path": {
             "type": "string",
-            "description": "File or directory to search in. Default '.'.",
+            "description": (
+                "File or directory to search. Relative paths resolve from the workspace; "
+                "absolute paths must be inside a readable root. Default '.'."
+            ),
         },
         "glob": {
             "type": "string",
@@ -98,7 +120,11 @@ _GREP_PARAMETERS: dict[str, Any] = {
         "output_mode": {
             "type": "string",
             "enum": ["content", "files_with_matches", "count"],
-            "description": "Return matching content, file paths, or per-file counts.",
+            "description": (
+                "content returns matching lines with optional context; "
+                "files_with_matches returns file paths; count returns matching line "
+                "counts per file. Default files_with_matches."
+            ),
         },
         "context_before": {
             "type": "integer",
@@ -114,7 +140,7 @@ _GREP_PARAMETERS: dict[str, Any] = {
         },
         "head_limit": {
             "type": "integer",
-            "description": "Maximum matches/files to return. Default 200, 0 for all.",
+            "description": "Maximum results to return. Default 250, 0 for all.",
             "minimum": 0,
             "maximum": 1000,
         },

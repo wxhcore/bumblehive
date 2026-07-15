@@ -91,8 +91,11 @@ def _collect_pptx_shape_text(shape: Any, out: list[str]) -> None:
 
 
 _READ_FILE_DESCRIPTION = (
-    "Read a UTF-8 text file, PDF, DOCX, XLSX, or PPTX inside the project workspace. "
-    "Text files use line-numbered pagination; PDF files support a pages range."
+    "Read a UTF-8 text file or extract text from a PDF, DOCX, XLSX, or PPTX file. "
+    "Text lines are returned as LINE_NUMBER| CONTENT. Use find_files or list_dir "
+    "first when the path is uncertain, and read the relevant content before editing. "
+    "Use offset and limit for large text files; output over 128,000 characters is "
+    "truncated. Use force=true only to bypass unchanged-range deduplication."
 )
 
 _READ_FILE_PARAMETERS: dict[str, Any] = {
@@ -100,7 +103,10 @@ _READ_FILE_PARAMETERS: dict[str, Any] = {
     "properties": {
         "path": {
             "type": "string",
-            "description": "File path to read, relative to the workspace.",
+            "description": (
+                "File to read. Relative paths resolve from the workspace; absolute "
+                "paths must be inside a readable root."
+            ),
         },
         "offset": {
             "type": "integer",
@@ -114,29 +120,43 @@ _READ_FILE_PARAMETERS: dict[str, Any] = {
         },
         "pages": {
             "type": "string",
-            "description": "PDF page range, e.g. '1-5'. Defaults to the first 20 pages.",
+            "description": (
+                "PDF page range, for example '1-5'. Omit to read the first 20 pages; "
+                "at most 20 pages are returned."
+            ),
         },
         "force": {
             "type": "boolean",
-            "description": "Bypass same-file range deduplication and return content again.",
+            "description": (
+                "Bypass unchanged-range deduplication and return content again. "
+                "Default false."
+            ),
         },
     },
     "required": ["path"],
     "additionalProperties": False,
 }
 
-_WRITE_FILE_DESCRIPTION = "Create or overwrite a UTF-8 text file inside the project workspace."
+_WRITE_FILE_DESCRIPTION = (
+    "Create a UTF-8 text file or intentionally replace an entire file. Existing "
+    "content is overwritten and missing parent directories are created. Prefer "
+    "apply_patch for partial or multi-file changes, and edit_file for one narrow "
+    "replacement."
+)
 
 _WRITE_FILE_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "path": {
             "type": "string",
-            "description": "File path to write, relative to the workspace.",
+            "description": (
+                "File to create or replace. Relative paths resolve from the workspace; "
+                "absolute paths must be inside a writable root."
+            ),
         },
         "content": {
             "type": "string",
-            "description": "Full text content to write to the file.",
+            "description": "Complete replacement content, up to 200,000 characters.",
         },
     },
     "required": ["path", "content"],
@@ -144,7 +164,9 @@ _WRITE_FILE_PARAMETERS: dict[str, Any] = {
 }
 
 _LIST_DIR_DESCRIPTION = (
-    "List directory contents inside the project workspace, optionally recursively."
+    "List the contents of a directory. Set recursive=true to explore nested "
+    "structure. Common dependency, build, cache, and version-control directories "
+    "are ignored."
 )
 
 _LIST_DIR_PARAMETERS: dict[str, Any] = {
@@ -152,7 +174,10 @@ _LIST_DIR_PARAMETERS: dict[str, Any] = {
     "properties": {
         "path": {
             "type": "string",
-            "description": "Directory path to list, relative to the workspace.",
+            "description": (
+                "Directory to list. Relative paths resolve from the workspace; absolute "
+                "paths must be inside a readable root."
+            ),
         },
         "recursive": {
             "type": "boolean",
@@ -169,7 +194,10 @@ _LIST_DIR_PARAMETERS: dict[str, Any] = {
 }
 
 _EDIT_FILE_DESCRIPTION = (
-    "Perform a small exact replacement in one UTF-8 text file inside the workspace."
+    "Make a narrow text replacement in one UTF-8 file. Read the target first and "
+    "copy old_text from current content. Use apply_patch for multi-file or larger "
+    "changes. If old_text matches more than once, select a match with occurrence or "
+    "line_hint, or set replace_all=true. Failed matches include diagnostics."
 )
 
 _EDIT_FILE_PARAMETERS: dict[str, Any] = {
@@ -177,15 +205,18 @@ _EDIT_FILE_PARAMETERS: dict[str, Any] = {
     "properties": {
         "path": {
             "type": "string",
-            "description": "File path to edit, relative to the workspace.",
+            "description": (
+                "File to edit. Relative paths resolve from the workspace; absolute "
+                "paths must be inside a writable root."
+            ),
         },
         "old_text": {
             "type": "string",
-            "description": "Exact text to find and replace.",
+            "description": "Current text to replace, preferably copied from read_file.",
         },
         "new_text": {
             "type": "string",
-            "description": "Replacement text.",
+            "description": "Text that replaces the selected old_text match.",
         },
         "replace_all": {
             "type": "boolean",
@@ -193,7 +224,9 @@ _EDIT_FILE_PARAMETERS: dict[str, Any] = {
         },
         "occurrence": {
             "type": "integer",
-            "description": "Optional 1-based occurrence to replace.",
+            "description": (
+                "1-based occurrence to replace when old_text appears multiple times."
+            ),
             "minimum": 1,
         },
         "line_hint": {
