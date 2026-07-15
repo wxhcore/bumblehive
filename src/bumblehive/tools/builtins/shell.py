@@ -746,11 +746,11 @@ class ExecRunner:
         access: WorkspaceAccess,
     ) -> Path | str:
         if working_dir:
-            resolved = access.resolve(working_dir)
+            resolved = access.resolve_write(working_dir)
         else:
             resolved = access.workspace
         if isinstance(resolved, str):
-            return "working_dir is outside workspace"
+            return "working_dir is outside writable roots"
         if not resolved.exists() or not resolved.is_dir():
             return "working_dir does not exist or is not a directory"
         return resolved

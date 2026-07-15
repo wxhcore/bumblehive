@@ -115,11 +115,12 @@ class StructuredPatch:
         dry_run: bool = False,
     ) -> dict[str, Any]:
         try:
+            access = self._access()
             writes: dict[Path, str] = {}
             summaries: list[PatchSummary] = []
 
             for edit in edits:
-                summary = self._prepare_edit(edit, writes)
+                summary = self._prepare_edit(edit, writes, access=access)
                 summaries.append(summary)
 
             if dry_run:
@@ -165,19 +166,20 @@ class StructuredPatch:
         self,
         edit: dict[str, Any],
         writes: dict[Path, str],
+        *,
+        access: WorkspaceAccess,
     ) -> PatchSummary:
         if not isinstance(edit, dict):
             raise PatchError("each edit must be an object")
         raw_path = edit.get("path")
         if not isinstance(raw_path, str) or not raw_path.strip():
             raise PatchError("path is required for each edit")
-        path = _validate_relative_path(raw_path)
+        path = _validate_path(raw_path)
         action = edit.get("action")
         if action not in {"add", "replace"}:
             raise PatchError(f"unknown action for {path}: {action}")
 
-        access = self._access()
-        resolved = access.resolve(path)
+        resolved = access.resolve_write(path)
         if isinstance(resolved, str):
             raise PatchError(f"{path}: {resolved}")
 
@@ -271,14 +273,18 @@ class StructuredPatch:
 _ABSOLUTE_WINDOWS_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
-def _validate_relative_path(path: str) -> str:
+def _validate_path(path: str) -> str:
     normalized = path.strip()
     if not normalized:
         raise PatchError("patch path cannot be empty")
     if "\0" in normalized:
         raise PatchError(f"patch path contains a null byte: {path!r}")
-    if normalized.startswith(("~", "/", "\\")) or _ABSOLUTE_WINDOWS_RE.match(normalized):
-        raise PatchError(f"patch path must be relative: {path}")
+
+    expanded = Path(normalized).expanduser()
+    if expanded.is_absolute():
+        return normalized
+    if normalized.startswith("\\") or _ABSOLUTE_WINDOWS_RE.match(normalized):
+        raise PatchError(f"patch path uses unsupported absolute path syntax: {path}")
     if any(part in ("", ".", "..") for part in re.split(r"[\\/]+", normalized)):
         raise PatchError(f"patch path must not contain empty or parent segments: {path}")
     return normalized

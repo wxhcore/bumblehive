@@ -1,11 +1,69 @@
+from collections.abc import Sequence
 from contextvars import ContextVar, Token
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..paths import get_workspace_path
 
 
-_CURRENT_TOOL_WORKSPACE: ContextVar[Path | None] = ContextVar(
-    "bumblehive_tool_workspace",
+def _normalize_roots(roots: Sequence[str | Path]) -> tuple[Path, ...]:
+    if not isinstance(roots, Sequence) or isinstance(roots, (str, bytes)):
+        raise TypeError("roots must be a sequence of paths")
+
+    normalized: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        path = Path(root).expanduser().resolve(strict=False)
+        if path in seen:
+            continue
+        seen.add(path)
+        normalized.append(path)
+    return tuple(normalized)
+
+
+@dataclass(frozen=True, slots=True)
+class PathAllowlist:
+    """Extra filesystem roots available to path-aware built-in tools.
+
+    This is not an OS sandbox. It does not automatically restrict arbitrary
+    Python tools, MCP servers, or filesystem access performed by subprocesses.
+    """
+
+    extra_read_roots: tuple[Path, ...] = ()
+    extra_write_roots: tuple[Path, ...] = ()
+
+    def __post_init__(self) -> None:
+        for roots in (self.extra_read_roots, self.extra_write_roots):
+            if not isinstance(roots, tuple):
+                raise TypeError("allowlist roots must be tuples of Path instances")
+            for root in roots:
+                if not isinstance(root, Path):
+                    raise TypeError("allowlist roots must be tuples of Path instances")
+                if not root.is_absolute():
+                    raise ValueError("allowlist roots must be absolute paths")
+
+    @classmethod
+    def from_roots(
+        cls,
+        *,
+        extra_read_roots: Sequence[str | Path] = (),
+        extra_write_roots: Sequence[str | Path] = (),
+    ) -> "PathAllowlist":
+        """Build an allowlist from normalized, deduplicated filesystem roots."""
+        return cls(
+            extra_read_roots=_normalize_roots(extra_read_roots),
+            extra_write_roots=_normalize_roots(extra_write_roots),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _ToolPathScope:
+    workspace: Path
+    path_allowlist: PathAllowlist
+
+
+_CURRENT_TOOL_PATH_SCOPE: ContextVar[_ToolPathScope | None] = ContextVar(
+    "bumblehive_tool_path_scope",
     default=None,
 )
 _CURRENT_TOOL_SESSION_ID: ContextVar[str | None] = ContextVar(
@@ -14,16 +72,24 @@ _CURRENT_TOOL_SESSION_ID: ContextVar[str | None] = ContextVar(
 )
 
 
-def bind_tool_workspace(workspace: Path | str | None = None) -> Token[Path | None]:
-    return _CURRENT_TOOL_WORKSPACE.set(get_workspace_path(workspace))
+def bind_tool_path_scope(
+    workspace: Path | str | None,
+    path_allowlist: PathAllowlist,
+) -> Token[_ToolPathScope | None]:
+    return _CURRENT_TOOL_PATH_SCOPE.set(
+        _ToolPathScope(
+            workspace=get_workspace_path(workspace),
+            path_allowlist=path_allowlist,
+        )
+    )
 
 
-def reset_tool_workspace(token: Token[Path | None]) -> None:
-    _CURRENT_TOOL_WORKSPACE.reset(token)
+def reset_tool_path_scope(token: Token[_ToolPathScope | None]) -> None:
+    _CURRENT_TOOL_PATH_SCOPE.reset(token)
 
 
-def current_tool_workspace() -> Path | None:
-    return _CURRENT_TOOL_WORKSPACE.get()
+def current_tool_path_scope() -> _ToolPathScope | None:
+    return _CURRENT_TOOL_PATH_SCOPE.get()
 
 
 def bind_tool_session(session_id: str) -> Token[str | None]:

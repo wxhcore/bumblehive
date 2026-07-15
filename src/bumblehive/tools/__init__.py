@@ -8,12 +8,14 @@ from .executor import ToolExecutor
 from .manager import ToolManager
 from .mcp import MCPManager, MCPServerStatus
 from .registry import ToolRegistry
+from .scope import PathAllowlist
 
 __all__ = [
     "CallableTool",
     "MCPManager",
     "MCPServerStatus",
     "MCPToolWrapper",
+    "PathAllowlist",
     "Tool",
     "ToolExecutor",
     "ToolManager",

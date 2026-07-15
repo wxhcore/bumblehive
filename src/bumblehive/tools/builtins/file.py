@@ -248,7 +248,8 @@ class WorkspaceFiles:
     ) -> dict[str, Any]:
         if _is_blocked_device(path):
             return {"error": "reading device paths is blocked", "path": path}
-        resolved = self._resolve_path(path)
+        access = self._access()
+        resolved = access.resolve_read(path)
         if isinstance(resolved, str):
             return {"error": resolved}
         if _is_blocked_device(resolved):
@@ -493,7 +494,8 @@ class WorkspaceFiles:
         return content[:self._MAX_READ_CHARS], True
 
     def write_file(self, path: str, content: str) -> dict[str, Any]:
-        resolved = self._resolve_path(path)
+        access = self._access()
+        resolved = access.resolve_write(path)
         if isinstance(resolved, str):
             return {"error": resolved}
         if len(content) > self._MAX_WRITE_CHARS:
@@ -514,7 +516,8 @@ class WorkspaceFiles:
         recursive: bool = False,
         max_entries: int | None = None,
     ) -> dict[str, Any]:
-        resolved = self._resolve_path(path)
+        access = self._access()
+        resolved = access.resolve_read(path)
         if isinstance(resolved, str):
             return {"error": resolved}
         if not resolved.exists():
@@ -534,7 +537,7 @@ class WorkspaceFiles:
 
             entries.append(
                 {
-                    "path": self._display_path(item),
+                    "path": access.relative_display_path(item),
                     "type": "directory" if item.is_dir() else "file",
                 }
             )
@@ -572,7 +575,8 @@ class WorkspaceFiles:
         line_hint: int | None = None,
         expected_replacements: int | None = None,
     ) -> dict[str, Any]:
-        resolved = self._resolve_path(path)
+        access = self._access()
+        resolved = access.resolve_write(path)
         if isinstance(resolved, str):
             return {"error": resolved}
         if replace_all and occurrence is not None:
@@ -697,14 +701,6 @@ class WorkspaceFiles:
         if warning:
             result["warning"] = warning
         return result
-
-    def _resolve_path(self, path: str) -> Path | str:
-        access = self._access()
-        return access.resolve(path)
-
-    def _display_path(self, path: Path, *, root: Path | None = None) -> str:
-        access = self._access()
-        return access.relative_display_path(path, root=root)
 
     def _access(self) -> WorkspaceAccess:
         return current_workspace_access()

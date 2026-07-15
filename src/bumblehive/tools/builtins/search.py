@@ -176,7 +176,7 @@ class WorkspaceSearch:
         offset: int = 0,
     ) -> dict[str, Any]:
         access = self._access()
-        resolved = access.resolve(path or ".")
+        resolved = access.resolve_read(path or ".")
         if isinstance(resolved, str):
             return {"error": resolved}
         if not resolved.exists():
@@ -189,27 +189,32 @@ class WorkspaceSearch:
         root = resolved if resolved.is_dir() else resolved.parent
         matches: list[tuple[str, float]] = []
         for candidate in self._iter_paths(resolved, include_dirs=include_dirs):
-            if candidate.is_dir() and not include_dirs:
+            checked = access.resolve_read(candidate)
+            if isinstance(checked, str):
+                continue
+            is_dir = checked.is_dir()
+            is_file = checked.is_file()
+            if is_dir and not include_dirs:
                 continue
             if WorkspaceAccess.is_ignored(candidate.relative_to(root)):
                 continue
-            if candidate.is_dir() and type:
+            if is_dir and type:
                 continue
 
             rel_path = candidate.relative_to(root).as_posix()
             display_path = access.relative_display_path(candidate, root=root)
             if glob and not _matches_glob(rel_path, candidate.name, glob):
                 continue
-            if candidate.is_file() and not _matches_type(candidate.name, type):
+            if is_file and not _matches_type(candidate.name, type):
                 continue
             if not _matches_query(display_path, query):
                 continue
 
             try:
-                mtime = candidate.stat().st_mtime
+                mtime = checked.stat().st_mtime
             except OSError:
                 mtime = 0.0
-            matches.append((display_path + ("/" if candidate.is_dir() else ""), mtime))
+            matches.append((display_path + ("/" if is_dir else ""), mtime))
 
         if sort == "modified":
             matches.sort(key=lambda item: (-item[1], item[0]))
@@ -242,7 +247,7 @@ class WorkspaceSearch:
         if output_mode not in {"content", "files_with_matches", "count"}:
             return {"error": "output_mode must be content, files_with_matches, or count"}
         access = self._access()
-        resolved = access.resolve(path or ".")
+        resolved = access.resolve_read(path or ".")
         if isinstance(resolved, str):
             return {"error": resolved}
         if not resolved.exists():
@@ -272,6 +277,10 @@ class WorkspaceSearch:
 
         root = resolved if resolved.is_dir() else resolved.parent
         for candidate in files:
+            checked = access.resolve_read(candidate)
+            if isinstance(checked, str):
+                skipped_unreadable += 1
+                continue
             if WorkspaceAccess.is_ignored(candidate.relative_to(root)):
                 continue
             rel_path = candidate.relative_to(root).as_posix()
@@ -280,7 +289,7 @@ class WorkspaceSearch:
             if not _matches_type(candidate.name, type):
                 continue
 
-            read_result = self._read_text_lines(candidate)
+            read_result = self._read_text_lines(checked)
             if read_result.lines is None:
                 if read_result.skipped_reason == "binary":
                     skipped_binary += 1
@@ -332,7 +341,7 @@ class WorkspaceSearch:
                 continue
 
             try:
-                file_mtimes[display_path] = candidate.stat().st_mtime
+                file_mtimes[display_path] = checked.stat().st_mtime
             except OSError:
                 file_mtimes[display_path] = 0.0
 

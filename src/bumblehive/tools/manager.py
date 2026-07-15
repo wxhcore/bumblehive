@@ -13,7 +13,7 @@ from .builtins.state import BuiltinToolState
 from .executor import ToolExecutor
 from .mcp import MCPManager, MCPServerStatus
 from .registry import ToolRegistry
-from .scope import bind_tool_workspace, reset_tool_workspace
+from .scope import PathAllowlist, bind_tool_path_scope, reset_tool_path_scope
 
 
 class ToolManager:
@@ -188,9 +188,32 @@ class ToolManager:
         *,
         tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
+        path_allowlist: PathAllowlist = PathAllowlist(),
         emitter: EventEmitter | None = None,
     ) -> ToolResult:
+        """Execute one tool call with a run-scoped built-in path allowlist.
+
+        Custom Python and MCP tools are responsible for enforcing their own
+        filesystem access rules.
+        """
         allowed = None if tool_names is None else frozenset(tool_names)
+        return await self._execute_call(
+            call,
+            allowed=allowed,
+            workspace=workspace,
+            path_allowlist=path_allowlist,
+            emitter=emitter,
+        )
+
+    async def _execute_call(
+        self,
+        call: ToolCall,
+        *,
+        allowed: frozenset[str] | None,
+        workspace: Path | str | None,
+        path_allowlist: PathAllowlist,
+        emitter: EventEmitter | None,
+    ) -> ToolResult:
         if allowed is not None and call.name not in allowed:
             return ToolResult(
                 call_id=call.id,
@@ -204,7 +227,7 @@ class ToolManager:
             )
 
         try:
-            token = bind_tool_workspace(workspace)
+            token = bind_tool_path_scope(workspace, path_allowlist)
         except Exception as exc:
             return ToolResult(
                 call_id=call.id,
@@ -218,7 +241,7 @@ class ToolManager:
         try:
             return await self._executor.execute_call(call, emitter=emitter)
         finally:
-            reset_tool_workspace(token)
+            reset_tool_path_scope(token)
 
     async def execute_many(
         self,
@@ -226,14 +249,23 @@ class ToolManager:
         *,
         tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
+        path_allowlist: PathAllowlist = PathAllowlist(),
         emitter: EventEmitter | None = None,
     ) -> list[ToolResult]:
+        """Execute tool calls with one run-scoped built-in path allowlist.
+
+        Custom Python and MCP tools are responsible for enforcing their own
+        filesystem access rules.
+        """
         emitter = emitter or EventEmitter.noop()
+        allowed = None if tool_names is None else frozenset(tool_names)
+
         async def run(call: ToolCall) -> ToolResult:
-            return await self.execute_call(
+            return await self._execute_call(
                 call,
-                tool_names=tool_names,
+                allowed=allowed,
                 workspace=workspace,
+                path_allowlist=path_allowlist,
                 emitter=emitter,
             )
 
