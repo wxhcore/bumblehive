@@ -43,20 +43,26 @@ _BENIGN_DEVICE_PATHS = frozenset(
 )
 
 _EXEC_DESCRIPTION = (
-    "Execute a shell command. Use yield_time_ms for long-running commands; "
-    "running commands return a session_id that can be polled or controlled with write_stdin."
+    "Execute a shell command for tests, builds, package operations, git, and other "
+    "process work. Prefer read_file, find_files, or grep for inspection, and "
+    "apply_patch, edit_file, or write_file for file changes. Omit yield_time_ms to "
+    "wait for completion in one call; set it for long-running or interactive commands "
+    "that may return a session_id for write_stdin. Use non-interactive flags when "
+    "available. The default timeout is 60 seconds. Working-directory validation is "
+    "not OS-level filesystem isolation."
 )
 
 _EXEC_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "command": {"type": "string", "description": "The shell command to execute."},
-        "cmd": {"type": "string", "description": "Alias for command."},
+        "command": {"type": "string", "description": "Shell command to execute."},
         "working_dir": {
             "type": "string",
-            "description": "Optional working directory, relative to the workspace.",
+            "description": (
+                "Optional working directory inside the workspace or a configured "
+                "writable root. Relative paths resolve from the workspace."
+            ),
         },
-        "workdir": {"type": "string", "description": "Alias for working_dir."},
         "timeout": {
             "type": "integer",
             "description": "Timeout in seconds. Default 60, max 600.",
@@ -65,7 +71,10 @@ _EXEC_PARAMETERS: dict[str, Any] = {
         },
         "shell": {
             "type": "string",
-            "description": "Optional shell binary or name. Supported: sh, bash, zsh.",
+            "description": (
+                "Unix shell override. Omit to use bash; supported values are sh, bash, "
+                "and zsh. Not supported on Windows."
+            ),
         },
         "login": {
             "type": "boolean",
@@ -73,23 +82,35 @@ _EXEC_PARAMETERS: dict[str, Any] = {
         },
         "yield_time_ms": {
             "type": "integer",
-            "description": "Milliseconds to wait before returning a running session.",
+            "description": (
+                "Milliseconds to wait before returning. When provided, a command that "
+                "is still running returns a session_id for write_stdin. Omit for "
+                "one-shot execution."
+            ),
             "minimum": 0,
             "maximum": _MAX_YIELD_MS,
         },
         "max_output_chars": {
             "type": "integer",
-            "description": "Maximum output characters to return. Default 10000, max 50000.",
+            "description": (
+                "Maximum output characters returned per stream. Default 10000, "
+                "maximum 50000."
+            ),
             "minimum": 1000,
             "maximum": _MAX_OUTPUT_CHARS,
         },
     },
+    "required": ["command"],
     "additionalProperties": False,
 }
 
 _WRITE_STDIN_DESCRIPTION = (
-    "Interact with a running exec session. Poll output, write stdin, close stdin, "
-    "wait for text, or terminate the process."
+    "Interact with a running session created by exec. Use an empty chars value to "
+    "poll, chars to send input, close_stdin=true to send EOF, or terminate=true to "
+    "stop the process. Without wait_for, yield_time_ms controls a single poll. With "
+    "wait_for, output is polled repeatedly until the text appears, the process exits, "
+    "or wait_timeout_ms expires; yield_time_ms is not used in this mode. Start new "
+    "commands with exec, not this tool."
 )
 
 _WRITE_STDIN_PARAMETERS: dict[str, Any] = {
@@ -102,31 +123,45 @@ _WRITE_STDIN_PARAMETERS: dict[str, Any] = {
         },
         "close_stdin": {
             "type": "boolean",
-            "description": "Close stdin after writing chars.",
+            "description": (
+                "Close stdin after writing chars, sending EOF to commands waiting for "
+                "input. Default false."
+            ),
         },
         "terminate": {
             "type": "boolean",
-            "description": "Terminate the running process.",
+            "description": "Terminate the running process. Default false.",
         },
         "yield_time_ms": {
             "type": "integer",
-            "description": "Milliseconds to wait before returning output.",
+            "description": (
+                "Milliseconds to wait during a single poll when wait_for is omitted. "
+                "Default 1000, maximum 30000."
+            ),
             "minimum": 0,
             "maximum": _MAX_YIELD_MS,
         },
         "wait_for": {
             "type": "string",
-            "description": "Optional text to wait for before returning.",
+            "description": (
+                "Text to wait for by repeatedly polling session output. When set, "
+                "wait_timeout_ms controls the total wait and yield_time_ms is not used."
+            ),
         },
         "wait_timeout_ms": {
             "type": "integer",
-            "description": "Maximum milliseconds to wait for wait_for text.",
+            "description": (
+                "Total milliseconds to wait for wait_for text. Used only when wait_for "
+                "is set. Default 10000, maximum 120000."
+            ),
             "minimum": 0,
             "maximum": _MAX_WAIT_FOR_MS,
         },
         "max_output_chars": {
             "type": "integer",
-            "description": "Maximum output characters to return.",
+            "description": (
+                "Maximum output characters to return. Default 10000, maximum 50000."
+            ),
             "minimum": 1000,
             "maximum": _MAX_OUTPUT_CHARS,
         },
@@ -135,7 +170,11 @@ _WRITE_STDIN_PARAMETERS: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-_LIST_EXEC_SESSIONS_DESCRIPTION = "List active long-running exec sessions."
+_LIST_EXEC_SESSIONS_DESCRIPTION = (
+    "List active long-running exec sessions with their session_id, command, working "
+    "directory, status, and timing information. Use this to recover a session_id "
+    "before polling, sending input, or terminating it with write_stdin."
+)
 
 _LIST_EXEC_SESSIONS_PARAMETERS: dict[str, Any] = {
     "type": "object",
@@ -525,20 +564,17 @@ class ExecRunner:
 
     async def exec(
         self,
-        command: str | None = None,
-        cmd: str | None = None,
+        command: str,
         working_dir: str | None = None,
-        workdir: str | None = None,
         timeout: int | None = None,
         shell: str | None = None,
         login: bool | None = None,
         yield_time_ms: int | None = None,
         max_output_chars: int | None = None,
     ) -> dict[str, Any]:
-        command = command or cmd
-        working_dir = working_dir or workdir
-        if not command:
-            return {"error": "missing command"}
+        if not command.strip():
+            return {"error": "command must not be empty"}
+
         output_limit = _clamp_int(
             max_output_chars,
             _DEFAULT_MAX_OUTPUT_CHARS,
