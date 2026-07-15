@@ -11,7 +11,6 @@ from .builtins import _register_builtin_tools
 from .builtins.state import BuiltinToolState
 from .executor import ToolExecutor
 from .mcp import MCPManager, MCPServerStatus
-from .policy import ToolPolicy
 from .registry import ToolRegistry
 
 
@@ -23,19 +22,15 @@ class ToolManager:
         *,
         registry: ToolRegistry | None = None,
         builtin_config: Mapping[str, Any] | None = None,
-        builtin_policy: ToolPolicy | None = None,
         mcp_servers: list[MCPServerConfig] | None = None,
-        mcp_policy: ToolPolicy | None = None,
     ) -> None:
         self.registry = registry or ToolRegistry()
         self.builtin_config = dict(builtin_config or {})
-        self.builtin_policy = builtin_policy or ToolPolicy()
         self._builtin_state = BuiltinToolState()
         self._builtin_tools_registered = False
         self.mcp_manager = MCPManager(
             self.registry,
             servers=mcp_servers,
-            policy=mcp_policy,
         )
         self._executor = ToolExecutor(self.registry)
 
@@ -79,7 +74,6 @@ class ToolManager:
             self.registry,
             config=self.builtin_config,
             state=self._builtin_state,
-            policy=self.builtin_policy,
         )
         self._builtin_tools_registered = True
         return registered

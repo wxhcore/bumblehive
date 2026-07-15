@@ -7,7 +7,6 @@ from .builtins import register_builtin_tools
 from .executor import ToolExecutor
 from .manager import ToolManager
 from .mcp import MCPManager, MCPServerStatus
-from .policy import ToolPolicy
 from .registry import ToolRegistry
 
 __all__ = [
@@ -18,7 +17,6 @@ __all__ = [
     "Tool",
     "ToolExecutor",
     "ToolManager",
-    "ToolPolicy",
     "ToolRegistry",
     "register_builtin_tools",
 ]

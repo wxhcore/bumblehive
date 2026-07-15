@@ -8,7 +8,6 @@ from mcp.types import Tool as MCPToolDefinition
 
 from ...protocols.mcp import MCPServerConfig
 from ..adapters.mcp import MCPToolWrapper
-from ..policy import ToolPolicy
 from ..registry import ToolRegistry
 
 
@@ -58,14 +57,6 @@ def _is_enabled_tool(server: MCPServerConfig, original_name: str, wrapped_name: 
     )
 
 
-def _tool_is_selected(
-    wrapped_name: str,
-    original_name: str,
-    policy: ToolPolicy,
-) -> bool:
-    return policy.allows_tool(wrapped_name, original_name)
-
-
 class MCPManager:
     """Connect MCP servers and register their tools."""
 
@@ -73,14 +64,11 @@ class MCPManager:
         self,
         registry: ToolRegistry,
         servers: list[MCPServerConfig] | None = None,
-        *,
-        policy: ToolPolicy | None = None,
     ) -> None:
         self.registry = registry
         self._server_configs: dict[str, MCPServerConfig] = {
             server.name: server for server in servers or []
         }
-        self.policy = policy or ToolPolicy()
         self._stacks: dict[str, AsyncExitStack] = {}
         self._registered_mcp_tool_names: dict[str, list[str]] = {}
 
@@ -203,8 +191,6 @@ class MCPManager:
     ) -> MCPToolWrapper | None:
         wrapped_name = mcp_tool_name(server.name, tool_def.name)
         if not _is_enabled_tool(server, tool_def.name, wrapped_name):
-            return None
-        if not _tool_is_selected(wrapped_name, tool_def.name, self.policy):
             return None
 
         return MCPToolWrapper(
