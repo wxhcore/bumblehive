@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import TracebackType
@@ -5,6 +6,7 @@ from typing import Any, Mapping
 
 from ..observability import EventEmitter
 from ..protocols import MCPServerConfig
+from ..protocols.errors import AgentError
 from ..protocols.tool_calls import ToolCall, ToolResult
 from .base import Tool
 from .builtins import _register_builtin_tools
@@ -12,6 +14,7 @@ from .builtins.state import BuiltinToolState
 from .executor import ToolExecutor
 from .mcp import MCPManager, MCPServerStatus
 from .registry import ToolRegistry
+from .scope import bind_tool_workspace, reset_tool_workspace
 
 
 class ToolManager:
@@ -184,31 +187,76 @@ class ToolManager:
         self,
         call: ToolCall,
         *,
-        allowed_tool_names: list[str] | None = None,
+        tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
         emitter: EventEmitter | None = None,
     ) -> ToolResult:
-        return await self._executor.execute_call(
-            call,
-            allowed_tool_names=allowed_tool_names,
-            workspace=workspace,
-            emitter=emitter,
-        )
+        allowed = None if tool_names is None else frozenset(tool_names)
+        if allowed is not None and call.name not in allowed:
+            return ToolResult(
+                call_id=call.id,
+                name=call.name,
+                error=AgentError(
+                    code="tool_not_allowed",
+                    message=(
+                        f"Tool '{call.name}' was not exposed in this model request."
+                    ),
+                ),
+            )
+
+        try:
+            token = bind_tool_workspace(workspace)
+        except Exception as exc:
+            return ToolResult(
+                call_id=call.id,
+                name=call.name,
+                error=AgentError(
+                    code="tool_execution_error",
+                    message=f"Error executing tool '{call.name}': {exc}",
+                ),
+            )
+
+        try:
+            return await self._executor.execute_call(call, emitter=emitter)
+        finally:
+            reset_tool_workspace(token)
 
     async def execute_many(
         self,
         calls: list[ToolCall],
         *,
-        allowed_tool_names: list[str] | None = None,
+        tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
         emitter: EventEmitter | None = None,
     ) -> list[ToolResult]:
-        return await self._executor.execute_many(
-            calls,
-            allowed_tool_names=allowed_tool_names,
-            workspace=workspace,
-            emitter=emitter,
-        )
+        emitter = emitter or EventEmitter.noop()
+        results: list[ToolResult] = []
+        for batch in self._executor.partition_calls(calls):
+            if len(batch) == 1:
+                results.append(
+                    await self.execute_call(
+                        batch[0],
+                        tool_names=tool_names,
+                        workspace=workspace,
+                        emitter=emitter,
+                    )
+                )
+                continue
+
+            results.extend(
+                await asyncio.gather(
+                    *(
+                        self.execute_call(
+                            call,
+                            tool_names=tool_names,
+                            workspace=workspace,
+                            emitter=emitter,
+                        )
+                        for call in batch
+                    )
+                )
+            )
+        return results
 
     async def close_mcp_server(self, server_name: str) -> None:
         """Close one MCP server connection and unregister its tools."""

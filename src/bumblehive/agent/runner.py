@@ -209,7 +209,7 @@ class ToolCallingRunner:
                 await tool_events.calls_started(response.tool_calls)
                 tool_results = await tools.execute_many(
                     response.tool_calls,
-                    allowed_tool_names=tool_names,
+                    tool_names=tool_names,
                     workspace=workspace,
                     emitter=iteration_emitter,
                 )
