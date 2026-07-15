@@ -198,7 +198,10 @@ _EDIT_FILE_PARAMETERS: dict[str, Any] = {
         },
         "line_hint": {
             "type": "integer",
-            "description": "Optional 1-based line hint used to choose the nearest match.",
+            "description": (
+                "Optional exact 1-based target line copied from read_file. "
+                "The selected old_text match must cover this line."
+            ),
             "minimum": 1,
         },
         "expected_replacements": {
@@ -628,10 +631,32 @@ class WorkspaceFiles:
                 }
             selected = [matches[occurrence - 1]]
         elif line_hint is not None:
-            try:
-                selected = [_select_by_line_hint(matches, line_hint)]
-            except ValueError as exc:
-                return {"error": str(exc), "occurrences": len(matches)}
+            candidates = [
+                match for match in matches
+                if _match_covers_line(match, line_hint)
+            ]
+            if not candidates:
+                return {
+                    "error": "line_hint does not match the old_text location",
+                    "line_hint": line_hint,
+                    "occurrences": len(matches),
+                    "match_locations": [
+                        _match_location(match) for match in matches[:5]
+                    ],
+                }
+            if len(candidates) > 1:
+                return {
+                    "error": (
+                        "line_hint is ambiguous; old_text appears multiple times "
+                        "on the target line"
+                    ),
+                    "line_hint": line_hint,
+                    "occurrences": len(candidates),
+                    "match_locations": [
+                        _match_location(match) for match in candidates[:5]
+                    ],
+                }
+            selected = candidates
         else:
             if len(matches) > 1:
                 return {
@@ -697,12 +722,20 @@ def _strip_trailing_ws(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.split("\n"))
 
 
-def _select_by_line_hint(matches: list[MatchSpan], line_hint: int) -> MatchSpan:
-    nearest = min(matches, key=lambda match: abs(match.line - line_hint))
-    distance = abs(nearest.line - line_hint)
-    if sum(1 for match in matches if abs(match.line - line_hint) == distance) > 1:
-        raise ValueError(f"line_hint {line_hint} is ambiguous")
-    return nearest
+def _match_end_line(match: MatchSpan) -> int:
+    comparable = match.text[:-1] if match.text.endswith("\n") else match.text
+    return match.line + comparable.count("\n")
+
+
+def _match_covers_line(match: MatchSpan, line: int) -> bool:
+    return match.line <= line <= _match_end_line(match)
+
+
+def _match_location(match: MatchSpan) -> dict[str, int]:
+    return {
+        "start_line": match.line,
+        "end_line": _match_end_line(match),
+    }
 
 
 def _find_exact_matches(content: str, old_text: str) -> list[MatchSpan]:
