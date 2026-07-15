@@ -131,10 +131,7 @@ class AgentLoop:
                 else []
             )
 
-        available_skills = self.skills.build_skills_summary(
-            skill_names,
-            workspace=workspace,
-        )
+        available_skills = self.skills.build_skills_summary(skill_names)
         messages = self.context.build(
             current_user_message=current_user_message,
             workspace=workspace,
