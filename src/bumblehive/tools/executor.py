@@ -1,5 +1,6 @@
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 
 from ..protocols.errors import AgentError
 from ..protocols.tool_calls import ToolCall, ToolResult
@@ -76,35 +77,31 @@ class ToolExecutor:
         self,
         calls: list[ToolCall],
         *,
+        call_runner: Callable[[ToolCall], Awaitable[ToolResult]] | None = None,
         emitter: EventEmitter | None = None,
     ) -> list[ToolResult]:
-        """Execute tool calls, parallelizing adjacent concurrency-safe tools."""
+        """Execute calls in batches, optionally through a custom call runner."""
         emitter = emitter or EventEmitter.noop()
+
+        async def default_runner(call: ToolCall) -> ToolResult:
+            return await self.execute_call(call, emitter=emitter)
+
+        runner = call_runner if call_runner is not None else default_runner
+
         results: list[ToolResult] = []
-        for batch in self.partition_calls(calls):
+        for batch in self._partition_calls(calls):
             if len(batch) == 1:
-                results.append(
-                    await self.execute_call(
-                        batch[0],
-                        emitter=emitter,
-                    )
-                )
+                results.append(await runner(batch[0]))
                 continue
 
             results.extend(
                 await asyncio.gather(
-                    *(
-                        self.execute_call(
-                            call,
-                            emitter=emitter,
-                        )
-                        for call in batch
-                    )
+                    *(runner(call) for call in batch)
                 )
             )
         return results
 
-    def partition_calls(self, calls: list[ToolCall]) -> list[list[ToolCall]]:
+    def _partition_calls(self, calls: list[ToolCall]) -> list[list[ToolCall]]:
         batches: list[list[ToolCall]] = []
         current: list[ToolCall] = []
 

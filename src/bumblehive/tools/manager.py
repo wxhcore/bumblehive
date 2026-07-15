@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import TracebackType
@@ -230,33 +229,15 @@ class ToolManager:
         emitter: EventEmitter | None = None,
     ) -> list[ToolResult]:
         emitter = emitter or EventEmitter.noop()
-        results: list[ToolResult] = []
-        for batch in self._executor.partition_calls(calls):
-            if len(batch) == 1:
-                results.append(
-                    await self.execute_call(
-                        batch[0],
-                        tool_names=tool_names,
-                        workspace=workspace,
-                        emitter=emitter,
-                    )
-                )
-                continue
-
-            results.extend(
-                await asyncio.gather(
-                    *(
-                        self.execute_call(
-                            call,
-                            tool_names=tool_names,
-                            workspace=workspace,
-                            emitter=emitter,
-                        )
-                        for call in batch
-                    )
-                )
+        async def run(call: ToolCall) -> ToolResult:
+            return await self.execute_call(
+                call,
+                tool_names=tool_names,
+                workspace=workspace,
+                emitter=emitter,
             )
-        return results
+
+        return await self._executor.execute_many(calls, call_runner=run)
 
     async def close_mcp_server(self, server_name: str) -> None:
         """Close one MCP server connection and unregister its tools."""
