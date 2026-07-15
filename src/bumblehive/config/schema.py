@@ -36,6 +36,8 @@ class RuntimeConfig:
     context_window_tokens: int | None = None
     max_tool_result_chars: int | None = None
     max_iterations: int | None = None
+    extra_read_roots: tuple[str, ...] = ()
+    extra_write_roots: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,8 @@ class RuntimeArguments:
     context_window_tokens: int | None = None
     max_tool_result_chars: int | None = None
     max_iterations: int | None = None
+    extra_read_roots: Sequence[str | Path] = ()
+    extra_write_roots: Sequence[str | Path] = ()
     agent_instructions: str | None = None
     dynamic_context: dict[str, Any] = field(default_factory=dict)
     skill_names: tuple[str, ...] | None = None
@@ -92,6 +96,8 @@ class RuntimeArguments:
                 context_window_tokens=self.context_window_tokens,
                 max_tool_result_chars=self.max_tool_result_chars,
                 max_iterations=self.max_iterations,
+                extra_read_roots=tuple(str(path) for path in self.extra_read_roots),
+                extra_write_roots=tuple(str(path) for path in self.extra_write_roots),
             ),
             mcp_servers=self.mcp_servers,
         )
@@ -224,7 +230,16 @@ def _runtime_config(value: Any) -> RuntimeConfig:
         context_window_tokens=_optional_int(data.get("context_window_tokens")),
         max_tool_result_chars=_optional_int(data.get("max_tool_result_chars")),
         max_iterations=_optional_int(data.get("max_iterations")),
+        extra_read_roots=_runtime_roots(data, "extra_read_roots"),
+        extra_write_roots=_runtime_roots(data, "extra_write_roots"),
     )
+
+
+def _runtime_roots(data: Mapping[str, Any], key: str) -> tuple[str, ...]:
+    value = data.get(key, ())
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise TypeError(f"runtime.{key} must be a sequence")
+    return tuple(str(item) for item in value)
 
 
 def _mcp_servers(value: Any) -> tuple[MCPServerConfig, ...]:
@@ -343,6 +358,8 @@ def _runtime_to_dict(config: RuntimeConfig) -> dict[str, Any]:
     _set_if_not_none(data, "context_window_tokens", config.context_window_tokens)
     _set_if_not_none(data, "max_tool_result_chars", config.max_tool_result_chars)
     _set_if_not_none(data, "max_iterations", config.max_iterations)
+    _set_if_not_empty(data, "extra_read_roots", list(config.extra_read_roots))
+    _set_if_not_empty(data, "extra_write_roots", list(config.extra_write_roots))
     return data
 
 
@@ -358,4 +375,9 @@ def _mcp_server_to_dict(config: MCPServerConfig) -> dict[str, Any]:
 
 def _set_if_not_none(data: dict[str, Any], key: str, value: Any) -> None:
     if value is not None:
+        data[key] = value
+
+
+def _set_if_not_empty(data: dict[str, Any], key: str, value: Any) -> None:
+    if value:
         data[key] = value

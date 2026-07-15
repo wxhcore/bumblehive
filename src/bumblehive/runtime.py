@@ -22,7 +22,7 @@ from .observability import (
 from .providers import ModelProvider, ProviderManager
 from .session import SessionManager
 from .skills import SkillsManager
-from .tools import ToolManager
+from .tools import PathAllowlist, ToolManager
 
 
 class BumblehiveRuntime:
@@ -215,6 +215,13 @@ class BumblehiveRuntime:
         await self.initialize_tools()
         provider = await self._get_provider(run_config.provider)
         loop = self._build_loop()
+        path_allowlist = PathAllowlist.from_roots(
+            extra_read_roots=run_config.runtime.extra_read_roots,
+            extra_write_roots=(
+                *run_config.runtime.extra_write_roots,
+                self.skills.skills_dir,
+            ),
+        )
         return await loop.run_turn(
             message,
             provider=provider,
@@ -222,6 +229,7 @@ class BumblehiveRuntime:
             history_messages=history_messages,
             generation=run_config.generation,
             workspace=run_config.runtime.workspace,
+            path_allowlist=path_allowlist,
             timezone=run_config.runtime.timezone,
             dynamic_context=run_config.agent.dynamic_context,
             skill_names=_list_or_none(run_config.agent.skill_names),
