@@ -175,12 +175,16 @@ class MCPManager:
 
     async def _register_server_tools(self, server: MCPServerConfig, client: Client) -> list[str]:
         registered: list[str] = []
-        for tool_def in await client.list_tools():
-            tool = self._wrap_tool(server, client, tool_def)
-            if tool is None:
-                continue
-            self.registry.register(tool)
-            registered.append(tool.name)
+        try:
+            for tool_def in await client.list_tools():
+                tool = self._wrap_tool(server, client, tool_def)
+                if tool is None:
+                    continue
+                self.registry.register(tool)
+                registered.append(tool.name)
+        except Exception:
+            self._unregister_tools(registered)
+            raise
         return registered
 
     def _wrap_tool(
