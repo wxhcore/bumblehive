@@ -11,7 +11,7 @@ from ..providers.base import ModelProvider
 from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
 from ..tools.scope import PathAllowlist, bind_tool_session, reset_tool_session
-from .context import ContextBuilder, DynamicValue
+from .context import ContextBuilder, DynamicValue, MessageHistory
 from .runner import AgentRunResult, CheckpointCallback, ToolCallingRunner
 
 
@@ -37,6 +37,7 @@ class AgentLoop:
         *,
         provider: ModelProvider,
         model: str,
+        history: MessageHistory | None = None,
         history_messages: list[dict[str, Any]] | None = None,
         generation: GenerationConfig | None = None,
         workspace: Path | str | None = None,
@@ -61,25 +62,35 @@ class AgentLoop:
         ``None`` exposes everything, ``[]`` exposes nothing, and a non-empty
         list exposes only the named items in the given order.
 
-        ``history_messages`` is an optional snapshot used only for this turn.
-        The loop does not retain or update conversation history between calls.
+        ``history`` is caller-owned local memory that is read and updated for
+        this call without being retained by the loop. ``history_messages`` is
+        a managed-session snapshot and therefore requires ``session_id``.
         """
+        resolved_history_messages = self._resolve_history_messages(
+            history,
+            history_messages,
+            session_id,
+        )
         emitter = EventEmitter.from_hooks(
             hooks,
             run_id=run_id,
             session_id=session_id,
         )
         turn_events = TurnEvents(emitter)
-        tool_session_id = session_id if session_id is not None else emitter.run_id
+        tool_session_id = self._resolve_tool_session_id(
+            session_id,
+            history,
+            emitter.run_id,
+        )
         session_token = bind_tool_session(tool_session_id)
         try:
             await turn_events.started(current_user_message)
             try:
-                return await self._run_turn(
+                result = await self._run_turn(
                     current_user_message,
                     provider=provider,
                     model=model,
-                    history_messages=history_messages,
+                    history_messages=resolved_history_messages,
                     generation=generation,
                     workspace=workspace,
                     path_allowlist=path_allowlist,
@@ -95,11 +106,49 @@ class AgentLoop:
                     stream=stream,
                     checkpoint_callback=checkpoint_callback,
                 )
+                if history is not None:
+                    history.replace_run_messages(result.messages)
+                await turn_events.finished(
+                    stop_reason=result.stop_reason,
+                    error=result.error,
+                )
+                return result
             except Exception as exc:
                 await turn_events.error(exc)
                 raise
         finally:
             reset_tool_session(session_token)
+
+    @staticmethod
+    def _resolve_history_messages(
+        history: MessageHistory | None,
+        history_messages: list[dict[str, Any]] | None,
+        session_id: str | None,
+    ) -> list[dict[str, Any]] | None:
+        if history is not None and not isinstance(history, MessageHistory):
+            raise TypeError("history must be a MessageHistory")
+        if history is not None and history_messages is not None:
+            raise ValueError("history and history_messages cannot be used together")
+        if history is not None and session_id is not None:
+            raise ValueError("history and session_id cannot be used together")
+        if history_messages is not None and session_id is None:
+            raise ValueError(
+                "history_messages requires session_id; use MessageHistory for "
+                "caller-managed history"
+            )
+        return history.get_history() if history is not None else history_messages
+
+    @staticmethod
+    def _resolve_tool_session_id(
+        session_id: str | None,
+        history: MessageHistory | None,
+        run_id: str,
+    ) -> str:
+        if session_id is not None:
+            return session_id
+        if history is not None:
+            return history.conversation_id
+        return run_id
 
     async def _run_turn(
         self,
@@ -133,10 +182,9 @@ class AgentLoop:
             agent_instructions=agent_instructions,
             available_skills=available_skills,
         )
-        turn_events = TurnEvents(emitter)
-        await turn_events.context_built(message_count=len(messages))
+        await TurnEvents(emitter).context_built(message_count=len(messages))
 
-        result = await self.runner.run(
+        return await self.runner.run(
             provider=provider,
             tools=self.tools,
             messages=messages,
@@ -152,8 +200,3 @@ class AgentLoop:
             stream=stream,
             checkpoint_callback=checkpoint_callback,
         )
-        await turn_events.finished(
-            stop_reason=result.stop_reason,
-            error=result.error,
-        )
-        return result

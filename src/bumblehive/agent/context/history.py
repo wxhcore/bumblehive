@@ -1,4 +1,5 @@
 import json
+import uuid
 from copy import deepcopy
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -29,7 +30,10 @@ class MessageHistory:
     def __init__(
         self,
         messages: Sequence[Mapping[str, Any]] | None = None,
+        *,
+        conversation_id: str | None = None,
     ) -> None:
+        self.conversation_id = conversation_id or uuid.uuid4().hex
         self._messages = [dict(message) for message in messages or []]
 
     def add(self, role: str, content: Any = None, **extra: Any) -> Message:

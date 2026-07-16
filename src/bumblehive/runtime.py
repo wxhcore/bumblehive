@@ -208,7 +208,6 @@ class BumblehiveRuntime:
         return await self._run_agent(
             message,
             run_config=run_config,
-            history_messages=[],
             hooks=hooks,
             session_id=None,
             stream=stream,
@@ -227,12 +226,11 @@ class BumblehiveRuntime:
         result = await self._run_agent(
             message,
             run_config=run_config,
-            history_messages=history.get_history(),
+            history=history,
             hooks=hooks,
             session_id=None,
             stream=stream,
         )
-        history.replace_run_messages(result.messages)
         return result
 
     async def _run_with_session(
@@ -290,6 +288,7 @@ class BumblehiveRuntime:
         hooks: HookInput,
         session_id: str | None,
         stream: bool,
+        history: MessageHistory | None = None,
         history_messages: list[dict[str, Any]] | None = None,
         checkpoint_callback: CheckpointCallback | None = None,
     ) -> AgentRunResult:
@@ -307,6 +306,7 @@ class BumblehiveRuntime:
             message,
             provider=provider,
             model=run_config.provider.model,
+            history=history,
             history_messages=history_messages,
             generation=run_config.generation,
             workspace=run_config.runtime.workspace,
