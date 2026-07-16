@@ -86,22 +86,30 @@ class AgentLoop:
         try:
             await turn_events.started(current_user_message)
             try:
-                result = await self._run_turn(
-                    current_user_message,
+                available_skills = self.skills.build_skills_summary(skill_names)
+                messages = self.context.build(
+                    current_user_message=current_user_message,
+                    workspace=workspace,
+                    timezone=timezone,
+                    dynamic_context=dynamic_context,
+                    history=resolved_history_messages or [],
+                    agent_instructions=agent_instructions,
+                    available_skills=available_skills,
+                )
+                await turn_events.context_built(message_count=len(messages))
+
+                result = await self.runner.run(
                     provider=provider,
+                    tools=self.tools,
+                    messages=messages,
                     model=model,
-                    history_messages=resolved_history_messages,
                     generation=generation,
                     workspace=workspace,
                     path_allowlist=path_allowlist,
-                    timezone=timezone,
-                    dynamic_context=dynamic_context,
-                    skill_names=skill_names,
                     tool_names=tool_names,
                     context_window_tokens=context_window_tokens,
                     max_tool_result_chars=max_tool_result_chars,
                     max_iterations=max_iterations,
-                    agent_instructions=agent_instructions,
                     emitter=emitter,
                     stream=stream,
                     checkpoint_callback=checkpoint_callback,
@@ -149,54 +157,3 @@ class AgentLoop:
         if history is not None:
             return history.conversation_id
         return run_id
-
-    async def _run_turn(
-        self,
-        current_user_message: str,
-        *,
-        provider: ModelProvider,
-        model: str,
-        history_messages: list[dict[str, Any]] | None,
-        generation: GenerationConfig | None,
-        workspace: Path | str | None,
-        path_allowlist: PathAllowlist,
-        timezone: str | None,
-        dynamic_context: Mapping[str, DynamicValue] | None,
-        skill_names: list[str] | None,
-        tool_names: list[str] | None,
-        context_window_tokens: int | None,
-        max_tool_result_chars: int | None,
-        max_iterations: int | None,
-        agent_instructions: str | None,
-        emitter: EventEmitter,
-        stream: bool,
-        checkpoint_callback: CheckpointCallback | None,
-    ) -> AgentRunResult:
-        available_skills = self.skills.build_skills_summary(skill_names)
-        messages = self.context.build(
-            current_user_message=current_user_message,
-            workspace=workspace,
-            timezone=timezone,
-            dynamic_context=dynamic_context,
-            history=history_messages or [],
-            agent_instructions=agent_instructions,
-            available_skills=available_skills,
-        )
-        await TurnEvents(emitter).context_built(message_count=len(messages))
-
-        return await self.runner.run(
-            provider=provider,
-            tools=self.tools,
-            messages=messages,
-            model=model,
-            generation=generation,
-            workspace=workspace,
-            path_allowlist=path_allowlist,
-            tool_names=tool_names,
-            context_window_tokens=context_window_tokens,
-            max_tool_result_chars=max_tool_result_chars,
-            max_iterations=max_iterations,
-            emitter=emitter,
-            stream=stream,
-            checkpoint_callback=checkpoint_callback,
-        )
