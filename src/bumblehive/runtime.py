@@ -8,6 +8,7 @@ from .agent import (
     AgentRunResult,
     CheckpointCallback,
     ContextBuilder,
+    MessageHistory,
     ToolCallingRunner,
 )
 from .config.loader import ConfigInput, load_config
@@ -82,13 +83,27 @@ class BumblehiveRuntime:
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
+        history: MessageHistory | None = None,
         session_id: str | None = None,
     ) -> AgentRunResult:
-        """Run one stateless turn, or persist it when session_id is provided."""
+        """Run one conversation turn.
+
+        With neither ``history`` nor ``session_id``, the turn is stateless.
+        Passing ``history`` reads and updates caller-owned in-memory history.
+        Passing ``session_id`` loads, recovers, and persists a managed session.
+        Passing both raises ``ValueError``.
+
+        Caller-owned history is updated whenever an ``AgentRunResult`` is
+        returned, including ``model_error`` and ``max_iterations`` results. It
+        remains unchanged when the run raises an exception or is cancelled.
+        Do not share one ``MessageHistory`` across concurrent runs: await turns
+        sequentially, or use separate histories for parallel conversations.
+        """
         return await self._run(
             message,
             config=config,
             hooks=hooks,
+            history=history,
             session_id=session_id,
             stream=False,
         )
@@ -99,10 +114,11 @@ class BumblehiveRuntime:
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
+        history: MessageHistory | None = None,
         session_id: str | None = None,
         max_queue_size: int = DEFAULT_STREAM_QUEUE_SIZE,
     ) -> AsyncEventStream[AgentRunResult]:
-        """Stream one stateless or explicitly session-backed turn."""
+        """Stream one turn with stateless, in-memory, or persisted history."""
 
         async def _run_with_stream_hook(
             stream_hook: AsyncEventStreamHook,
@@ -111,6 +127,7 @@ class BumblehiveRuntime:
                 message,
                 config=config,
                 hooks=_append_hook(hooks, stream_hook),
+                history=history,
                 session_id=session_id,
                 stream=True,
             )
@@ -123,11 +140,12 @@ class BumblehiveRuntime:
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
+        history: MessageHistory | None = None,
         session_id: str | None = None,
         renderer: Any | None = None,
         max_queue_size: int = DEFAULT_STREAM_QUEUE_SIZE,
     ) -> AgentRunResult:
-        """Run and render one stateless or explicitly session-backed turn."""
+        """Run and render one turn with optional conversation history."""
 
         if renderer is None:
             from .console import ConsoleStreamRenderer
@@ -138,6 +156,7 @@ class BumblehiveRuntime:
             message,
             config=config,
             hooks=hooks,
+            history=history,
             session_id=session_id,
             max_queue_size=max_queue_size,
         )
@@ -160,20 +179,72 @@ class BumblehiveRuntime:
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
+        history: MessageHistory | None = None,
         session_id: str | None = None,
         stream: bool = False,
     ) -> AgentRunResult:
-        """Run one stateless turn, or persist it when session_id is provided."""
+        """Resolve the conversation source, then run one turn."""
+        self._validate_conversation_source(history, session_id)
         run_config = self._resolve_run_config(config)
-        if session_id is None:
-            return await self._run_agent(
+
+        if history is not None:
+            return await self._run_with_memory_history(
                 message,
+                history=history,
                 run_config=run_config,
                 hooks=hooks,
-                session_id=None,
                 stream=stream,
             )
 
+        if session_id is not None:
+            return await self._run_with_session(
+                message,
+                session_id=session_id,
+                run_config=run_config,
+                hooks=hooks,
+                stream=stream,
+            )
+
+        return await self._run_agent(
+            message,
+            run_config=run_config,
+            history_messages=[],
+            hooks=hooks,
+            session_id=None,
+            stream=stream,
+        )
+
+    async def _run_with_memory_history(
+        self,
+        message: str,
+        *,
+        history: MessageHistory,
+        run_config: BumblehiveConfig,
+        hooks: HookInput,
+        stream: bool,
+    ) -> AgentRunResult:
+        """Run against a caller-owned history and commit a completed result."""
+        result = await self._run_agent(
+            message,
+            run_config=run_config,
+            history_messages=history.get_history(),
+            hooks=hooks,
+            session_id=None,
+            stream=stream,
+        )
+        history.replace_run_messages(result.messages)
+        return result
+
+    async def _run_with_session(
+        self,
+        message: str,
+        *,
+        session_id: str,
+        run_config: BumblehiveConfig,
+        hooks: HookInput,
+        stream: bool,
+    ) -> AgentRunResult:
+        """Run against a locked, persisted session."""
         session = await self.sessions.get(session_id)
         async with session.lock:
             await self.sessions.recover(session)
@@ -200,6 +271,16 @@ class BumblehiveRuntime:
                         f"{type(recovery_exc).__name__}: {recovery_exc}"
                     )
                 raise
+
+    @staticmethod
+    def _validate_conversation_source(
+        history: MessageHistory | None,
+        session_id: str | None,
+    ) -> None:
+        if history is not None and session_id is not None:
+            raise ValueError("history and session_id cannot be used together")
+        if history is not None and not isinstance(history, MessageHistory):
+            raise TypeError("history must be a MessageHistory")
 
     async def _run_agent(
         self,

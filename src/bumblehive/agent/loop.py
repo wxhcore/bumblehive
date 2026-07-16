@@ -11,7 +11,7 @@ from ..providers.base import ModelProvider
 from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
 from ..tools.scope import PathAllowlist, bind_tool_session, reset_tool_session
-from .context import ContextBuilder, DynamicValue, MessageHistory
+from .context import ContextBuilder, DynamicValue
 from .runner import AgentRunResult, CheckpointCallback, ToolCallingRunner
 
 
@@ -25,13 +25,11 @@ class AgentLoop:
         context: ContextBuilder,
         skills: SkillsManager,
         runner: ToolCallingRunner,
-        history: MessageHistory | None = None,
     ) -> None:
         self.tools = tools
         self.context = context
         self.skills = skills
         self.runner = runner
-        self.history = history
 
     async def run_turn(
         self,
@@ -63,9 +61,8 @@ class AgentLoop:
         ``None`` exposes everything, ``[]`` exposes nothing, and a non-empty
         list exposes only the named items in the given order.
 
-        When ``history_messages`` is provided, it is used only for this turn.
-        Otherwise, the optional history passed to the constructor is read and
-        updated after a successful turn.
+        ``history_messages`` is an optional snapshot used only for this turn.
+        The loop does not retain or update conversation history between calls.
         """
         emitter = EventEmitter.from_hooks(
             hooks,
@@ -126,21 +123,13 @@ class AgentLoop:
         stream: bool,
         checkpoint_callback: CheckpointCallback | None,
     ) -> AgentRunResult:
-        internal_history = self.history if history_messages is None else None
-        if history_messages is None:
-            history_messages = (
-                internal_history.get_history()
-                if internal_history is not None
-                else []
-            )
-
         available_skills = self.skills.build_skills_summary(skill_names)
         messages = self.context.build(
             current_user_message=current_user_message,
             workspace=workspace,
             timezone=timezone,
             dynamic_context=dynamic_context,
-            history=history_messages,
+            history=history_messages or [],
             agent_instructions=agent_instructions,
             available_skills=available_skills,
         )
@@ -163,8 +152,6 @@ class AgentLoop:
             stream=stream,
             checkpoint_callback=checkpoint_callback,
         )
-        if internal_history is not None:
-            internal_history.replace_run_messages(result.messages)
         await turn_events.finished(
             stop_reason=result.stop_reason,
             error=result.error,
