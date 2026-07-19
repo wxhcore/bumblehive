@@ -16,10 +16,6 @@ class ProviderConfig:
     api_key: str | None = None
     base_url: str | None = None
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.model, str) or not self.model.strip():
-            raise ValueError("provider.model is required")
-
 
 @dataclass(frozen=True)
 class AgentConfig:
