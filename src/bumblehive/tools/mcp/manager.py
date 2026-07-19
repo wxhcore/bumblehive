@@ -205,7 +205,7 @@ class MCPManager:
             client=client,
             original_name=tool_def.name,
             server_name=server.name,
-            timeout=server.tool_timeout,
+            timeout=server.effective_tool_timeout,
         )
 
     def _unregister_tools(self, tool_names: list[str]) -> None:

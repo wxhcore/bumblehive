@@ -253,6 +253,9 @@ def _mcp_servers(value: Any) -> tuple[MCPServerConfig, ...]:
         name = data.get("name")
         if not name:
             raise ValueError(f"mcp_servers[{index}].name is required")
+        url = data.get("url")
+        if not url:
+            raise ValueError(f"mcp_servers[{index}].url is required")
         headers = data.get("headers") or {}
         if not isinstance(headers, Mapping):
             raise TypeError(f"mcp_servers[{index}].headers must be a mapping")
@@ -267,9 +270,9 @@ def _mcp_servers(value: Any) -> tuple[MCPServerConfig, ...]:
         servers.append(
             MCPServerConfig(
                 name=str(name),
-                url=str(data.get("url", "")),
+                url=str(url),
                 headers={str(key): str(value) for key, value in headers.items()},
-                tool_timeout=int(data.get("tool_timeout", 30)),
+                tool_timeout=_optional_int(data.get("tool_timeout")),
                 enabled_tools=[str(name) for name in enabled_tool_names],
             )
         )
@@ -364,13 +367,14 @@ def _runtime_to_dict(config: RuntimeConfig) -> dict[str, Any]:
 
 
 def _mcp_server_to_dict(config: MCPServerConfig) -> dict[str, Any]:
-    return {
+    data: dict[str, Any] = {
         "name": config.name,
         "url": config.url,
         "headers": dict(config.headers),
-        "tool_timeout": config.tool_timeout,
         "enabled_tools": list(config.enabled_tools),
     }
+    _set_if_not_none(data, "tool_timeout", config.tool_timeout)
+    return data
 
 
 def _set_if_not_none(data: dict[str, Any], key: str, value: Any) -> None:
