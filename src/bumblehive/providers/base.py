@@ -24,8 +24,8 @@ class ModelRequest:
     """A single model request after context construction."""
 
     messages: list[dict[str, Any]]
+    model: str
     tools: list[dict[str, Any]] = field(default_factory=list)
-    model: str | None = None
     generation: GenerationConfig | None = None
     tool_choice: str | dict[str, Any] | None = None
 

@@ -73,13 +73,11 @@ class OpenAIChatCompletionsProvider(ModelProvider):
     def __init__(
         self,
         *,
-        model: str = "gpt-5.4",
         api_key: str | None = None,
         base_url: str | None = None,
         default_generation: GenerationConfig | None = None,
         client: Any | None = None,
     ) -> None:
-        self.model = model
         self.api_key = api_key
         self.base_url = base_url
         self.default_generation = default_generation or GenerationConfig()
@@ -230,7 +228,7 @@ class OpenAIChatCompletionsProvider(ModelProvider):
     def _build_payload(self, request: ModelRequest) -> dict[str, Any]:
         generation = request.generation or self.default_generation
         payload: dict[str, Any] = {
-            "model": request.model or self.model,
+            "model": request.model,
             "messages": self._sanitize_messages(request.messages),
         }
 

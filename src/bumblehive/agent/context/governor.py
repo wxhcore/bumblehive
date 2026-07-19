@@ -13,7 +13,7 @@ class ContextGovernanceConfig:
     """Settings for preparing a model-facing copy of run messages."""
 
     provider: Any
-    model: str | None
+    model: str
     tools: list[dict[str, Any]]
     context_window_tokens: int | None
     max_completion_tokens: int

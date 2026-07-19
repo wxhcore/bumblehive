@@ -13,7 +13,7 @@ _SNIP_SAFETY_BUFFER = 1024
 def fit_context_window(
     *,
     provider: Any,
-    model: str | None,
+    model: str,
     messages: list[Message],
     tools: list[dict[str, Any]],
     context_window_tokens: int | None,
@@ -86,7 +86,7 @@ def fit_context_window(
 def estimate_prompt_tokens(
     *,
     provider: Any,
-    model: str | None,
+    model: str,
     messages: list[Message],
     tools: list[dict[str, Any]] | None = None,
 ) -> tuple[int, str]:

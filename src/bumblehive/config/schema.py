@@ -12,9 +12,13 @@ class ProviderConfig:
     """Provider settings used to build the default runtime provider."""
 
     type: str = "openai_chat_completions"
-    model: str = "gpt-5.4"
+    model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.model, str) or not self.model.strip():
+            raise ValueError("provider.model is required")
 
 
 @dataclass(frozen=True)
@@ -45,7 +49,7 @@ class RuntimeArguments:
     """Convenient flat arguments for constructing a Bumblehive runtime."""
 
     provider_type: str = "openai_chat_completions"
-    model: str = "gpt-5.4"
+    model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
     max_completion_tokens: int = 16384
@@ -191,7 +195,7 @@ def _provider_config(value: Any) -> ProviderConfig:
     data = _mapping(value, "provider")
     return ProviderConfig(
         type=str(data.get("type", ProviderConfig.type)),
-        model=str(data.get("model", ProviderConfig.model)),
+        model=_optional_str(data.get("model")),
         api_key=_optional_str(data.get("api_key")),
         base_url=_optional_str(data.get("base_url")),
     )
@@ -320,10 +324,8 @@ def _optional_int(value: Any) -> int | None:
 
 
 def _provider_to_dict(config: ProviderConfig) -> dict[str, Any]:
-    data: dict[str, Any] = {
-        "type": config.type,
-        "model": config.model,
-    }
+    data: dict[str, Any] = {"type": config.type}
+    _set_if_not_none(data, "model", config.model)
     _set_if_not_none(data, "api_key", config.api_key)
     _set_if_not_none(data, "base_url", config.base_url)
     return data
