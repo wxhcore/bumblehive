@@ -52,7 +52,7 @@ class RuntimeArguments:
     model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
-    max_completion_tokens: int = 16384
+    max_completion_tokens: int | None = None
     temperature: float | None = None
     reasoning_effort: str | None = None
     extra_body: dict[str, Any] | None = None
@@ -204,12 +204,7 @@ def _provider_config(value: Any) -> ProviderConfig:
 def _generation_config(value: Any) -> GenerationConfig:
     data = _mapping(value, "generation")
     return GenerationConfig(
-        max_completion_tokens=int(
-            data.get(
-                "max_completion_tokens",
-                GenerationConfig.max_completion_tokens,
-            )
-        ),
+        max_completion_tokens=_optional_int(data.get("max_completion_tokens")),
         temperature=_optional_float(data.get("temperature")),
         reasoning_effort=_optional_str(data.get("reasoning_effort")),
         extra_body=_optional_dict(data.get("extra_body"), "generation.extra_body"),
@@ -332,9 +327,12 @@ def _provider_to_dict(config: ProviderConfig) -> dict[str, Any]:
 
 
 def _generation_to_dict(config: GenerationConfig) -> dict[str, Any]:
-    data: dict[str, Any] = {
-        "max_completion_tokens": config.max_completion_tokens,
-    }
+    data: dict[str, Any] = {}
+    _set_if_not_none(
+        data,
+        "max_completion_tokens",
+        config.max_completion_tokens,
+    )
     _set_if_not_none(data, "temperature", config.temperature)
     _set_if_not_none(data, "reasoning_effort", config.reasoning_effort)
     _set_if_not_none(data, "extra_body", config.extra_body)
