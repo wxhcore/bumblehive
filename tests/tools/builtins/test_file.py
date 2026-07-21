@@ -170,7 +170,7 @@ async def test_file_tools_use_allowlisted_roots_for_read_list_write_and_edit(tmp
     )
 
     assert "original" in read.content["content"]
-    assert [entry["path"] for entry in listed.content["entries"]] == [str(skill_file)]
+    assert [entry["path"] for entry in listed.content["entries"]] == [skill_file.as_posix()]
     assert written.content["success"] is True
     assert edited.content["success"] is True
     assert skill_file.read_text(encoding="utf-8") == "edited\n"

@@ -212,15 +212,21 @@ async def test_background_session_can_be_listed_and_polled_after_completion(tmp_
         assert listed.content["sessions"][0]["session_id"] == session_id
         assert listed.content["sessions"][0]["remaining_seconds"] is None
 
-        await asyncio.sleep(0.4)
-        completed = await _execute(
-            manager,
-            tmp_path,
-            "write_stdin",
-            {"session_id": session_id, "yield_time_ms": 0},
-        )
+        output = []
+        async with asyncio.timeout(15):
+            while True:
+                completed = await _execute(
+                    manager,
+                    tmp_path,
+                    "write_stdin",
+                    {"session_id": session_id, "yield_time_ms": 100},
+                )
+                output.append(completed.content["output"])
+                if completed.content["done"]:
+                    break
+
         assert completed.content["done"] is True
-        assert "done" in completed.content["output"]
+        assert "done" in "".join(output)
     finally:
         await manager.close()
 

@@ -6,6 +6,7 @@ from bumblehive.agent.context import builder as builder_module
 
 def test_build_assembles_one_complete_model_context(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("SHELL", "/bin/zsh")
+    monkeypatch.setattr(builder_module.platform, "system", lambda: "Linux")
     history = [{"role": "assistant", "content": "previous answer"}]
 
     messages = ContextBuilder(timezone="UTC").build(
