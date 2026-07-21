@@ -1,13 +1,19 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from time import perf_counter
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import chat, health, sessions, settings
+from .logging_utils import elapsed_since
 from .runtime_service import RuntimeService
 from .session_reader import SessionReader
 from .settings import ServerSettings
+
+
+logger = logging.getLogger("uvicorn.error.bumblehive")
 
 
 def create_app(
@@ -21,13 +27,40 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         service = runtime_service or RuntimeService(server_settings.config_path)
         reader = session_reader or SessionReader()
-        await service.startup()
+        startup_started_at = perf_counter()
+        logger.info("[lifecycle] startup started")
+        try:
+            await service.startup()
+        except Exception:
+            logger.exception(
+                "[lifecycle] startup failed | duration=%s",
+                elapsed_since(startup_started_at),
+            )
+            raise
         app.state.runtime_service = service
         app.state.session_reader = reader
+        logger.info(
+            "[lifecycle] startup completed | duration=%s",
+            elapsed_since(startup_started_at),
+        )
         try:
             yield
         finally:
-            await service.shutdown()
+            shutdown_started_at = perf_counter()
+            logger.info("[lifecycle] shutdown started")
+            try:
+                await service.shutdown()
+            except Exception:
+                logger.exception(
+                    "[lifecycle] shutdown failed | duration=%s",
+                    elapsed_since(shutdown_started_at),
+                )
+                raise
+            else:
+                logger.info(
+                    "[lifecycle] shutdown completed | duration=%s",
+                    elapsed_since(shutdown_started_at),
+                )
 
     application = FastAPI(
         title="Bumblehive Server",

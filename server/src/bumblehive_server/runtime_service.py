@@ -1,17 +1,22 @@
 import asyncio
 import json
+import logging
 import os
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
 from bumblehive import BumblehiveConfig, BumblehiveRuntime
 
+from .logging_utils import elapsed_since, safe_log_value
+
 
 RuntimeFactory = Callable[[BumblehiveConfig], BumblehiveRuntime]
+logger = logging.getLogger("uvicorn.error.bumblehive")
 
 
 class RuntimeBusyError(RuntimeError):
@@ -50,7 +55,23 @@ class RuntimeService:
         async with self._lock:
             if self._runtime is not None:
                 return
-            self._runtime = self._runtime_factory(self._load_config())
+            source = "file" if self.config_path.exists() else "defaults"
+            load_started_at = perf_counter()
+            try:
+                config = self._load_config()
+            except Exception:
+                logger.exception(
+                    "[config] load failed | source=%s | duration=%s",
+                    source,
+                    elapsed_since(load_started_at),
+                )
+                raise
+            logger.info(
+                "[config] loaded | source=%s | duration=%s",
+                source,
+                elapsed_since(load_started_at),
+            )
+            self._runtime = self._runtime_factory(config)
 
     async def shutdown(self) -> None:
         async with self._lock:
@@ -73,27 +94,63 @@ class RuntimeService:
                 self._active_runs -= 1
 
     async def delete_session(self, session_id: str) -> bool:
-        async with self.lease() as runtime:
-            return await runtime.delete_session(session_id)
+        started_at = perf_counter()
+        try:
+            async with self.lease() as runtime:
+                deleted = await runtime.delete_session(session_id)
+        except Exception:
+            logger.exception(
+                "[session] delete failed | session_id=%s | duration=%s",
+                safe_log_value(session_id),
+                elapsed_since(started_at),
+            )
+            raise
+        logger.info(
+            "[session] delete completed | session_id=%s | deleted=%s | "
+            "duration=%s",
+            safe_log_value(session_id),
+            str(deleted).lower(),
+            elapsed_since(started_at),
+        )
+        return deleted
 
     async def update_config(
         self,
         patch: Mapping[str, Any],
     ) -> BumblehiveConfig:
-        async with self._lock:
-            current = self._runtime
-            if current is None:
-                raise RuntimeNotStartedError("runtime is not started")
-            if self._active_runs:
-                raise RuntimeBusyError("runtime has active runs")
+        started_at = perf_counter()
+        logger.info("[config] update started")
+        try:
+            async with self._lock:
+                current = self._runtime
+                if current is None:
+                    raise RuntimeNotStartedError("runtime is not started")
+                if self._active_runs:
+                    raise RuntimeBusyError("runtime has active runs")
 
-            merged = _deep_merge(current.config.to_dict(), patch)
-            config = BumblehiveConfig.from_mapping(merged)
-            replacement = self._runtime_factory(config)
-            self._write_config(config)
-            self._runtime = replacement
+                merged = _deep_merge(current.config.to_dict(), patch)
+                config = BumblehiveConfig.from_mapping(merged)
+                replacement = self._runtime_factory(config)
+                self._write_config(config)
+                self._runtime = replacement
 
-        await current.close()
+            await current.close()
+        except RuntimeBusyError:
+            logger.warning(
+                "[config] update rejected | reason=active_run | duration=%s",
+                elapsed_since(started_at),
+            )
+            raise
+        except Exception:
+            logger.exception(
+                "[config] update failed | duration=%s",
+                elapsed_since(started_at),
+            )
+            raise
+        logger.info(
+            "[config] update completed | duration=%s",
+            elapsed_since(started_at),
+        )
         return config
 
     def public_config(self) -> dict[str, Any]:

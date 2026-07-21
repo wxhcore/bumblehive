@@ -1,16 +1,20 @@
 import asyncio
+import logging
 from dataclasses import asdict
+from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
 
+from ..logging_utils import elapsed_since, format_token_usage, safe_log_value
 from ..runtime_service import RuntimeService
 from ..schemas import CancelRequest, ChatRequest
 
 
 router = APIRouter(tags=["chat"])
+logger = logging.getLogger("uvicorn.error.bumblehive")
 
 
 @router.websocket("/ws/v1/chat/{session_id}")
@@ -19,14 +23,19 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
         await websocket.close(code=1008)
         return
 
+    connected_at = perf_counter()
+    session_label = safe_log_value(session_id)
     await websocket.accept()
-    await websocket.send_json({"type": "ready", "session_id": session_id})
+    logger.info("[websocket] connected | session_id=%s", session_label)
     service: RuntimeService = websocket.app.state.runtime_service
     active_task: asyncio.Task[None] | None = None
-    receive_task = asyncio.create_task(websocket.receive_json())
+    receive_task: asyncio.Task[Any] | None = None
 
     try:
+        await websocket.send_json({"type": "ready", "session_id": session_id})
+        receive_task = asyncio.create_task(websocket.receive_json())
         while True:
+            assert receive_task is not None
             waiters: set[asyncio.Task[Any]] = {receive_task}
             if active_task is not None:
                 waiters.add(active_task)
@@ -101,11 +110,17 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
                 _stream_turn(websocket, service, session_id, request)
             )
     finally:
-        receive_task.cancel()
-        await asyncio.gather(receive_task, return_exceptions=True)
+        if receive_task is not None:
+            receive_task.cancel()
+            await asyncio.gather(receive_task, return_exceptions=True)
         if active_task is not None:
             active_task.cancel()
             await asyncio.gather(active_task, return_exceptions=True)
+        logger.info(
+            "[websocket] disconnected | session_id=%s | duration=%s",
+            session_label,
+            elapsed_since(connected_at),
+        )
 
 
 async def _report_turn_completion(
@@ -132,20 +147,66 @@ async def _stream_turn(
     session_id: str,
     request: ChatRequest,
 ) -> None:
-    async with service.lease() as runtime:
-        stream = runtime.stream(
-            request.content,
-            session_id=session_id,
-            config=request.config,
+    started_at = perf_counter()
+    session_label = safe_log_value(session_id)
+    logger.info("[agent] started | session_id=%s", session_label)
+    try:
+        async with service.lease() as runtime:
+            stream = runtime.stream(
+                request.content,
+                session_id=session_id,
+                config=request.config,
+            )
+            try:
+                async for event in stream:
+                    await websocket.send_json(
+                        jsonable_encoder({"type": "event", **asdict(event)})
+                    )
+                result = await stream.result()
+            finally:
+                await stream.aclose()
+    except asyncio.CancelledError:
+        logger.info(
+            "[agent] cancelled | session_id=%s | duration=%s",
+            session_label,
+            elapsed_since(started_at),
         )
-        try:
-            async for event in stream:
-                await websocket.send_json(
-                    jsonable_encoder({"type": "event", **asdict(event)})
-                )
-            result = await stream.result()
-        finally:
-            await stream.aclose()
+        raise
+    except WebSocketDisconnect:
+        logger.info(
+            "[agent] cancelled | session_id=%s | reason=websocket_disconnect | "
+            "duration=%s",
+            session_label,
+            elapsed_since(started_at),
+        )
+        raise
+    except Exception:
+        logger.exception(
+            "[agent] failed | session_id=%s | duration=%s",
+            session_label,
+            elapsed_since(started_at),
+        )
+        raise
+
+    if result.error is None:
+        logger.info(
+            "[agent] completed | session_id=%s | duration=%s | "
+            "stop_reason=%s | tokens=%s",
+            session_label,
+            elapsed_since(started_at),
+            safe_log_value(result.stop_reason),
+            format_token_usage(result.usage),
+        )
+    else:
+        logger.warning(
+            "[agent] failed | session_id=%s | duration=%s | stop_reason=%s | "
+            "error_code=%s | tokens=%s",
+            session_label,
+            elapsed_since(started_at),
+            safe_log_value(result.stop_reason),
+            safe_log_value(result.error.code),
+            format_token_usage(result.usage),
+        )
 
     error = asdict(result.error) if result.error is not None else None
     await websocket.send_json(
