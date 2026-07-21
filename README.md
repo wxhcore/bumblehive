@@ -37,16 +37,15 @@ async for event in runtime.stream("Hello", session_id="user:123"):
 
 ## Local Development
 
-The base requirements are Python 3.11+ and Node.js 20.19+/22.12+. A dedicated Conda environment is recommended:
+The Python SDK, Server, and WebUI development workflow supports macOS, Windows, and Ubuntu Linux. The base requirements are Python 3.11+ and Node.js 20.19+/22.12+. A dedicated Conda environment is recommended:
 
 ```bash
 conda create -n bumblehive_env python=3.11 -y
 conda activate bumblehive_env
 npm run setup
-npm run doctor
 ```
 
-`npm run setup` uses the currently active Python interpreter, does not depend on a fixed Conda path, and installs the SDK dependencies, Server, WebUI, and desktop dependencies together.
+`npm run setup` uses the currently active Python interpreter, without depending on a fixed Conda installation path. It installs the Python SDK, Server, and WebUI dependencies and runs the core environment check. `npm run dev` repeats that lightweight preflight before starting either process. If a requirement is missing, the command stops with a targeted error. The same commands are used on Ubuntu Linux; no Tauri system dependencies are required for this workflow. Set `BUMBLEHIVE_PYTHON` to an interpreter path to override the active interpreter.
 
 For daily development:
 
@@ -59,21 +58,19 @@ This starts the Server on `127.0.0.1:18421` and the WebUI on `127.0.0.1:1420`. U
 
 ### Desktop
 
-macOS additionally requires Rust and Xcode Command Line Tools. Windows additionally requires the Rust MSVC toolchain, WebView2, and Microsoft C++ Build Tools with the Desktop development with C++ workload.
+The optional desktop workflow currently targets macOS and Windows. macOS additionally requires Rust and Xcode Command Line Tools. Windows additionally requires the Rust MSVC toolchain, WebView2, and Microsoft C++ Build Tools with the Desktop development with C++ workload.
 
-On a clean checkout, build the generated desktop sidecar before running the full desktop environment check:
+On a clean checkout, install the additional desktop dependencies once:
 
 ```bash
-npm run build:sidecar
-npm run doctor:desktop
+npm run setup:desktop
 ```
 
-Then start development or create a platform-specific installer:
+Then start development or create the installer for the current platform:
 
 ```bash
 npm run dev:desktop
-npm run build:mac
-npm run build:win
+npm run build:desktop
 ```
 
-The sidecar is a generated artifact and is not created by `npm run setup`. `dev:desktop` and both packaging commands rebuild it automatically with the current Python environment. Use `build:mac` only on macOS and `build:win` only on Windows.
+`npm run setup:desktop` includes the SDK, Server, and WebUI setup, adds Tauri and PyInstaller dependencies, and verifies the complete desktop environment. Both `dev:desktop` and `build:desktop` repeat that preflight and automatically package the Python Server as a sidecar before starting Tauri. `build:desktop` creates an app and DMG on macOS or an NSIS installer on Windows.

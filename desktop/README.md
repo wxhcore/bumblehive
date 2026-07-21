@@ -7,13 +7,10 @@ The desktop app embeds the frontend from `../webui` and starts the bundled sidec
 From the repository root, activate the Python environment and install all workspace dependencies:
 
 ```bash
-conda activate bumblehive_env
-npm run setup
-npm run build:sidecar
-npm run doctor:desktop
+npm run setup:desktop
 ```
 
-`npm run setup` installs dependencies but does not generate the sidecar checked by `doctor:desktop`.
+`npm run setup:desktop` installs the core workspace and optional desktop dependencies, then verifies the complete environment.
 
 Start the desktop application in development mode:
 
@@ -21,20 +18,12 @@ Start the desktop application in development mode:
 npm run dev:desktop
 ```
 
-Build the macOS app and DMG, or the Windows NSIS installer:
+Build the app and installer for the current platform:
 
 ```bash
-npm run build:mac
-npm run build:win
+npm run build:desktop
 ```
 
-These commands build the sidecar first with the currently active Python interpreter. To rebuild only the sidecar:
+Both commands verify the desktop environment and automatically build the Python Server sidecar with the currently active Python interpreter before starting Tauri. On macOS, `build:desktop` creates the app and DMG; on Windows, it creates the NSIS installer.
 
-```bash
-npm run build:sidecar
-```
-
-The application is written to
-`src-tauri/target/release/bundle/macos/BumbleHive.app`. It starts the bundled
-sidecar when opened and stops it when the desktop process exits. Stop any
-manually started Server on port `18421` before launching the desktop app.
+The application starts the bundled sidecar when opened and stops it when the desktop process exits. Stop any manually started Server on port `18421` before launching the desktop app.

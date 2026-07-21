@@ -37,16 +37,15 @@ async for event in runtime.stream("你好", session_id="user:123"):
 
 ## 本地开发
 
-基础环境需要 Python 3.11+、Node.js 20.19+/22.12+。推荐使用独立的 Conda 环境：
+Python SDK、Server 和 WebUI 的开发流程支持 macOS、Windows 和 Ubuntu Linux。基础环境需要 Python 3.11+、Node.js 20.19+/22.12+。推荐使用独立的 Conda 环境：
 
 ```bash
 conda create -n bumblehive_env python=3.11 -y
 conda activate bumblehive_env
 npm run setup
-npm run doctor
 ```
 
-`npm run setup` 使用当前激活的 Python，不依赖固定的 Conda 安装路径，并一次性安装 SDK 依赖、Server、WebUI 和桌面端依赖。
+`npm run setup` 使用当前激活的 Python，不依赖固定的 Conda 安装路径。它会安装 Python SDK、Server 和 WebUI 依赖，并自动检查核心环境；`npm run dev` 也会在启动两个进程前重复这项轻量预检。缺少任何必要条件时，命令都会停止并给出明确提示。Ubuntu Linux 使用相同命令，该流程不需要安装 Tauri 系统依赖。如需覆盖当前解释器，可以通过 `BUMBLEHIVE_PYTHON` 指定 Python 路径。
 
 日常开发只需：
 
@@ -59,21 +58,19 @@ npm run dev
 
 ### 桌面端
 
-macOS 还需要 Rust 和 Xcode Command Line Tools；Windows 还需要 Rust MSVC toolchain、WebView2，以及包含“使用 C++ 的桌面开发”工作负载的 Microsoft C++ Build Tools。
+可选的桌面端流程目前面向 macOS 和 Windows。macOS 还需要 Rust 和 Xcode Command Line Tools；Windows 还需要 Rust MSVC toolchain、WebView2，以及包含“使用 C++ 的桌面开发”工作负载的 Microsoft C++ Build Tools。
 
-全新检出项目后，先生成桌面 sidecar，再执行完整的桌面环境检查：
+全新检出项目后，只需安装一次额外的桌面端依赖：
 
 ```bash
-npm run build:sidecar
-npm run doctor:desktop
+npm run setup:desktop
 ```
 
-之后可以启动桌面开发模式或生成对应平台的安装包：
+之后可以启动桌面开发模式，或为当前平台生成安装包：
 
 ```bash
 npm run dev:desktop
-npm run build:mac
-npm run build:win
+npm run build:desktop
 ```
 
-sidecar 是生成产物，`npm run setup` 不会创建它。`dev:desktop` 和两个打包命令都会使用当前 Python 环境自动重建 sidecar。`build:mac` 仅在 macOS 使用，`build:win` 仅在 Windows 使用。
+`npm run setup:desktop` 会执行 SDK、Server 和 WebUI 的安装，额外安装 Tauri 与 PyInstaller 依赖，并自动检查完整的桌面环境。`dev:desktop` 和 `build:desktop` 也会重复这项预检，再使用当前 Python 环境自动将 Server 打包成 sidecar，然后启动 Tauri。`build:desktop` 在 macOS 生成 app 和 DMG，在 Windows 生成 NSIS 安装包。
