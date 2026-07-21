@@ -455,7 +455,7 @@ async def test_close_terminates_process_descendants(tmp_path) -> None:
             "time.sleep(30)\n",
             encoding="utf-8",
         )
-        command = subprocess.list2cmdline([sys.executable, "spawn_child.py"])
+        command = "python spawn_child.py"
     else:
         command = "(sleep 1; touch child-survived) & printf 'ready\\n'; sleep 30"
 
@@ -470,7 +470,7 @@ async def test_close_terminates_process_descendants(tmp_path) -> None:
                 "yield_time_ms": 50,
             },
         )
-        assert started.content["running"] is True
+        assert started.content.get("running") is True, started.content
         output = started.content["output"]
         if "ready" not in output:
             ready = await _execute(
