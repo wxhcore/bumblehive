@@ -1,3 +1,8 @@
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -136,6 +141,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
+.env.*.local
 .envrc
 .venv
 env/
@@ -193,6 +200,27 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Local BumbleHive configuration
+/bumblehive.json
+
+# Node / Vite
+node_modules/
+*.tsbuildinfo
+
+# Generated Tauri files
+desktop/src-tauri/gen/schemas/
+desktop/src-tauri/binaries/
+desktop/src-tauri/sidecar/*
+!desktop/src-tauri/sidecar/.gitkeep
+
+# Code-signing credentials
+*.p8
+*.p12
+*.pfx
+*.pem
+*.key
+*.mobileprovision
 
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to

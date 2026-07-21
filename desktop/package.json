@@ -1,0 +1,12 @@
+{
+  "name": "bumblehive-desktop",
+  "version": "0.1.0",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
+}

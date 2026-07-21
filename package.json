@@ -1,0 +1,22 @@
+{
+  "name": "bumblehive-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "doctor:desktop": "node scripts/doctor.mjs --desktop",
+    "dev": "concurrently --kill-others-on-fail --names server,web --prefix-colors yellow,cyan \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "node scripts/python-task.mjs server",
+    "dev:web": "npm --prefix webui run dev",
+    "dev:desktop": "npm run build:sidecar && npm --prefix desktop run tauri -- dev",
+    "build:sidecar": "node scripts/python-task.mjs sidecar",
+    "build:mac": "npm run build:sidecar && npm --prefix desktop run tauri -- build --bundles app,dmg",
+    "build:win": "npm run build:sidecar && npm --prefix desktop run tauri -- build --bundles nsis",
+    "test": "node scripts/python-task.mjs test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
