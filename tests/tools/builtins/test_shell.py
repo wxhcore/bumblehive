@@ -1,11 +1,12 @@
 import asyncio
+import subprocess
 import sys
 
 import pytest
 
 from bumblehive.protocols import ToolCall
 from bumblehive.tools import PathAllowlist, ToolManager
-from bumblehive.tools.builtins.shell import _build_env, _resolve_shell
+from bumblehive.tools.builtins.shell import ExecSession, _build_env, _resolve_shell
 from bumblehive.tools.scope import bind_tool_session, reset_tool_session
 
 
@@ -26,10 +27,13 @@ def _long_command(seconds):
 
 def _delayed_command():
     if sys.platform == "win32":
-        return (
-            "powershell -NoProfile -Command "
-            '"Write-Output ready; Start-Sleep -Milliseconds 200; Write-Output done"'
+        code = (
+            "import time; "
+            "print('ready', flush=True); "
+            "time.sleep(0.2); "
+            "print('done', flush=True)"
         )
+        return subprocess.list2cmdline(["python", "-u", "-c", code])
     return "printf 'ready\n'; sleep 0.2; printf 'done\n'"
 
 
@@ -68,6 +72,45 @@ async def _execute(
 def test_exec_schema_requires_the_current_explicit_interface(arguments) -> None:
     prepared = _manager().registry.prepare_call("exec", arguments)
     assert prepared.error_code == "invalid_tool_arguments"
+
+
+@pytest.mark.asyncio
+async def test_session_poll_waits_for_early_process_completion() -> None:
+    class CompletingProcess:
+        returncode = None
+        stdin = None
+        stdout = None
+        stderr = None
+
+        def __init__(self) -> None:
+            self.wait_calls = 0
+
+        async def wait(self) -> int:
+            self.wait_calls += 1
+            self.returncode = 0
+            return 0
+
+    process = CompletingProcess()
+    session = ExecSession(
+        session_id="test-session",
+        process=process,
+        command="complete",
+        cwd=".",
+        timeout=None,
+        owner_session_id=None,
+    )
+    try:
+        poll = await session.poll(yield_time_ms=50, max_output_chars=1_000)
+
+        assert process.wait_calls == 1
+        assert poll.done is True
+        assert poll.exit_code == 0
+    finally:
+        await asyncio.gather(
+            session._stdout_task,
+            session._stderr_task,
+            return_exceptions=True,
+        )
 
 
 @pytest.mark.asyncio
@@ -212,21 +255,14 @@ async def test_background_session_can_be_listed_and_polled_after_completion(tmp_
         assert listed.content["sessions"][0]["session_id"] == session_id
         assert listed.content["sessions"][0]["remaining_seconds"] is None
 
-        output = []
-        async with asyncio.timeout(15):
-            while True:
-                completed = await _execute(
-                    manager,
-                    tmp_path,
-                    "write_stdin",
-                    {"session_id": session_id, "yield_time_ms": 100},
-                )
-                output.append(completed.content["output"])
-                if completed.content["done"]:
-                    break
-
+        completed = await _execute(
+            manager,
+            tmp_path,
+            "write_stdin",
+            {"session_id": session_id, "yield_time_ms": 5_000},
+        )
         assert completed.content["done"] is True
-        assert "done" in "".join(output)
+        assert "done" in completed.content["output"]
     finally:
         await manager.close()
 
