@@ -57,7 +57,7 @@ if (mode === "dev") {
     ["--prefix", "desktop", "run", "tauri", "--", "dev"],
   );
 } else {
-  const bundles = process.platform === "darwin" ? "app,dmg" : "nsis";
+  const bundles = process.platform === "darwin" ? "dmg" : "nsis";
   run(
     "Building the desktop application",
     "npm",
