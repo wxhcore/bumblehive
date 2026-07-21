@@ -7,6 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const npm = "npm";
 const python = process.env.BUMBLEHIVE_PYTHON || "python";
 const desktop = process.argv.includes("--desktop");
+const setupCommand = desktop ? "npm run setup:desktop" : "npm run setup";
 let errors = 0;
 let warnings = 0;
 
@@ -152,10 +153,12 @@ if (pythonInfo) {
     "httpx",
     "pytest",
     "pytest_asyncio",
-    "PyInstaller",
     "bumblehive",
     "bumblehive_server",
   ];
+  if (desktop) {
+    requiredModules.push("PyInstaller");
+  }
   const moduleCheck = capture(
     python,
     [
@@ -183,7 +186,9 @@ if (pythonInfo) {
     fail(
       "Python dependencies are incomplete" +
         (missing.length ? ": " + missing.join(", ") : "") +
-        ". Run 'npm run setup'.",
+        ". Run '" +
+        setupCommand +
+        "'.",
     );
   }
 }
@@ -198,14 +203,20 @@ checkPath(
   resolve(root, "webui", "node_modules", "vite", "package.json"),
   "Run 'npm run setup'.",
 );
-checkPath(
-  "Desktop dependencies",
-  resolve(root, "desktop", "node_modules", "@tauri-apps", "cli", "package.json"),
-  "Run 'npm run setup'.",
-);
-
 if (desktop) {
   console.log("\nDesktop packaging");
+  checkPath(
+    "Desktop dependencies",
+    resolve(
+      root,
+      "desktop",
+      "node_modules",
+      "@tauri-apps",
+      "cli",
+      "package.json",
+    ),
+    "Run 'npm run setup:desktop'.",
+  );
   const rust = checkCommand("Rust", "rustc", ["-Vv"]);
   checkCommand("Cargo", "cargo", ["--version"]);
 
@@ -225,21 +236,6 @@ if (desktop) {
       );
     }
   }
-
-  const executable =
-    process.platform === "win32" ? "bumblehive-server.exe" : "bumblehive-server";
-  checkPath(
-    "Desktop sidecar",
-    resolve(
-      root,
-      "desktop",
-      "src-tauri",
-      "sidecar",
-      "bumblehive-server",
-      executable,
-    ),
-    "Run 'npm run build:sidecar'.",
-  );
 }
 
 console.log(

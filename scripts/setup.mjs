@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const npm = "npm";
 const python = process.env.BUMBLEHIVE_PYTHON || "python";
+const includeDesktop = process.argv.includes("--desktop");
 
 function run(label, command, args, cwd = root) {
   console.log("\n==> " + label);
@@ -63,22 +64,48 @@ run(
   ["ci", "--no-audit", "--no-fund"],
   resolve(root, "webui"),
 );
-run(
-  "Installing desktop dependencies",
-  npm,
-  ["ci", "--no-audit", "--no-fund"],
-  resolve(root, "desktop"),
-);
+if (includeDesktop) {
+  run(
+    "Installing desktop dependencies",
+    npm,
+    ["ci", "--no-audit", "--no-fund"],
+    resolve(root, "desktop"),
+  );
+}
 run(
   "Installing BumbleHive SDK and development dependencies",
   python,
   ["-m", "pip", "install", "-e", ".[dev]"],
 );
 run(
-  "Installing server, test, and packaging dependencies",
+  includeDesktop
+    ? "Installing server, test, and packaging dependencies"
+    : "Installing server and test dependencies",
   python,
-  ["-m", "pip", "install", "-e", "server[test,build]"],
+  [
+    "-m",
+    "pip",
+    "install",
+    "-e",
+    includeDesktop ? "server[test,build]" : "server[test]",
+  ],
+);
+run(
+  includeDesktop
+    ? "Verifying the core and desktop environments"
+    : "Verifying the core environment",
+  process.execPath,
+  [
+    resolve(root, "scripts", "doctor.mjs"),
+    ...(includeDesktop ? ["--desktop"] : []),
+  ],
 );
 console.log("\nSetup complete.");
-console.log("Run 'npm run doctor' to verify the environment.");
-console.log("Run 'npm run dev' to start the server and WebUI.");
+if (includeDesktop) {
+  console.log("Run 'npm run dev:desktop' to start the desktop application.");
+} else {
+  console.log("Run 'npm run dev' to start the server and WebUI.");
+  console.log(
+    "Run 'npm run setup:desktop' to add the optional desktop toolchain.",
+  );
+}
