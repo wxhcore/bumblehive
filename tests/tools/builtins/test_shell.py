@@ -6,7 +6,12 @@ import pytest
 
 from bumblehive.protocols import ToolCall
 from bumblehive.tools import PathAllowlist, ToolManager
-from bumblehive.tools.builtins.shell import ExecSession, _build_env, _resolve_shell
+from bumblehive.tools.builtins.shell import (
+    ExecSession,
+    _build_env,
+    _kill_process,
+    _resolve_shell,
+)
 from bumblehive.tools.scope import bind_tool_session, reset_tool_session
 
 
@@ -114,41 +119,50 @@ async def test_session_poll_waits_for_early_process_completion() -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_close_waits_for_stdin_transport() -> None:
-    class ClosingStdin:
-        def __init__(self) -> None:
-            self.close_calls = 0
-            self.wait_closed_calls = 0
-
-        def close(self) -> None:
-            self.close_calls += 1
-
-        async def wait_closed(self) -> None:
-            self.wait_closed_calls += 1
-
-    class Process:
+async def test_windows_kill_terminates_the_process_tree(monkeypatch) -> None:
+    class TargetProcess:
+        pid = 1234
         returncode = None
-        stdout = None
-        stderr = None
 
         def __init__(self) -> None:
-            self.stdin = ClosingStdin()
+            self.kill_calls = 0
 
-    process = Process()
-    session = ExecSession(
-        session_id="test-session",
-        process=process,
-        command="wait-for-stdin-close",
-        cwd=".",
-        timeout=None,
-        owner_session_id=None,
-    )
-    session._termination_requested = True
+        def kill(self) -> None:
+            self.kill_calls += 1
+            self.returncode = -1
 
-    await session.close()
+        async def wait(self) -> int:
+            return self.returncode or 0
 
-    assert process.stdin.close_calls == 1
-    assert process.stdin.wait_closed_calls == 1
+    target = TargetProcess()
+    taskkill_args = ()
+    taskkill_kwargs = {}
+
+    class TaskkillProcess:
+        returncode = None
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            target.returncode = 1
+            return 0
+
+    async def create_subprocess_exec(*args, **kwargs):
+        nonlocal taskkill_args, taskkill_kwargs
+        taskkill_args = args
+        taskkill_kwargs = kwargs
+        return TaskkillProcess()
+
+    monkeypatch.setattr("bumblehive.tools.builtins.shell._IS_WINDOWS", True)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
+
+    await _kill_process(target)
+
+    assert taskkill_args == ("taskkill", "/PID", "1234", "/T", "/F")
+    assert taskkill_kwargs == {
+        "stdout": asyncio.subprocess.DEVNULL,
+        "stderr": asyncio.subprocess.DEVNULL,
+    }
+    assert target.kill_calls == 0
 
 
 @pytest.mark.asyncio
@@ -424,10 +438,27 @@ async def test_cancelling_initial_yield_cleans_up_the_spawned_process(tmp_path) 
         await manager.close()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group behavior")
 @pytest.mark.asyncio
 async def test_close_terminates_process_descendants(tmp_path) -> None:
     marker = tmp_path / "child-survived"
+    if sys.platform == "win32":
+        child_code = (
+            "import pathlib, time; "
+            "time.sleep(0.5); "
+            "pathlib.Path('child-survived').write_text('survived', encoding='utf-8')"
+        )
+        parent = tmp_path / "spawn_child.py"
+        parent.write_text(
+            "import subprocess, sys, time\n"
+            f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+            "print('ready', flush=True)\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        command = subprocess.list2cmdline([sys.executable, "spawn_child.py"])
+    else:
+        command = "(sleep 1; touch child-survived) & printf 'ready\\n'; sleep 30"
+
     manager = _manager(timeout=0)
     try:
         started = await _execute(
@@ -435,11 +466,26 @@ async def test_close_terminates_process_descendants(tmp_path) -> None:
             tmp_path,
             "exec",
             {
-                "command": "(sleep 1; touch child-survived) & printf 'ready\\n'; sleep 30",
+                "command": command,
                 "yield_time_ms": 50,
             },
         )
         assert started.content["running"] is True
+        output = started.content["output"]
+        if "ready" not in output:
+            ready = await _execute(
+                manager,
+                tmp_path,
+                "write_stdin",
+                {
+                    "session_id": started.content["session_id"],
+                    "wait_for": "ready",
+                    "wait_timeout_ms": 5_000,
+                },
+            )
+            output += ready.content["output"]
+        assert "ready" in output
+
         await manager.close()
         await asyncio.sleep(1.2)
         assert not marker.exists()

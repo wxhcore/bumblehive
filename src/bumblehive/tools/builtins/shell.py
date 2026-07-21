@@ -286,16 +286,10 @@ class ExecSession:
             return "session has already exited"
         if self.process.stdin is None:
             return "session stdin is not available"
-        await self._close_stdin_transport()
-        return None
-
-    async def _close_stdin_transport(self) -> None:
-        stdin = self.process.stdin
-        if stdin is None:
-            return
-        stdin.close()
+        self.process.stdin.close()
         with suppress(BrokenPipeError, ConnectionResetError):
-            await stdin.wait_closed()
+            await self.process.stdin.wait_closed()
+        return None
 
     async def poll(
         self,
@@ -371,7 +365,9 @@ class ExecSession:
                 timeout_task.cancel()
                 await asyncio.gather(timeout_task, return_exceptions=True)
 
-            await self._close_stdin_transport()
+            if self.process.stdin is not None:
+                self.process.stdin.close()
+
             await self.kill()
             await self._finish_reader_tasks()
 
@@ -935,8 +931,7 @@ async def _kill_process(process: asyncio.subprocess.Process) -> None:
     if _IS_WINDOWS:
         if process.returncode is not None:
             return
-        with suppress(ProcessLookupError):
-            process.kill()
+        await _kill_windows_process_tree(process)
     else:
         # Every POSIX command is spawned as a new session, so its pid is also
         # the process-group id. Kill the group to avoid orphaning descendants.
@@ -946,6 +941,31 @@ async def _kill_process(process: asyncio.subprocess.Process) -> None:
     if process.returncode is None:
         with suppress(asyncio.TimeoutError):
             await asyncio.wait_for(process.wait(), timeout=5.0)
+
+
+async def _kill_windows_process_tree(process: asyncio.subprocess.Process) -> None:
+    taskkill: asyncio.subprocess.Process | None = None
+    try:
+        taskkill = await asyncio.create_subprocess_exec(
+            "taskkill",
+            "/PID",
+            str(process.pid),
+            "/T",
+            "/F",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(taskkill.wait(), timeout=5.0)
+    except (OSError, asyncio.TimeoutError):
+        if taskkill is not None and taskkill.returncode is None:
+            with suppress(ProcessLookupError):
+                taskkill.kill()
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(taskkill.wait(), timeout=1.0)
+
+    if process.returncode is None:
+        with suppress(ProcessLookupError):
+            process.kill()
 
 
 def _build_env() -> dict[str, str]:
