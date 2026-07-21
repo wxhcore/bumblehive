@@ -286,10 +286,16 @@ class ExecSession:
             return "session has already exited"
         if self.process.stdin is None:
             return "session stdin is not available"
-        self.process.stdin.close()
-        with suppress(BrokenPipeError, ConnectionResetError):
-            await self.process.stdin.wait_closed()
+        await self._close_stdin_transport()
         return None
+
+    async def _close_stdin_transport(self) -> None:
+        stdin = self.process.stdin
+        if stdin is None:
+            return
+        stdin.close()
+        with suppress(BrokenPipeError, ConnectionResetError):
+            await stdin.wait_closed()
 
     async def poll(
         self,
@@ -365,9 +371,7 @@ class ExecSession:
                 timeout_task.cancel()
                 await asyncio.gather(timeout_task, return_exceptions=True)
 
-            if self.process.stdin is not None:
-                self.process.stdin.close()
-
+            await self._close_stdin_transport()
             await self.kill()
             await self._finish_reader_tasks()
 

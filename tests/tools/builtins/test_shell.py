@@ -114,6 +114,44 @@ async def test_session_poll_waits_for_early_process_completion() -> None:
 
 
 @pytest.mark.asyncio
+async def test_session_close_waits_for_stdin_transport() -> None:
+    class ClosingStdin:
+        def __init__(self) -> None:
+            self.close_calls = 0
+            self.wait_closed_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+        async def wait_closed(self) -> None:
+            self.wait_closed_calls += 1
+
+    class Process:
+        returncode = None
+        stdout = None
+        stderr = None
+
+        def __init__(self) -> None:
+            self.stdin = ClosingStdin()
+
+    process = Process()
+    session = ExecSession(
+        session_id="test-session",
+        process=process,
+        command="wait-for-stdin-close",
+        cwd=".",
+        timeout=None,
+        owner_session_id=None,
+    )
+    session._termination_requested = True
+
+    await session.close()
+
+    assert process.stdin.close_calls == 1
+    assert process.stdin.wait_closed_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_exec_runs_commands_and_enforces_working_directory_safety(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     extra = tmp_path / "skills"
