@@ -182,7 +182,18 @@ export function SettingsView({
 
           <label>
             <span>Model Name</span>
-            <div className="model-field">
+            <div
+              className="model-field"
+              onBlur={(event) => {
+                const nextTarget = event.relatedTarget;
+                if (
+                  !(nextTarget instanceof Node) ||
+                  !event.currentTarget.contains(nextTarget)
+                ) {
+                  setModelMenuOpen(false);
+                }
+              }}
+            >
               <div className="model-input-row">
                 <input
                   value={model}
