@@ -125,6 +125,37 @@ async def test_run_turn_composes_context_capabilities_and_execution_scope(
 
 
 @pytest.mark.asyncio
+async def test_run_turn_accepts_message_list(tmp_path) -> None:
+    provider = SequenceProvider([ModelResponse(content="done")])
+    loop = _loop(
+        tmp_path,
+        ToolManager(),
+        SkillsManager(tmp_path / "skills"),
+    )
+    current_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "inspect this"},
+            ],
+        }
+    ]
+
+    result = await loop.run_turn(
+        current_messages,
+        provider=provider,
+        model="test-model",
+        workspace=tmp_path,
+    )
+
+    request_content = provider.requests[0].messages[-1]["content"]
+    assert request_content[:-1] == current_messages[0]["content"]
+    assert request_content[-1]["type"] == "text"
+    assert "<runtime_context>" in request_content[-1]["text"]
+    assert result.final_content == "done"
+
+
+@pytest.mark.asyncio
 async def test_run_turn_updates_caller_history_without_retaining_it(tmp_path) -> None:
     history = MessageHistory(
         [

@@ -3,6 +3,7 @@
 import json
 import re
 import sys
+from collections.abc import Mapping
 from contextlib import contextmanager, nullcontext
 from typing import Any
 
@@ -14,6 +15,7 @@ from rich.style import Style
 from rich.text import Text
 
 from .observability import AgentEvent
+from .protocols import UserMessage, normalize_user_message
 
 
 PHASE_LINE_PREFIX = "  │ "
@@ -25,6 +27,27 @@ def compact_json(data: Any, *, max_chars: int = 120) -> str:
     if len(text) <= max_chars:
         return text
     return f"{text[: max_chars - 3]}..."
+
+
+def _prompt_text(prompt: UserMessage) -> str:
+    content = normalize_user_message(prompt)[0]["content"]
+    if isinstance(content, str):
+        return content
+
+    parts: list[str] = []
+    for part in content:
+        if not isinstance(part, Mapping):
+            continue
+
+        part_type = part.get("type")
+        if part_type == "text":
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                parts.append(text)
+        elif isinstance(part_type, str):
+            parts.append(f"[{part_type}]")
+
+    return "\n".join(parts)
 
 
 def format_tool_hint(name: str, arguments: Any) -> str:
@@ -203,9 +226,9 @@ class ConsoleStreamRenderer:
         self._started_tool_counts: dict[int | None, int] = {}
         self._tool_progress_frames: dict[tuple[int | None, int], int] = {}
 
-    def start(self, prompt: str) -> None:
+    def start(self, prompt: UserMessage) -> None:
         self.console.print("[bold blue]You:[/bold blue]")
-        self.console.print(Text(prompt))
+        self.console.print(Text(_prompt_text(prompt)))
         self.console.print()
         self._start_spinner()
 

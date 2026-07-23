@@ -20,6 +20,7 @@ from .observability import (
     AsyncEventStreamHook,
     HookInput,
 )
+from .protocols import Message, UserMessage
 from .providers import ModelProvider, ProviderManager
 from .session import SessionManager
 from .skills import SkillsManager
@@ -79,7 +80,7 @@ class BumblehiveRuntime:
 
     async def run(
         self,
-        message: str,
+        message: UserMessage,
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
@@ -110,7 +111,7 @@ class BumblehiveRuntime:
 
     def stream(
         self,
-        message: str,
+        message: UserMessage,
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
@@ -136,7 +137,7 @@ class BumblehiveRuntime:
 
     async def run_console(
         self,
-        message: str,
+        message: UserMessage,
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
@@ -175,7 +176,7 @@ class BumblehiveRuntime:
 
     async def _run(
         self,
-        message: str,
+        message: UserMessage,
         *,
         config: Mapping[str, Any] | None = None,
         hooks: HookInput = None,
@@ -215,7 +216,7 @@ class BumblehiveRuntime:
 
     async def _run_with_memory_history(
         self,
-        message: str,
+        message: UserMessage,
         *,
         history: MessageHistory,
         run_config: BumblehiveConfig,
@@ -235,7 +236,7 @@ class BumblehiveRuntime:
 
     async def _run_with_session(
         self,
-        message: str,
+        message: UserMessage,
         *,
         session_id: str,
         run_config: BumblehiveConfig,
@@ -282,14 +283,14 @@ class BumblehiveRuntime:
 
     async def _run_agent(
         self,
-        message: str,
+        message: UserMessage,
         *,
         run_config: BumblehiveConfig,
         hooks: HookInput,
         session_id: str | None,
         stream: bool,
         history: MessageHistory | None = None,
-        history_messages: list[dict[str, Any]] | None = None,
+        history_messages: list[Message] | None = None,
         checkpoint_callback: CheckpointCallback | None = None,
     ) -> AgentRunResult:
         await self.initialize_tools()

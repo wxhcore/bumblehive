@@ -52,6 +52,42 @@ def test_message_history_supports_the_full_library_lifecycle() -> None:
     assert history.get_history() == []
 
 
+def test_message_history_strips_list_runtime_context_without_mutation() -> None:
+    run_messages = [
+        {"role": "system", "content": "runtime prompt"},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "inspect this"},
+                {
+                    "type": "text",
+                    "text": (
+                        "<runtime_context>\n"
+                        "  <environment_context>old</environment_context>\n"
+                        "</runtime_context>"
+                    ),
+                },
+            ],
+        },
+        {"role": "assistant", "content": "answer"},
+    ]
+    original = deepcopy(run_messages)
+    history = MessageHistory()
+
+    history.replace_run_messages(run_messages)
+
+    assert history.get_history() == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "inspect this"},
+            ],
+        },
+        {"role": "assistant", "content": "answer"},
+    ]
+    assert run_messages == original
+
+
 def test_prepare_history_repairs_and_limits_a_complete_provider_history() -> None:
     messages = [
         {"role": "developer", "content": "unsupported"},

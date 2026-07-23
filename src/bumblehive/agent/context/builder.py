@@ -1,3 +1,4 @@
+from copy import deepcopy
 import os
 import platform
 import re
@@ -50,7 +51,7 @@ class ContextBuilder:
     def build(
         self,
         *,
-        current_user_message: str,
+        current_messages: list[Message],
         workspace: Path | str | None = None,
         timezone: str | None = None,
         dynamic_context: Mapping[str, DynamicValue] | None = None,
@@ -75,17 +76,40 @@ class ContextBuilder:
             dynamic_context,
             timezone=active_timezone,
         )
-        current_user_content = "\n\n".join(
-            part for part in (current_user_message, runtime_context) if part
+        current_messages = self._append_runtime_context(
+            current_messages,
+            runtime_context,
         )
 
         messages: list[Message] = [
             {"role": "system", "content": system_content},
             *list(history or []),
-            {"role": "user", "content": current_user_content},
+            *current_messages,
         ]
 
         return messages
+
+    @staticmethod
+    def _append_runtime_context(
+        current_messages: list[Message],
+        runtime_context: str,
+    ) -> list[Message]:
+        current_messages = deepcopy(current_messages)
+        last_message = current_messages[-1]
+        content = last_message.get("content")
+        if isinstance(content, str):
+            last_message["content"] = "\n\n".join(
+                part for part in (content, runtime_context) if part
+            )
+        elif isinstance(content, list):
+            if runtime_context:
+                content.append({"type": "text", "text": runtime_context})
+        else:
+            raise TypeError(
+                "current user message content must be a string or list"
+            )
+
+        return current_messages
 
     def _resolve_workspace(
         self,

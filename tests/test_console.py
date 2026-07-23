@@ -29,6 +29,19 @@ def test_console_helpers_create_compact_user_facing_summaries() -> None:
 
 
 @pytest.mark.asyncio
+async def test_renderer_displays_user_message_list(monkeypatch) -> None:
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+    renderer = ConsoleStreamRenderer()
+    current_messages = [{"role": "user", "content": "inspect this"}]
+
+    renderer.start(current_messages)
+    await renderer.finish()
+
+    assert "inspect this" in output.getvalue()
+
+
+@pytest.mark.asyncio
 async def test_renderer_handles_streamed_tool_generation_execution_and_answer(monkeypatch) -> None:
     output = io.StringIO()
     monkeypatch.setattr(sys, "stdout", output)

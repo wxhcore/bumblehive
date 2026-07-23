@@ -53,6 +53,60 @@ async def test_manager_caches_checkpoints_and_reloads_persisted_history(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_manager_appends_message_list_without_nesting_or_mutation(
+    tmp_path,
+) -> None:
+    manager = SessionManager(tmp_path)
+    session = await manager.get("message-list")
+    current_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "inspect this"},
+            ],
+        }
+    ]
+
+    await manager.append_user(session, current_messages)
+    current_messages[0]["content"].append(
+        {"type": "text", "text": "changed later"}
+    )
+
+    expected = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "inspect this"},
+            ],
+        }
+    ]
+    assert manager.get_history(session) == expected
+    reloaded = await SessionManager(tmp_path).get("message-list")
+    assert reloaded.history.get_history() == expected
+
+
+@pytest.mark.asyncio
+async def test_manager_rejects_invalid_input_without_mutating_session(
+    tmp_path,
+) -> None:
+    manager = SessionManager(tmp_path)
+    session = await manager.get("invalid-input")
+    await manager.append_user(session, "existing")
+
+    with pytest.raises(ValueError, match="role must"):
+        await manager.append_user(
+            session,
+            [{"role": "assistant", "content": "invalid"}],
+        )
+
+    assert manager.get_history(session) == [
+        {"role": "user", "content": "existing"}
+    ]
+    reloaded = await SessionManager(tmp_path).get("invalid-input")
+    assert reloaded.history.get_history() == manager.get_history(session)
+
+
+@pytest.mark.asyncio
 async def test_manager_recovers_interrupted_user_and_tool_boundaries(tmp_path) -> None:
     manager = SessionManager(tmp_path)
     user_session = await manager.get("user-interrupted")

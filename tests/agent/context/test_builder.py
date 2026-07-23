@@ -10,7 +10,9 @@ def test_build_assembles_one_complete_model_context(tmp_path, monkeypatch) -> No
     history = [{"role": "assistant", "content": "previous answer"}]
 
     messages = ContextBuilder(timezone="UTC").build(
-        current_user_message="inspect the project",
+        current_messages=[
+            {"role": "user", "content": "inspect the project"}
+        ],
         workspace=tmp_path,
         dynamic_context={
             "active_file": "src/bumblehive/runtime.py",
@@ -64,7 +66,7 @@ def test_build_renders_platform_specific_context(
     monkeypatch.setattr(builder_module.platform, "system", lambda: system)
 
     content = ContextBuilder().build(
-        current_user_message="hello",
+        current_messages=[{"role": "user", "content": "hello"}],
         workspace=tmp_path,
         timezone="Unknown/Timezone",
     )
@@ -81,7 +83,7 @@ def test_call_values_override_builder_defaults(tmp_path) -> None:
     builder = ContextBuilder(default_workspace, timezone="UTC")
 
     messages = builder.build(
-        current_user_message="hello",
+        current_messages=[{"role": "user", "content": "hello"}],
         workspace=call_workspace,
         timezone="Asia/Shanghai",
     )

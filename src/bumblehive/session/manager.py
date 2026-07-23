@@ -9,6 +9,7 @@ from ..agent.context import (
     run_messages_to_history,
 )
 from ..agent.runner import CheckpointCallback
+from ..protocols import Message, UserMessage, normalize_user_message
 from .models import SessionState
 from .stores import JsonSessionStore
 
@@ -52,20 +53,24 @@ class SessionManager:
             self._sessions[session_id] = session
             return session
 
-    def get_history(self, session: SessionState) -> list[dict[str, Any]]:
+    def get_history(self, session: SessionState) -> list[Message]:
         """Return a copy of the session history."""
         return session.history.get_history()
 
-    async def append_user(self, session: SessionState, content: str) -> None:
+    async def append_user(
+        self,
+        session: SessionState,
+        current_user_message: UserMessage,
+    ) -> None:
         """Persist a triggering user message before model execution starts."""
         messages = self.get_history(session)
-        messages.append({"role": "user", "content": content})
+        messages.extend(normalize_user_message(current_user_message))
         await self.replace_and_save(session, messages)
 
     async def save_run_messages(
         self,
         session: SessionState,
-        run_messages: list[dict[str, Any]],
+        run_messages: list[Message],
     ) -> None:
         """Convert run messages to history and persist them."""
         await self.replace_and_save(
@@ -79,7 +84,7 @@ class SessionManager:
     ) -> CheckpointCallback:
         """Create a checkpoint callback bound to one session."""
 
-        async def checkpoint(run_messages: list[dict[str, Any]]) -> None:
+        async def checkpoint(run_messages: list[Message]) -> None:
             await self.save_run_messages(session, run_messages)
 
         return checkpoint

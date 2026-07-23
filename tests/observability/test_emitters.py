@@ -174,6 +174,35 @@ async def test_loop_wraps_runner_events_with_turn_metadata(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_loop_emits_message_list_without_nesting(tmp_path) -> None:
+    recorder = EventRecorder()
+    loop = AgentLoop(
+        tools=_tools(),
+        context=ContextBuilder(tmp_path, timezone="UTC"),
+        skills=SkillsManager(tmp_path / "skills"),
+        runner=ToolCallingRunner(),
+    )
+    current_messages = [
+        {
+            "role": "user",
+            "content": "hello from a message list",
+        }
+    ]
+
+    await loop.run_turn(
+        current_messages,
+        provider=SequenceProvider([ModelResponse(content="done")]),
+        model="test-model",
+        workspace=tmp_path,
+        tool_names=[],
+        hooks=recorder,
+    )
+
+    assert recorder.events[0].kind == TURN_STARTED
+    assert recorder.events[0].payload["message"] == current_messages[-1]
+
+
+@pytest.mark.asyncio
 async def test_runner_emits_a_terminal_error_before_reraising(tmp_path) -> None:
     class BrokenProvider(ModelProvider):
         async def generate(self, request: ModelRequest) -> ModelResponse:

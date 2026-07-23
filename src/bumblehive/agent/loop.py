@@ -1,12 +1,17 @@
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Mapping
 
 from ..observability import (
     EventEmitter,
     HookInput,
     TurnEvents,
 )
-from ..protocols import GenerationConfig
+from ..protocols import (
+    GenerationConfig,
+    Message,
+    UserMessage,
+    normalize_user_message,
+)
 from ..providers.base import ModelProvider
 from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
@@ -33,12 +38,12 @@ class AgentLoop:
 
     async def run_turn(
         self,
-        current_user_message: str,
+        current_user_message: UserMessage,
         *,
         provider: ModelProvider,
         model: str,
         history: MessageHistory | None = None,
-        history_messages: list[dict[str, Any]] | None = None,
+        history_messages: list[Message] | None = None,
         generation: GenerationConfig | None = None,
         workspace: Path | str | None = None,
         path_allowlist: PathAllowlist = PathAllowlist(),
@@ -71,6 +76,7 @@ class AgentLoop:
             history_messages,
             session_id,
         )
+        current_messages = normalize_user_message(current_user_message)
         emitter = EventEmitter.from_hooks(
             hooks,
             run_id=run_id,
@@ -84,11 +90,11 @@ class AgentLoop:
         )
         session_token = bind_tool_session(tool_session_id)
         try:
-            await turn_events.started(current_user_message)
+            await turn_events.started(current_messages)
             try:
                 available_skills = self.skills.build_skills_summary(skill_names)
                 messages = self.context.build(
-                    current_user_message=current_user_message,
+                    current_messages=current_messages,
                     workspace=workspace,
                     timezone=timezone,
                     dynamic_context=dynamic_context,
@@ -130,9 +136,9 @@ class AgentLoop:
     @staticmethod
     def _resolve_history_messages(
         history: MessageHistory | None,
-        history_messages: list[dict[str, Any]] | None,
+        history_messages: list[Message] | None,
         session_id: str | None,
-    ) -> list[dict[str, Any]] | None:
+    ) -> list[Message] | None:
         if history is not None and not isinstance(history, MessageHistory):
             raise TypeError("history must be a MessageHistory")
         if history is not None and history_messages is not None:

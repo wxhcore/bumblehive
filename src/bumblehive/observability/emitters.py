@@ -1,8 +1,9 @@
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from ..protocols import AgentError, ToolCall, ToolResult
+from ..protocols import AgentError, Message, ToolCall, ToolResult
 from .emitter import EventEmitter
 from .events import (
     FINAL_RESULT,
@@ -35,13 +36,10 @@ class TurnEvents:
 
     emitter: EventEmitter
 
-    async def started(self, current_user_message: str) -> None:
+    async def started(self, current_messages: list[Message]) -> None:
         await self.emitter.emit(
             TURN_STARTED,
-            message={
-                "role": "user",
-                "content": current_user_message,
-            },
+            message=deepcopy(current_messages[-1]),
         )
 
     async def context_built(self, *, message_count: int) -> None:

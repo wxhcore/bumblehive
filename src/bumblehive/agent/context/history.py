@@ -22,6 +22,8 @@ _MISSING_TOOL_RESULT_CONTENT = (
     "[Tool result unavailable - call was interrupted or lost]"
 )
 _DEFAULT_MAX_TOOL_RESULT_CHARS = 20_000
+_RUNTIME_CONTEXT_OPENING = "<runtime_context>\n"
+_RUNTIME_CONTEXT_CLOSING = "\n</runtime_context>"
 
 
 class MessageHistory:
@@ -135,24 +137,44 @@ def run_messages_to_history(
 
 def _strip_user_runtime_context(message: Message) -> Message:
     content = message.get("content")
+    if isinstance(content, list):
+        if not content:
+            return message
+        last_part = content[-1]
+        if not isinstance(last_part, Mapping):
+            return message
+        if last_part.get("type") != "text":
+            return message
+        text = last_part.get("text")
+        if not isinstance(text, str) or not _is_runtime_context(text):
+            return message
+
+        cleaned = dict(message)
+        cleaned["content"] = content[:-1]
+        return cleaned
+
     if not isinstance(content, str):
         return message
 
-    opening = "<runtime_context>\n"
-    closing = "\n</runtime_context>"
-    if not content.endswith(closing):
+    if not content.endswith(_RUNTIME_CONTEXT_CLOSING):
         return message
 
-    marker = f"\n\n{opening}"
+    marker = f"\n\n{_RUNTIME_CONTEXT_OPENING}"
     marker_index = content.rfind(marker)
     if marker_index < 0:
-        if not content.startswith(opening):
+        if not content.startswith(_RUNTIME_CONTEXT_OPENING):
             return message
         marker_index = 0
 
     cleaned = dict(message)
     cleaned["content"] = content[:marker_index]
     return cleaned
+
+
+def _is_runtime_context(value: str) -> bool:
+    return value.startswith(_RUNTIME_CONTEXT_OPENING) and value.endswith(
+        _RUNTIME_CONTEXT_CLOSING
+    )
 
 
 def prepare_history(

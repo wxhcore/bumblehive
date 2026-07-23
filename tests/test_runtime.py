@@ -90,6 +90,29 @@ async def test_runtime_runs_stateless_turns_with_per_run_overlays_and_closes(mon
 
 
 @pytest.mark.asyncio
+async def test_runtime_string_and_message_list_inputs_are_equivalent(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _install_provider(monkeypatch)
+    runtime = _runtime(tmp_path)
+    current_messages = [{"role": "user", "content": "hello"}]
+
+    await runtime.run("hello")
+    await runtime.run(current_messages)
+
+    provider = FakeProvider.instances[0]
+    assert [
+        message["role"] for message in provider.requests[0].messages
+    ] == ["system", "user"]
+    assert [
+        message["role"] for message in provider.requests[1].messages
+    ] == ["system", "user"]
+    assert provider.requests[0].messages[-1] == provider.requests[1].messages[-1]
+    assert current_messages == [{"role": "user", "content": "hello"}]
+
+
+@pytest.mark.asyncio
 async def test_runtime_reads_and_updates_caller_owned_history(monkeypatch, tmp_path) -> None:
     _install_provider(monkeypatch)
     runtime = _runtime(
