@@ -3,8 +3,8 @@ from contextlib import suppress
 from functools import lru_cache
 from typing import Any
 
+from ...protocols import Message
 
-Message = dict[str, Any]
 
 _DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000
 _SNIP_SAFETY_BUFFER = 1024

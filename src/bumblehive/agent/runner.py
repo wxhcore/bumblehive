@@ -10,7 +10,7 @@ from ..observability import (
     RunEvents,
     ToolEvents,
 )
-from ..protocols import GenerationConfig
+from ..protocols import GenerationConfig, Message
 from ..providers.base import (
     ModelProvider,
     ModelRequest,
@@ -21,8 +21,6 @@ from ..tools.manager import ToolManager
 from ..tools.scope import PathAllowlist
 from .context import ContextGovernanceConfig, ContextGovernor
 
-
-Message = dict[str, Any]
 CheckpointCallback = Callable[[list[Message]], Awaitable[None]]
 
 _MAX_ITERATIONS = 300

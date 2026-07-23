@@ -4,10 +4,10 @@ import os
 from contextlib import suppress
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 from ...paths import get_sessions_path
+from ...protocols import Message
 
 
 class SessionFileError(RuntimeError):
@@ -20,20 +20,20 @@ class JsonSessionStore:
     def __init__(self, directory: str | Path | None = None) -> None:
         self.directory = get_sessions_path(directory)
 
-    async def load(self, session_id: str) -> list[dict[str, Any]] | None:
+    async def load(self, session_id: str) -> list[Message] | None:
         return await asyncio.to_thread(self._load, session_id)
 
     async def save(
         self,
         session_id: str,
-        messages: list[dict[str, Any]],
+        messages: list[Message],
     ) -> None:
         await asyncio.to_thread(self._save, session_id, messages)
 
     async def delete(self, session_id: str) -> bool:
         return await asyncio.to_thread(self._delete, session_id)
 
-    def _load(self, session_id: str) -> list[dict[str, Any]] | None:
+    def _load(self, session_id: str) -> list[Message] | None:
         path = self._path(session_id)
         if not path.exists():
             return None
@@ -50,7 +50,7 @@ class JsonSessionStore:
             if not isinstance(raw_messages, list):
                 raise ValueError("Session document messages must be a list")
 
-            messages: list[dict[str, Any]] = []
+            messages: list[Message] = []
             for index, message in enumerate(raw_messages):
                 if not isinstance(message, dict):
                     raise ValueError(
@@ -64,7 +64,7 @@ class JsonSessionStore:
     def _save(
         self,
         session_id: str,
-        messages: list[dict[str, Any]],
+        messages: list[Message],
     ) -> None:
         path = self._path(session_id)
         temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")

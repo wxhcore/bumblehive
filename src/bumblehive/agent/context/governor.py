@@ -1,11 +1,9 @@
 from dataclasses import dataclass
 from typing import Any
 
+from ...protocols import Message
 from .history import prepare_history, repair_message_sequence
 from .window import fit_context_window
-
-
-Message = dict[str, Any]
 
 
 @dataclass(frozen=True)

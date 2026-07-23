@@ -4,8 +4,8 @@ from copy import deepcopy
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from ...protocols import Message
 
-Message = dict[str, Any]
 
 _ALLOWED_ROLES = frozenset({"system", "user", "assistant", "tool"})
 _BASE_MESSAGE_KEYS = frozenset(

@@ -7,6 +7,7 @@ from email.utils import parsedate_to_datetime
 from inspect import isawaitable
 from typing import Any
 
+from ..protocols import Message
 from ..protocols.errors import AgentError
 from ..protocols.generation import GenerationConfig
 from ..protocols.tool_calls import ToolCall, parse_tool_call
@@ -258,8 +259,8 @@ class OpenAIChatCompletionsProvider(ModelProvider):
             payload["extra_body"] = generation.extra_body
 
     @staticmethod
-    def _sanitize_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        sanitized: list[dict[str, Any]] = []
+    def _sanitize_messages(messages: list[Message]) -> list[Message]:
+        sanitized: list[Message] = []
         for message in messages:
             clean = {
                 key: value

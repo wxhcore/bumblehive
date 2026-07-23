@@ -11,9 +11,9 @@ from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ...paths import get_workspace_path
+from ...protocols import Message
 
 
-Message = dict[str, Any]
 DynamicValue = str | int | float | bool | None | dict[str, Any] | list[Any]
 
 

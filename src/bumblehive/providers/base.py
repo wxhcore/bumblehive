@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..protocols import Message
 from ..protocols.errors import AgentError
 from ..protocols.generation import GenerationConfig
 from ..protocols.tool_calls import ToolCall
@@ -23,7 +24,7 @@ class RetryConfig:
 class ModelRequest:
     """A single model request after context construction."""
 
-    messages: list[dict[str, Any]]
+    messages: list[Message]
     model: str
     tools: list[dict[str, Any]] = field(default_factory=list)
     generation: GenerationConfig | None = None
