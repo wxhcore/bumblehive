@@ -165,6 +165,7 @@ class FakeService:
 
     def __init__(self) -> None:
         self.runtime = FakeRuntime()
+        self.model_requests: list[Any] = []
         self.settings = {
             "provider": {
                 "type": "openai_chat_completions",
@@ -184,6 +185,10 @@ class FakeService:
 
     async def update_config(self, update: dict[str, Any]) -> None:
         self.settings.update(update)
+
+    async def list_models(self, provider_patch: Any = None) -> list[str]:
+        self.model_requests.append(provider_patch)
+        return ["test-model", "other-model"]
 
     async def delete_session(self, _session_id: str) -> bool:
         return True
@@ -253,6 +258,34 @@ def test_health_and_websocket_stream(caplog: Any) -> None:
     assert "[agent] started | session_id=session-1" in caplog.text
     assert "stop_reason=completed | tokens=completion:1" in caplog.text
     assert "[lifecycle] shutdown completed | duration=" in caplog.text
+
+
+def test_model_list_endpoint_accepts_provider_patch() -> None:
+    service = FakeService()
+    app = create_app(
+        runtime_service=service,  # type: ignore[arg-type]
+        session_reader=FakeSessionReader(),  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/models",
+            json={
+                "provider": {
+                    "api_key": "temporary-secret",
+                    "base_url": "https://draft.example/v1",
+                }
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"models": ["test-model", "other-model"]}
+    assert service.model_requests == [
+        {
+            "api_key": "temporary-secret",
+            "base_url": "https://draft.example/v1",
+        }
+    ]
 
 
 def test_websocket_can_cancel_a_run_and_continue_on_the_same_connection(

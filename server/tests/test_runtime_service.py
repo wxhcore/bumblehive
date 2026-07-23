@@ -13,6 +13,7 @@ class FakeRuntime:
         self.config = config
         self.closed = False
         self.deleted_sessions: list[str] = []
+        self.model_list_requests: list[dict[str, str | None]] = []
 
     async def close(self) -> None:
         self.closed = True
@@ -20,6 +21,17 @@ class FakeRuntime:
     async def delete_session(self, session_id: str) -> bool:
         self.deleted_sessions.append(session_id)
         return True
+
+    async def list_models(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+    ) -> list[str]:
+        self.model_list_requests.append(
+            {"api_key": api_key, "base_url": base_url}
+        )
+        return ["listed-model", "other-model"]
 
 
 @pytest.mark.asyncio
@@ -127,6 +139,50 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
 
     await service.shutdown()
     assert runtimes[-1].closed is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_lists_models_with_unsaved_provider_settings(
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    BumblehiveConfig(
+        provider=ProviderConfig(
+            model="saved-model",
+            api_key="saved-secret",
+            base_url="https://saved.example/v1",
+        )
+    ).to_json_file(config_path)
+    runtimes: list[FakeRuntime] = []
+
+    def factory(config: BumblehiveConfig) -> Any:
+        runtime = FakeRuntime(config)
+        runtimes.append(runtime)
+        return runtime
+
+    service = RuntimeService(config_path, runtime_factory=factory)
+    await service.startup()
+
+    models = await service.list_models(
+        {
+            "api_key": "temporary-secret",
+            "base_url": " https://draft.example/v1 ",
+        }
+    )
+
+    assert models == ["listed-model", "other-model"]
+    assert runtimes[0].model_list_requests == [
+        {
+            "api_key": "temporary-secret",
+            "base_url": "https://draft.example/v1",
+        }
+    ]
+    assert service.config.provider.api_key == "saved-secret"
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["provider"]["api_key"] == "saved-secret"
+    assert saved["provider"]["base_url"] == "https://saved.example/v1"
+
+    await service.shutdown()
 
 
 @pytest.mark.asyncio

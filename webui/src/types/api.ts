@@ -44,6 +44,10 @@ export interface Settings {
 
 export type SettingsUpdate = Record<string, unknown>;
 
+export interface ModelListResponse {
+  models: string[];
+}
+
 export interface SessionSummary {
   session_id: string;
   message_count: number;

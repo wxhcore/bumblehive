@@ -104,6 +104,15 @@ class OpenAIChatCompletionsProvider(ModelProvider):
                 ),
             )
 
+    async def list_models(self) -> list[str]:
+        """Return model IDs from OpenAI-compatible /models endpoints."""
+        try:
+            response = await self._client_or_create().models.list()
+        except Exception as exc:
+            raise RuntimeError(self._format_error_message(exc)) from exc
+
+        return self._parse_model_ids(response)
+
     async def generate_stream(
         self,
         request: ModelRequest,
@@ -471,6 +480,27 @@ class OpenAIChatCompletionsProvider(ModelProvider):
             result["cached_tokens"] = cached_tokens
 
         return result
+
+    @classmethod
+    def _parse_model_ids(cls, response: Any) -> list[str]:
+        raw_models = cls._get(response, "data")
+        if raw_models is None and isinstance(response, list):
+            raw_models = response
+        if raw_models is None:
+            return []
+
+        model_ids: list[str] = []
+        seen: set[str] = set()
+        for raw_model in raw_models:
+            model_id = cls._get(raw_model, "id")
+            if not isinstance(model_id, str):
+                continue
+            model_id = model_id.strip()
+            if not model_id or model_id in seen:
+                continue
+            seen.add(model_id)
+            model_ids.append(model_id)
+        return model_ids
 
     @classmethod
     def _error_response_from_exception(cls, exc: Exception) -> ModelResponse:

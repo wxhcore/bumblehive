@@ -23,6 +23,10 @@ class RuntimeBusyError(RuntimeError):
     """Raised when settings are changed while a run is active."""
 
 
+class ModelListError(RuntimeError):
+    """Raised when the provider cannot return a model list."""
+
+
 class RuntimeNotStartedError(RuntimeError):
     """Raised when the server runtime has not been started."""
 
@@ -114,6 +118,34 @@ class RuntimeService:
         )
         return deleted
 
+    async def list_models(
+        self,
+        provider_patch: Mapping[str, Any] | None = None,
+    ) -> list[str]:
+        data = _mapping_or_empty(provider_patch, "provider")
+        async with self._lock:
+            runtime = self._runtime
+            if runtime is None:
+                raise RuntimeNotStartedError("runtime is not started")
+            provider_config = runtime.config.provider
+
+        provider_type = _text_or_none(data.get("type")) or provider_config.type
+        if provider_type != "openai_chat_completions":
+            raise ValueError(f"Unsupported provider type: {provider_type}")
+
+        api_key = provider_config.api_key
+        if "api_key" in data:
+            api_key = _text_or_none(data.get("api_key")) or provider_config.api_key
+
+        base_url = provider_config.base_url
+        if "base_url" in data:
+            base_url = _text_or_none(data.get("base_url"))
+
+        try:
+            return await runtime.list_models(api_key=api_key, base_url=base_url)
+        except Exception as exc:
+            raise ModelListError(str(exc)) from exc
+
     async def update_config(
         self,
         patch: Mapping[str, Any],
@@ -196,3 +228,18 @@ def _deep_merge(
         else:
             merged[key] = value
     return merged
+
+
+def _mapping_or_empty(value: Any, section: str) -> Mapping[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{section} must be a mapping")
+    return value
+
+
+def _text_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

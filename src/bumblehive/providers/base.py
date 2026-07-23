@@ -87,6 +87,12 @@ class ModelProvider(ABC):
             f"{type(self).__name__} does not support streaming"
         )
 
+    async def list_models(self) -> list[str]:
+        """Return provider-visible model IDs, when the provider supports it."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support model listing"
+        )
+
     async def generate_with_retry(
         self,
         request: ModelRequest,

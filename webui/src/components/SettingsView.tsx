@@ -1,4 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+import { getModels } from "../api/http";
 import type { Settings, SettingsUpdate } from "../types/api";
 
 interface SettingsViewProps {
@@ -18,15 +26,86 @@ export function SettingsView({
   const [model, setModel] = useState(settings.provider.model ?? "");
   const [baseUrl, setBaseUrl] = useState(settings.provider.base_url || "");
   const [workspace, setWorkspace] = useState(settings.runtime?.workspace || "");
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelStatus, setModelStatus] = useState<string | null>(null);
+  const [modelLoading, setModelLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const modelRequestId = useRef(0);
 
   useEffect(() => {
+    modelRequestId.current += 1;
     setApiKey("");
     setModel(settings.provider.model ?? "");
     setBaseUrl(settings.provider.base_url || "");
     setWorkspace(settings.runtime?.workspace || "");
+    setModelOptions([]);
+    setModelMenuOpen(false);
+    setModelStatus(null);
+    setModelLoading(false);
   }, [settings]);
+
+  const loadModels = useCallback(async (options?: { openMenu?: boolean }) => {
+    const requestId = ++modelRequestId.current;
+    setModelLoading(true);
+    setModelStatus(null);
+    try {
+      const provider: Record<string, unknown> = {
+        base_url: baseUrl.trim() || null,
+      };
+      const apiKeyValue = apiKey.trim();
+      if (apiKeyValue) {
+        provider.api_key = apiKeyValue;
+      } else if (!settings.provider.api_key_configured) {
+        throw new Error("请先填写 API Key");
+      }
+
+      const response = await getModels({ provider });
+      const nextModels = Array.from(
+        new Set(
+          response.models
+            .map((item) => item.trim())
+            .filter((item) => Boolean(item)),
+        ),
+      );
+      if (requestId !== modelRequestId.current) {
+        return;
+      }
+      setModelOptions(nextModels);
+      if (options?.openMenu && nextModels.length > 0) {
+        setModelMenuOpen(true);
+      }
+      setModelStatus(
+        nextModels.length > 0
+          ? `已读取 ${nextModels.length} 个模型`
+          : "未读取到模型列表，可直接手动输入",
+      );
+    } catch (reason) {
+      if (requestId !== modelRequestId.current) {
+        return;
+      }
+      setModelOptions([]);
+      setModelMenuOpen(false);
+      setModelStatus(
+        reason instanceof Error ? reason.message : "模型列表加载失败",
+      );
+    } finally {
+      if (requestId !== modelRequestId.current) {
+        return;
+      }
+      setModelLoading(false);
+    }
+  }, [apiKey, baseUrl, settings.provider.api_key_configured]);
+
+  const visibleModels = useMemo(() => {
+    const query = model.trim().toLowerCase();
+    if (!query) {
+      return modelOptions;
+    }
+
+    return modelOptions.filter((item) => item.toLowerCase().includes(query));
+  }, [model, modelOptions]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -103,12 +182,78 @@ export function SettingsView({
 
           <label>
             <span>Model Name</span>
-            <input
-              value={model}
-              required
-              placeholder="请输入模型名称"
-              onChange={(event) => setModel(event.target.value)}
-            />
+            <div className="model-field">
+              <div className="model-input-row">
+                <input
+                  value={model}
+                  required
+                  placeholder="输入当前会话可用的模型"
+                  onFocus={() => setModelMenuOpen(true)}
+                  onChange={(event) => {
+                    setModel(event.target.value);
+                    setModelMenuOpen(true);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setModelMenuOpen(false);
+                    }
+                    if (event.key === "ArrowDown") {
+                      setModelMenuOpen(true);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="secondary-button model-refresh-button"
+                  onClick={() => {
+                    void loadModels({ openMenu: true });
+                  }}
+                  disabled={modelLoading || saving}
+                >
+                  {modelLoading ? "读取中…" : "刷新模型"}
+                </button>
+                <button
+                  type="button"
+                  className="model-clear-button"
+                  onClick={() => {
+                    setModel("");
+                    setModelMenuOpen(true);
+                  }}
+                  disabled={saving || !model.trim()}
+                  aria-label="清空模型"
+                >
+                  ×
+                </button>
+              </div>
+              {modelMenuOpen && modelOptions.length > 0 ? (
+                <div className="model-dropdown" role="listbox">
+                  {visibleModels.length > 0 ? (
+                    visibleModels.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        className={
+                          item === model
+                            ? "model-option active"
+                            : "model-option"
+                        }
+                        onClick={() => {
+                          setModel(item);
+                          setModelMenuOpen(false);
+                        }}
+                      >
+                        <span className="model-option-id">{item}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="model-option-empty">没有匹配的模型</div>
+                  )}
+                </div>
+              ) : null}
+              {modelStatus ? (
+                <div className="model-status">{modelStatus}</div>
+              ) : null}
+            </div>
           </label>
 
           <label>

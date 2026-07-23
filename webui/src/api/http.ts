@@ -1,6 +1,7 @@
 import { API_URL } from "./config";
 import type {
   HealthResponse,
+  ModelListResponse,
   SessionDetail,
   SessionSummary,
   Settings,
@@ -40,6 +41,10 @@ export function getSettings(): Promise<Settings> {
 
 export function updateSettings(update: SettingsUpdate): Promise<Settings> {
   return request("/api/v1/settings", jsonInit("PUT", update));
+}
+
+export function getModels(update: SettingsUpdate): Promise<ModelListResponse> {
+  return request("/api/v1/models", jsonInit("POST", update));
 }
 
 export async function createSession(): Promise<string> {
