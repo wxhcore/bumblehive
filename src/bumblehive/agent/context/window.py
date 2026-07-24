@@ -8,6 +8,7 @@ from ...protocols import Message
 
 _DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000
 _SNIP_SAFETY_BUFFER = 1024
+_IMAGE_TOKEN_ESTIMATE = 1844
 
 
 def fit_context_window(
@@ -106,32 +107,44 @@ def estimate_prompt_tokens(
 
 def estimate_message_tokens(message: Message) -> int:
     """Estimate tokens contributed by one chat message."""
-    parts: list[str] = []
+    text_parts: list[str] = []
+    multimodal_tokens = 0
     content = message.get("content")
     if isinstance(content, str):
-        parts.append(content)
+        text_parts.append(content)
     elif isinstance(content, list):
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                text = item.get("text")
+        for part in content:
+            if not isinstance(part, dict):
+                text_parts.append(json.dumps(part, ensure_ascii=False))
+                continue
+
+            part_type = part.get("type")
+            if part_type == "text":
+                text = part.get("text")
                 if isinstance(text, str):
-                    parts.append(text)
+                    text_parts.append(text)
+            elif part_type in {"image_url", "input_image"}:
+                multimodal_tokens += estimate_image_tokens(part)
             else:
-                parts.append(json.dumps(item, ensure_ascii=False))
+                text_parts.append(json.dumps(part, ensure_ascii=False))
     elif content is not None:
-        parts.append(json.dumps(content, ensure_ascii=False))
+        text_parts.append(json.dumps(content, ensure_ascii=False))
 
     for key in ("name", "tool_call_id", "reasoning_content"):
         value = message.get(key)
         if isinstance(value, str) and value:
-            parts.append(value)
+            text_parts.append(value)
 
     tool_calls = message.get("tool_calls")
     if tool_calls:
-        parts.append(json.dumps(tool_calls, ensure_ascii=False))
+        text_parts.append(json.dumps(tool_calls, ensure_ascii=False))
 
-    payload = "\n".join(parts)
-    return max(4, _estimate_text_tokens(payload) + 4)
+    text_tokens = _estimate_text_tokens("\n".join(text_parts))
+    return max(4, text_tokens + multimodal_tokens + 4)
+
+
+def estimate_image_tokens(_part: dict[str, Any]) -> int:
+    return _IMAGE_TOKEN_ESTIMATE
 
 
 def _estimate_text_tokens(text: str) -> int:
