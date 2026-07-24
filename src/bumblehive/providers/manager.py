@@ -37,15 +37,6 @@ class ProviderManager:
             self._providers[key] = provider
             return provider
 
-    def create_uncached(
-        self,
-        *,
-        api_key: str | None = None,
-        base_url: str | None = None,
-    ) -> ModelProvider:
-        """Create a provider that is not retained by the manager cache."""
-        return self._create_provider(api_key=api_key, base_url=base_url)
-
     async def close(self) -> None:
         """Close and forget every cached provider."""
         async with self._lock:

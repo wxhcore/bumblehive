@@ -20,6 +20,11 @@ class CancelRequest(BaseModel):
     type: Literal["cancel"]
 
 
+class ModelListRequest(BaseModel):
+    base_url: str
+    api_key: str | None = None
+
+
 class SessionSummary(BaseModel):
     session_id: str
     message_count: int

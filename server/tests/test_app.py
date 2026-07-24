@@ -186,8 +186,13 @@ class FakeService:
     async def update_config(self, update: dict[str, Any]) -> None:
         self.settings.update(update)
 
-    async def list_models(self, provider_patch: Any = None) -> list[str]:
-        self.model_requests.append(provider_patch)
+    async def list_models(
+        self,
+        *,
+        base_url: str,
+        api_key: str | None = None,
+    ) -> list[str]:
+        self.model_requests.append({"base_url": base_url, "api_key": api_key})
         return ["test-model", "other-model"]
 
     async def delete_session(self, _session_id: str) -> bool:
@@ -260,7 +265,7 @@ def test_health_and_websocket_stream(caplog: Any) -> None:
     assert "[lifecycle] shutdown completed | duration=" in caplog.text
 
 
-def test_model_list_endpoint_accepts_provider_patch() -> None:
+def test_model_list_endpoint_accepts_flat_request() -> None:
     service = FakeService()
     app = create_app(
         runtime_service=service,  # type: ignore[arg-type]
@@ -271,10 +276,8 @@ def test_model_list_endpoint_accepts_provider_patch() -> None:
         response = client.post(
             "/api/v1/models",
             json={
-                "provider": {
-                    "api_key": "temporary-secret",
-                    "base_url": "https://draft.example/v1",
-                }
+                "api_key": "temporary-secret",
+                "base_url": "https://draft.example/v1",
             },
         )
 
@@ -286,6 +289,41 @@ def test_model_list_endpoint_accepts_provider_patch() -> None:
             "base_url": "https://draft.example/v1",
         }
     ]
+
+
+def test_model_list_endpoint_maps_validation_and_provider_errors() -> None:
+    from bumblehive_server.runtime_service import ModelListError
+
+    service = FakeService()
+    app = create_app(
+        runtime_service=service,  # type: ignore[arg-type]
+        session_reader=FakeSessionReader(),  # type: ignore[arg-type]
+    )
+
+    async def reject_new_url(**_kwargs: Any) -> list[str]:
+        raise ValueError("API Key is required when querying a different Base URL")
+
+    service.list_models = reject_new_url  # type: ignore[method-assign]
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/models",
+            json={"base_url": "https://new.example/v1"},
+        )
+    assert response.status_code == 422
+
+    async def fail_provider(**_kwargs: Any) -> list[str]:
+        raise ModelListError("third-party model query failed")
+
+    service.list_models = fail_provider  # type: ignore[method-assign]
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/models",
+            json={
+                "base_url": "https://new.example/v1",
+                "api_key": "temporary-secret",
+            },
+        )
+    assert response.status_code == 502
 
 
 def test_websocket_can_cancel_a_run_and_continue_on_the_same_connection(

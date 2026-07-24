@@ -43,9 +43,6 @@ class FakeProvider(ModelProvider):
     async def close(self) -> None:
         self.closed = True
 
-    async def list_models(self) -> list[str]:
-        return ["base-model", "listed-model"]
-
 
 def _install_provider(monkeypatch, provider_type=FakeProvider) -> None:
     from bumblehive.providers import manager as manager_module
@@ -448,25 +445,3 @@ async def test_runtime_rejects_multiple_conversation_sources(tmp_path) -> None:
             pass
     with pytest.raises(TypeError, match="MessageHistory"):
         await runtime.run("hello", history=[])
-
-
-@pytest.mark.asyncio
-async def test_runtime_list_models_uses_temporary_provider(monkeypatch, tmp_path) -> None:
-    _install_provider(monkeypatch)
-    runtime = _runtime(
-        tmp_path,
-        provider={"base_url": "https://example.test/v1"},
-    )
-
-    models = await runtime.list_models(
-        api_key="temporary-key",
-        base_url="https://draft.example/v1",
-    )
-
-    provider = FakeProvider.instances[0]
-    assert models == ["base-model", "listed-model"]
-    assert provider.closed
-    assert (provider.api_key, provider.base_url) == (
-        "temporary-key",
-        "https://draft.example/v1",
-    )

@@ -1,5 +1,6 @@
 import json
 import logging
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -13,7 +14,6 @@ class FakeRuntime:
         self.config = config
         self.closed = False
         self.deleted_sessions: list[str] = []
-        self.model_list_requests: list[dict[str, str | None]] = []
 
     async def close(self) -> None:
         self.closed = True
@@ -22,16 +22,40 @@ class FakeRuntime:
         self.deleted_sessions.append(session_id)
         return True
 
-    async def list_models(
-        self,
-        *,
-        api_key: str | None = None,
-        base_url: str | None = None,
-    ) -> list[str]:
-        self.model_list_requests.append(
-            {"api_key": api_key, "base_url": base_url}
-        )
-        return ["listed-model", "other-model"]
+
+class FakeModels:
+    def __init__(self, response: Any = None, error: Exception | None = None) -> None:
+        self.response = response
+        self.error = error
+        self.calls = 0
+
+    async def list(self) -> Any:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.response
+
+
+class FakeOpenAIClient:
+    def __init__(self, models: FakeModels) -> None:
+        self.models = models
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class FakeOpenAIClientFactory:
+    def __init__(self, models: FakeModels) -> None:
+        self.models = models
+        self.calls: list[dict[str, str]] = []
+        self.clients: list[FakeOpenAIClient] = []
+
+    def __call__(self, *, api_key: str, base_url: str) -> FakeOpenAIClient:
+        self.calls.append({"api_key": api_key, "base_url": base_url})
+        client = FakeOpenAIClient(self.models)
+        self.clients.append(client)
+        return client
 
 
 @pytest.mark.asyncio
@@ -142,7 +166,7 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
 
 
 @pytest.mark.asyncio
-async def test_runtime_service_lists_models_with_unsaved_provider_settings(
+async def test_runtime_service_lists_models_with_new_url_and_key_without_saving(
     tmp_path,
 ) -> None:
     config_path = tmp_path / "config.json"
@@ -153,35 +177,123 @@ async def test_runtime_service_lists_models_with_unsaved_provider_settings(
             base_url="https://saved.example/v1",
         )
     ).to_json_file(config_path)
-    runtimes: list[FakeRuntime] = []
-
-    def factory(config: BumblehiveConfig) -> Any:
-        runtime = FakeRuntime(config)
-        runtimes.append(runtime)
-        return runtime
-
-    service = RuntimeService(config_path, runtime_factory=factory)
+    models = FakeModels(
+        SimpleNamespace(
+            data=[
+                SimpleNamespace(id=" model-a "),
+                SimpleNamespace(id="model-b"),
+                SimpleNamespace(id="model-a"),
+                SimpleNamespace(id="  "),
+                SimpleNamespace(id=None),
+            ]
+        )
+    )
+    client_factory = FakeOpenAIClientFactory(models)
+    service = RuntimeService(
+        config_path,
+        runtime_factory=FakeRuntime,
+        openai_client_factory=client_factory,  # type: ignore[arg-type]
+    )
     await service.startup()
 
     models = await service.list_models(
-        {
-            "api_key": "temporary-secret",
-            "base_url": " https://draft.example/v1 ",
-        }
+        api_key=" temporary-secret ",
+        base_url=" https://DRAFT.example/v1/ ",
     )
 
-    assert models == ["listed-model", "other-model"]
-    assert runtimes[0].model_list_requests == [
+    assert models == ["model-a", "model-b"]
+    assert client_factory.calls == [
         {
             "api_key": "temporary-secret",
             "base_url": "https://draft.example/v1",
         }
     ]
+    assert client_factory.clients[0].closed is True
     assert service.config.provider.api_key == "saved-secret"
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["provider"]["api_key"] == "saved-secret"
     assert saved["provider"]["base_url"] == "https://saved.example/v1"
 
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_reuses_saved_key_for_the_same_url(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    BumblehiveConfig(
+        provider=ProviderConfig(
+            api_key="saved-secret",
+            base_url="https://saved.example/v1/",
+        )
+    ).to_json_file(config_path)
+    client_factory = FakeOpenAIClientFactory(
+        FakeModels(SimpleNamespace(data=[SimpleNamespace(id="saved-model")]))
+    )
+    service = RuntimeService(
+        config_path,
+        runtime_factory=FakeRuntime,
+        openai_client_factory=client_factory,  # type: ignore[arg-type]
+    )
+    await service.startup()
+
+    models = await service.list_models(base_url="https://SAVED.example/v1")
+
+    assert models == ["saved-model"]
+    assert client_factory.calls == [
+        {
+            "api_key": "saved-secret",
+            "base_url": "https://saved.example/v1",
+        }
+    ]
+    assert client_factory.clients[0].closed is True
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_rejects_new_url_without_a_new_key(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    BumblehiveConfig(
+        provider=ProviderConfig(
+            api_key="saved-secret",
+            base_url="https://saved.example/v1",
+        )
+    ).to_json_file(config_path)
+    client_factory = FakeOpenAIClientFactory(FakeModels())
+    service = RuntimeService(
+        config_path,
+        runtime_factory=FakeRuntime,
+        openai_client_factory=client_factory,  # type: ignore[arg-type]
+    )
+    await service.startup()
+
+    with pytest.raises(ValueError, match="different Base URL"):
+        await service.list_models(base_url="https://new.example/v1")
+
+    assert client_factory.calls == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_wraps_model_provider_failures(tmp_path) -> None:
+    from bumblehive_server.runtime_service import ModelListError
+
+    client_factory = FakeOpenAIClientFactory(
+        FakeModels(error=RuntimeError("provider unavailable"))
+    )
+    service = RuntimeService(
+        tmp_path / "missing.json",
+        runtime_factory=FakeRuntime,
+        openai_client_factory=client_factory,  # type: ignore[arg-type]
+    )
+    await service.startup()
+
+    with pytest.raises(ModelListError, match="third-party model query failed"):
+        await service.list_models(
+            base_url="https://new.example/v1",
+            api_key="temporary-secret",
+        )
+
+    assert client_factory.clients[0].closed is True
     await service.shutdown()
 
 

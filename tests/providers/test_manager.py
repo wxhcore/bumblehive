@@ -88,38 +88,3 @@ async def test_provider_manager_caches_changed_provider(monkeypatch: Any) -> Non
 
     assert FakeProvider.instances[0].closed
     assert FakeProvider.instances[1].closed
-
-
-@pytest.mark.asyncio
-async def test_provider_manager_create_uncached_does_not_cache_instance(
-    monkeypatch: Any,
-) -> None:
-    from bumblehive.providers import manager as manager_module
-
-    FakeProvider.instances = []
-    monkeypatch.setattr(
-        manager_module,
-        "OpenAIChatCompletionsProvider",
-        FakeProvider,
-    )
-    providers = ProviderManager()
-
-    uncached = providers.create_uncached(
-        api_key="temp-key",
-        base_url="https://example.test/v1",
-    )
-    cached = await providers.get(
-        api_key="temp-key",
-        base_url="https://example.test/v1",
-    )
-
-    assert uncached is not cached
-    assert len(FakeProvider.instances) == 2
-    assert not uncached.closed
-    assert not cached.closed
-
-    await uncached.close()
-    assert uncached.closed
-
-    await providers.close()
-    assert cached.closed

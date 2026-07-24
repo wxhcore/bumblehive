@@ -44,6 +44,11 @@ export interface Settings {
 
 export type SettingsUpdate = Record<string, unknown>;
 
+export interface ModelListRequest {
+  base_url: string;
+  api_key?: string;
+}
+
 export interface ModelListResponse {
   models: string[];
 }

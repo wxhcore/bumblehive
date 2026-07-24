@@ -174,22 +174,6 @@ class BumblehiveRuntime:
         """Delete a persisted session and evict its cached state."""
         return await self.sessions.delete(session_id)
 
-    async def list_models(
-        self,
-        *,
-        api_key: str | None = None,
-        base_url: str | None = None,
-    ) -> list[str]:
-        """Return model IDs available from the configured provider."""
-        provider = self.providers.create_uncached(
-            api_key=api_key,
-            base_url=base_url,
-        )
-        try:
-            return await provider.list_models()
-        finally:
-            await provider.close()
-
     async def _run(
         self,
         message: UserMessage,

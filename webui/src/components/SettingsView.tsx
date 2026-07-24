@@ -7,6 +7,7 @@ import {
   type FormEvent,
 } from "react";
 import { getModels } from "../api/http";
+import { ModelOptions } from "./ModelOptions";
 import type { Settings, SettingsUpdate } from "../types/api";
 
 interface SettingsViewProps {
@@ -51,17 +52,11 @@ export function SettingsView({
     setModelLoading(true);
     setModelStatus(null);
     try {
-      const provider: Record<string, unknown> = {
-        base_url: baseUrl.trim() || null,
-      };
       const apiKeyValue = apiKey.trim();
-      if (apiKeyValue) {
-        provider.api_key = apiKeyValue;
-      } else if (!settings.provider.api_key_configured) {
-        throw new Error("请先填写 API Key");
-      }
-
-      const response = await getModels({ provider });
+      const response = await getModels({
+        base_url: baseUrl.trim(),
+        ...(apiKeyValue ? { api_key: apiKeyValue } : {}),
+      });
       const nextModels = Array.from(
         new Set(
           response.models
@@ -96,7 +91,7 @@ export function SettingsView({
       }
       setModelLoading(false);
     }
-  }, [apiKey, baseUrl, settings.provider.api_key_configured]);
+  }, [apiKey, baseUrl]);
 
   const visibleModels = useMemo(() => {
     const query = model.trim().toLowerCase();
@@ -238,27 +233,15 @@ export function SettingsView({
               </div>
               {modelMenuOpen && modelOptions.length > 0 ? (
                 <div className="model-dropdown" role="listbox">
-                  {visibleModels.length > 0 ? (
-                    visibleModels.map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        className={
-                          item === model
-                            ? "model-option active"
-                            : "model-option"
-                        }
-                        onClick={() => {
-                          setModel(item);
-                          setModelMenuOpen(false);
-                        }}
-                      >
-                        <span className="model-option-id">{item}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="model-option-empty">没有匹配的模型</div>
-                  )}
+                  <ModelOptions
+                    models={visibleModels}
+                    selectedModel={model}
+                    emptyMessage="没有匹配的模型"
+                    onSelect={(item) => {
+                      setModel(item);
+                      setModelMenuOpen(false);
+                    }}
+                  />
                 </div>
               ) : null}
               {modelStatus ? (

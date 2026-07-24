@@ -4,6 +4,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ..dependencies import get_runtime_service
 from ..runtime_service import ModelListError, RuntimeBusyError, RuntimeService
+from ..schemas import ModelListRequest
 
 
 router = APIRouter(prefix="/api/v1", tags=["settings"])
@@ -32,12 +33,14 @@ async def update_settings(
 
 @router.post("/models")
 async def list_models(
-    request: dict[str, Any] | None = Body(default=None),
+    request: ModelListRequest,
     service: RuntimeService = Depends(get_runtime_service),
 ) -> dict[str, Any]:
     try:
-        provider = request.get("provider") if request else None
-        models = await service.list_models(provider)
+        models = await service.list_models(
+            base_url=request.base_url,
+            api_key=request.api_key,
+        )
     except ModelListError as exc:
         detail = str(exc) or "provider did not return a model list"
         raise HTTPException(
