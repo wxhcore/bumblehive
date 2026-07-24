@@ -4,6 +4,7 @@ import {
   createSession,
   deleteSession,
   getHealth,
+  getModels,
   getSession,
   getSessions,
   getSettings,
@@ -348,6 +349,8 @@ export default function App() {
     useState<BootstrapStatus>("loading");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelSwitching, setModelSwitching] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<ReadonlySet<string>>(
@@ -376,6 +379,7 @@ export default function App() {
     () => undefined,
   );
   const toastTimerRef = useRef<number | null>(null);
+  const modelListRequestIdRef = useRef(0);
 
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -383,6 +387,30 @@ export default function App() {
       window.clearTimeout(toastTimerRef.current);
     }
     toastTimerRef.current = window.setTimeout(() => setToast(""), 2200);
+  }, []);
+
+  const loadAvailableModels = useCallback(async (currentSettings: Settings) => {
+    const requestId = ++modelListRequestIdRef.current;
+    const baseUrl = currentSettings.provider.base_url?.trim();
+    setAvailableModels([]);
+    if (!baseUrl) return;
+    try {
+      const response = await getModels({ base_url: baseUrl });
+      if (requestId !== modelListRequestIdRef.current) return;
+      setAvailableModels(
+        Array.from(
+          new Set(
+            response.models
+              .map((model) => model.trim())
+              .filter((model) => Boolean(model)),
+          ),
+        ),
+      );
+    } catch {
+      if (requestId === modelListRequestIdRef.current) {
+        setAvailableModels([]);
+      }
+    }
   }, []);
 
   const displaySession = useCallback(
@@ -781,6 +809,7 @@ export default function App() {
         ]);
         if (cancelled) return;
         setSettings(loadedSettings);
+        void loadAvailableModels(loadedSettings);
         setSessions(loadedSessions);
         setShowSettings(!isProviderConfigured(loadedSettings));
         setBootstrapStatus("ready");
@@ -793,7 +822,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [bootstrapAttempt]);
+  }, [bootstrapAttempt, loadAvailableModels]);
 
   useEffect(
     () => () => {
@@ -1003,8 +1032,34 @@ export default function App() {
   async function saveSettings(update: SettingsUpdate) {
     const saved = await updateSettings(update);
     setSettings(saved);
+    void loadAvailableModels(saved);
     setShowSettings(false);
     notify("设置已保存");
+  }
+
+  async function selectModel(selectedModel: string) {
+    if (
+      !settings ||
+      selectedModel === settings.provider.model ||
+      runningSessionIdsRef.current.size > 0 ||
+      modelSwitching
+    ) {
+      return;
+    }
+    setModelSwitching(true);
+    try {
+      const saved = await updateSettings({
+        provider: {
+          model: selectedModel,
+        },
+      });
+      setSettings(saved);
+      notify(`已切换到 ${selectedModel}`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "模型切换失败");
+    } finally {
+      setModelSwitching(false);
+    }
   }
 
   const isViewingRunningSession = Boolean(
@@ -1014,6 +1069,15 @@ export default function App() {
     activeSessionId && stoppingSessionIds.has(activeSessionId),
   );
   const hasRunningSessions = runningSessionIds.size > 0;
+  const selectableModels = settings
+    ? Array.from(
+        new Set(
+          [settings.provider.model, ...availableModels].filter(
+            (model): model is string => Boolean(model),
+          ),
+        ),
+      )
+    : [];
   const deleteSessionTitle = deleteSessionId
     ? sessions.find((session) => session.session_id === deleteSessionId)?.title
     : null;
@@ -1097,13 +1161,16 @@ export default function App() {
               <Composer
                 value={input}
                 model={settings.provider.model ?? ""}
+                models={selectableModels}
                 workspace={workspaceLabel(settings.runtime?.workspace)}
                 disabled={bootstrapStatus !== "ready"}
                 isStreaming={isViewingRunningSession}
                 isStopping={isViewingStoppingSession}
+                modelSwitchDisabled={hasRunningSessions || modelSwitching}
                 onChange={setInput}
                 onSubmit={() => void sendMessage()}
                 onStop={stopRun}
+                onSelectModel={selectModel}
                 onOpenSettings={() => setShowSettings(true)}
               />
             </>

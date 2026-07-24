@@ -1,30 +1,38 @@
-import type { FormEvent, KeyboardEvent } from "react";
+import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { ModelOptions } from "./ModelOptions";
 
 interface ComposerProps {
   value: string;
   model: string;
+  models: string[];
   workspace: string;
   disabled: boolean;
   isStreaming: boolean;
   isStopping: boolean;
+  modelSwitchDisabled: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
   onStop: () => void;
   onOpenSettings: () => void;
+  onSelectModel: (model: string) => Promise<void>;
 }
 
 export function Composer({
   value,
   model,
+  models,
   workspace,
   disabled,
   isStreaming,
   isStopping,
+  modelSwitchDisabled,
   onChange,
   onSubmit,
   onStop,
   onOpenSettings,
+  onSelectModel,
 }: ComposerProps) {
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isStreaming) return;
@@ -71,16 +79,42 @@ export function Composer({
           <span>{workspace}</span>
         </button>
         <span className="toolbar-spacer" />
-        <button
-          className="model-button"
-          type="button"
-          aria-label={`当前模型 ${model}`}
-          disabled={disabled || isStreaming}
-          onClick={onOpenSettings}
+        <div
+          className="composer-model-field"
+          onBlur={(event) => {
+            const nextTarget = event.relatedTarget;
+            if (
+              !(nextTarget instanceof Node) ||
+              !event.currentTarget.contains(nextTarget)
+            ) {
+              setModelMenuOpen(false);
+            }
+          }}
         >
-          <span>{model}</span>
-          <span className="chevron" aria-hidden="true" />
-        </button>
+          {modelMenuOpen && !modelSwitchDisabled ? (
+            <div className="model-dropdown composer-model-dropdown" role="listbox">
+              <ModelOptions
+                models={models}
+                selectedModel={model}
+                onSelect={(selectedModel) => {
+                  setModelMenuOpen(false);
+                  void onSelectModel(selectedModel);
+                }}
+              />
+            </div>
+          ) : null}
+          <button
+            className="model-button"
+            type="button"
+            aria-label={`当前模型 ${model}`}
+            aria-expanded={modelMenuOpen}
+            disabled={disabled || modelSwitchDisabled}
+            onClick={() => setModelMenuOpen((open) => !open)}
+          >
+            <span>{model}</span>
+            <span className="chevron" aria-hidden="true" />
+          </button>
+        </div>
         <button
           className="send-button"
           type={isStreaming ? "button" : "submit"}
