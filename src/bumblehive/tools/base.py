@@ -16,14 +16,17 @@ _JSON_SCHEMA_TYPE_MAP: dict[str, type | tuple[type, ...]] = {
 
 @dataclass(frozen=True)
 class Tool(ABC):
-    """Base class for LLM-callable tools."""
+    """Base class for LLM-callable tools.
+
+    Tools execute independently by default. Set ``parallel_safe=True`` only
+    when the handler can safely overlap with other parallel-safe tool calls.
+    """
 
     name: str
     description: str
     parameters: dict[str, Any]
     source: Literal["local", "mcp"] = field(default="local", kw_only=True)
-    read_only: bool = field(default=False, kw_only=True)
-    exclusive: bool = field(default=False, kw_only=True)
+    parallel_safe: bool = field(default=False, kw_only=True)
     _validator: Any = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -32,11 +35,6 @@ class Tool(ABC):
         validator_cls = validator_for(schema=self.parameters)
         validator_cls.check_schema(schema=self.parameters)
         object.__setattr__(self, "_validator", validator_cls(schema=self.parameters))
-
-    @property
-    def concurrency_safe(self) -> bool:
-        """Whether this tool can run alongside other concurrency-safe tools."""
-        return self.read_only and not self.exclusive
 
     @staticmethod
     def _resolve_type(schema_type: Any) -> str | None:

@@ -28,7 +28,7 @@ def _call(call_id, name, arguments=None):
 async def test_manager_owns_registration_discovery_filtering_and_execution() -> None:
     manager = ToolManager()
 
-    @manager.tool
+    @manager.tool(parallel_safe=True)
     def add(a: int, b: int) -> int:
         """Add two integers."""
         return a + b
@@ -36,6 +36,7 @@ async def test_manager_owns_registration_discovery_filtering_and_execution() -> 
     assert manager.register_builtin_tools() == BUILTINS
     assert manager.register_builtin_tools() == []
     assert manager.tool_names == ["add", *sorted(BUILTINS)]
+    assert manager.get_tool("add").parallel_safe is True
     assert [tool.name for tool in manager.get_tools(["add", "read_file"])] == [
         "add",
         "read_file",

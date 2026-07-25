@@ -1015,7 +1015,7 @@ def register_read_file_tool(
             description=_READ_FILE_DESCRIPTION,
             parameters=_READ_FILE_PARAMETERS,
             handler=_session_scoped_file_handler(state, files.read_file),
-            read_only=True,
+            parallel_safe=True,
         )
     )
 
@@ -1033,7 +1033,6 @@ def register_write_file_tool(
             description=_WRITE_FILE_DESCRIPTION,
             parameters=_WRITE_FILE_PARAMETERS,
             handler=_session_scoped_file_handler(state, files.write_file),
-            exclusive=True,
         )
     )
 
@@ -1051,7 +1050,7 @@ def register_list_dir_tool(
             description=_LIST_DIR_DESCRIPTION,
             parameters=_LIST_DIR_PARAMETERS,
             handler=files.list_dir,
-            read_only=True,
+            parallel_safe=True,
         )
     )
 
@@ -1069,6 +1068,5 @@ def register_edit_file_tool(
             description=_EDIT_FILE_DESCRIPTION,
             parameters=_EDIT_FILE_PARAMETERS,
             handler=_session_scoped_file_handler(state, files.edit_file),
-            exclusive=True,
         )
     )

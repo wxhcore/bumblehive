@@ -1075,7 +1075,6 @@ def register_exec_tool(
             description=_EXEC_DESCRIPTION,
             parameters=_EXEC_PARAMETERS,
             handler=runner.exec,
-            exclusive=True,
         )
     )
 
@@ -1094,7 +1093,6 @@ def register_write_stdin_tool(
             description=_WRITE_STDIN_DESCRIPTION,
             parameters=_WRITE_STDIN_PARAMETERS,
             handler=runner.write_stdin,
-            exclusive=True,
         )
     )
 
@@ -1113,6 +1111,6 @@ def register_list_exec_sessions_tool(
             description=_LIST_EXEC_SESSIONS_DESCRIPTION,
             parameters=_LIST_EXEC_SESSIONS_PARAMETERS,
             handler=runner.list_exec_sessions,
-            read_only=True,
+            parallel_safe=True,
         )
     )

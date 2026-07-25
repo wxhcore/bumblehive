@@ -60,17 +60,43 @@ class RecordingTool(Tool):
 
 
 @pytest.mark.asyncio
-async def test_execute_many_batches_safe_reads_around_sequential_writes() -> None:
+async def test_execute_many_runs_calls_sequentially_by_default() -> None:
     state = {"active": 0, "max_active": 0, "started": [], "finished": []}
     registry = ToolRegistry()
     parameters = {"type": "object", "properties": {}, "additionalProperties": False}
-    for name, read_only in (("read-a", True), ("read-b", True), ("write", False)):
+    for name in ("first", "second"):
         registry.register(
             RecordingTool(
                 name=name,
                 description=name,
                 parameters=parameters,
-                read_only=read_only,
+                state=state,
+            )
+        )
+
+    await ToolExecutor(registry).execute_many(
+        [_call("1", "first"), _call("2", "second")]
+    )
+
+    assert state["max_active"] == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_many_batches_parallel_safe_calls_around_sequential_calls() -> None:
+    state = {"active": 0, "max_active": 0, "started": [], "finished": []}
+    registry = ToolRegistry()
+    parameters = {"type": "object", "properties": {}, "additionalProperties": False}
+    for name, parallel_safe in (
+        ("read-a", True),
+        ("read-b", True),
+        ("write", False),
+    ):
+        registry.register(
+            RecordingTool(
+                name=name,
+                description=name,
+                parameters=parameters,
+                parallel_safe=parallel_safe,
                 state=state,
             )
         )

@@ -95,6 +95,7 @@ class ToolRegistry:
         name: str | None = None,
         description: str | None = None,
         parameters: dict[str, Any] | None = None,
+        parallel_safe: bool = False,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]] | Callable[..., Any]:
         """Register a function as a tool."""
         func: Callable[..., Any] | None
@@ -119,6 +120,7 @@ class ToolRegistry:
                     description=tool_description,
                     parameters=tool_parameters,
                     handler=func,
+                    parallel_safe=parallel_safe,
                 )
             )
             return func

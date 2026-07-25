@@ -354,6 +354,5 @@ def register_apply_patch_tool(
             description=_APPLY_PATCH_DESCRIPTION,
             parameters=_APPLY_PATCH_PARAMETERS,
             handler=_session_scoped_file_handler(state, patch.apply_patch),
-            exclusive=True,
         )
     )

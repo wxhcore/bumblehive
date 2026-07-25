@@ -140,7 +140,7 @@ async def test_one_model_turn_runs_safe_tools_concurrently_and_checkpoints_order
                 description=name,
                 parameters=parameters,
                 handler=concurrent_read,
-                read_only=True,
+                parallel_safe=True,
             )
         )
 

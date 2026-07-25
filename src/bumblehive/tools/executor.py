@@ -105,7 +105,7 @@ class ToolExecutor:
 
         for call in calls:
             tool = self.registry.get_tool(call.name)
-            can_batch = bool(tool and tool.concurrency_safe)
+            can_batch = bool(tool and tool.parallel_safe)
             if can_batch:
                 current.append(call)
                 continue

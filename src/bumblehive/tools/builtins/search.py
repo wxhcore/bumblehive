@@ -505,7 +505,7 @@ def register_find_files_tool(
             description=_FIND_FILES_DESCRIPTION,
             parameters=_FIND_FILES_PARAMETERS,
             handler=search.find_files,
-            read_only=True,
+            parallel_safe=True,
         )
     )
 
@@ -521,6 +521,6 @@ def register_grep_tool(
             description=_GREP_DESCRIPTION,
             parameters=_GREP_PARAMETERS,
             handler=search.grep,
-            read_only=True,
+            parallel_safe=True,
         )
     )
