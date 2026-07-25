@@ -9,8 +9,8 @@ from bumblehive.providers import (
     ModelResponse,
     ModelStreamCallbacks,
     RetryConfig,
-    resolve_stream_idle_timeout_s,
 )
+from bumblehive.providers.streaming import resolve_stream_idle_timeout_s
 
 
 class StreamingProvider(ModelProvider):

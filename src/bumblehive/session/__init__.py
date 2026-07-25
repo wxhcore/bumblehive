@@ -1,9 +1,3 @@
-"""Persistent runtime conversation sessions."""
+"""Runtime-owned persistent conversation sessions."""
 
-from .manager import SessionManager
-from .models import SessionState
-
-__all__ = [
-    "SessionManager",
-    "SessionState",
-]
+__all__: list[str] = []

@@ -6,7 +6,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from bumblehive import get_sessions_path
+from bumblehive.paths import get_sessions_path
 
 from .schemas import SessionDetail, SessionSummary
 

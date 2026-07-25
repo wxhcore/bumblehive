@@ -2,12 +2,10 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 
+from ..observability.emitter import EventEmitter
+from ..observability.emitters import ToolEvents
 from ..protocols.errors import AgentError
 from ..protocols.tool_calls import ToolCall, ToolResult
-from ..observability import (
-    EventEmitter,
-    ToolEvents,
-)
 from .registry import ToolRegistry
 
 

@@ -1,11 +1,9 @@
 from pathlib import Path
 from typing import Mapping
 
-from ..observability import (
-    EventEmitter,
-    HookInput,
-    TurnEvents,
-)
+from ..observability.emitter import EventEmitter
+from ..observability.emitters import TurnEvents
+from ..observability.hooks import HookInput
 from ..protocols import (
     GenerationConfig,
     Message,

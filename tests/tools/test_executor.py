@@ -5,7 +5,8 @@ from typing import Any
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import Tool, ToolExecutor, ToolRegistry
+from bumblehive.tools import Tool, ToolRegistry
+from bumblehive.tools.executor import ToolExecutor
 
 
 def _call(call_id, name, arguments=None):

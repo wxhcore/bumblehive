@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from bumblehive.providers import ProviderManager
+from bumblehive.providers.manager import ProviderManager
 from bumblehive.providers.base import ModelRequest, ModelResponse
 
 

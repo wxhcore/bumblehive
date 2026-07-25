@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from bumblehive.session.stores import JsonSessionStore, SessionFileError
+from bumblehive.session.stores.json_file import JsonSessionStore, SessionFileError
 
 
 @pytest.mark.asyncio

@@ -11,7 +11,7 @@ from ..agent.context import (
 from ..agent.runner import CheckpointCallback
 from ..protocols import Message, UserMessage, normalize_user_message
 from .models import SessionState
-from .stores import JsonSessionStore
+from .stores.json_file import JsonSessionStore
 
 
 _INTERRUPTED_BEFORE_RESPONSE = (

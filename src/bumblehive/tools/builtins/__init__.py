@@ -19,19 +19,6 @@ from .shell import (
 )
 
 
-def register_builtin_tools(
-    registry: ToolRegistry,
-    *,
-    config: dict[str, Any] | None = None,
-) -> list[str]:
-    """Register all built-in local tools."""
-    return _register_builtin_tools(
-        registry,
-        config=config,
-        state=BuiltinToolState(),
-    )
-
-
 def _register_builtin_tools(
     registry: ToolRegistry,
     *,
@@ -54,6 +41,4 @@ def _register_builtin_tools(
     ]
 
 
-__all__ = [
-    "register_builtin_tools",
-]
+__all__: list[str] = []

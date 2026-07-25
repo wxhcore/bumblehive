@@ -9,7 +9,6 @@ from .base import (
 )
 from .manager import ProviderManager
 from .openai_chat_completions import OpenAIChatCompletionsProvider
-from .streaming import resolve_stream_idle_timeout_s
 
 __all__ = [
     "ModelProvider",
@@ -19,5 +18,4 @@ __all__ = [
     "OpenAIChatCompletionsProvider",
     "ProviderManager",
     "RetryConfig",
-    "resolve_stream_idle_timeout_s",
 ]

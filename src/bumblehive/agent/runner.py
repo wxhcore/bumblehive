@@ -3,14 +3,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..protocols.errors import AgentError
-from ..observability import (
-    EventEmitter,
-    ModelEvents,
-    RunEvents,
-    ToolEvents,
-)
+from ..observability.emitter import EventEmitter
+from ..observability.emitters import ModelEvents, RunEvents, ToolEvents
 from ..protocols import GenerationConfig, Message
+from ..protocols.errors import AgentError
 from ..providers.base import (
     ModelProvider,
     ModelRequest,

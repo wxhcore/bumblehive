@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from bumblehive.session import SessionManager
+from bumblehive.session.manager import SessionManager
 
 
 def _assistant_call(call_id: str) -> dict:

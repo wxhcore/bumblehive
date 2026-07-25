@@ -6,7 +6,8 @@ import pytest
 from fastmcp import Client, FastMCP
 
 from bumblehive.protocols import MCPServerConfig, ToolCall
-from bumblehive.tools import MCPManager, ToolManager, ToolRegistry
+from bumblehive.tools import ToolManager, ToolRegistry
+from bumblehive.tools.mcp.manager import MCPManager
 
 
 @dataclass

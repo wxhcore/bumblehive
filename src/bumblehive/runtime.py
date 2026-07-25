@@ -6,23 +6,24 @@ from typing import Any
 from .agent import (
     AgentLoop,
     AgentRunResult,
-    CheckpointCallback,
     ContextBuilder,
     MessageHistory,
     ToolCallingRunner,
 )
+from .agent.runner import CheckpointCallback
 from .config.loader import ConfigInput, load_config
 from .config.schema import BumblehiveConfig, ProviderConfig
 from .observability import (
     DEFAULT_STREAM_QUEUE_SIZE,
     AgentHook,
     AsyncEventStream,
-    AsyncEventStreamHook,
     HookInput,
 )
+from .observability.streaming import AsyncEventStreamHook
 from .protocols import Message, UserMessage
-from .providers import ModelProvider, ProviderManager
-from .session import SessionManager
+from .providers import ModelProvider
+from .providers.manager import ProviderManager
+from .session.manager import SessionManager
 from .skills import SkillsManager
 from .tools import PathAllowlist, ToolManager
 

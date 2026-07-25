@@ -1,5 +1,3 @@
-from typing import Any
-
 import pytest
 
 from bumblehive.agent import AgentLoop, ContextBuilder, ToolCallingRunner
@@ -20,9 +18,9 @@ from bumblehive.observability import (
     TURN_CONTEXT_BUILT,
     TURN_FINISHED,
     TURN_STARTED,
-    EventEmitter,
     EventRecorder,
 )
+from bumblehive.observability.emitter import EventEmitter
 from bumblehive.protocols import ToolCall
 from bumblehive.providers import (
     ModelProvider,

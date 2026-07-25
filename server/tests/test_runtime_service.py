@@ -5,7 +5,8 @@ from typing import Any
 
 import pytest
 
-from bumblehive import BumblehiveConfig, ProviderConfig
+from bumblehive import BumblehiveConfig
+from bumblehive.config import ProviderConfig
 from bumblehive_server.runtime_service import RuntimeBusyError, RuntimeService
 
 

@@ -3,7 +3,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Mapping
 
-from ..observability import EventEmitter
+from ..observability.emitter import EventEmitter
 from ..protocols import MCPServerConfig
 from ..protocols.errors import AgentError
 from ..protocols.tool_calls import ToolCall, ToolResult
@@ -11,7 +11,7 @@ from .base import Tool
 from .builtins import _register_builtin_tools
 from .builtins.state import BuiltinToolState
 from .executor import ToolExecutor
-from .mcp import MCPManager, MCPServerStatus
+from .mcp.manager import MCPManager, MCPServerStatus
 from .registry import ToolRegistry
 from .scope import PathAllowlist, bind_tool_path_scope, reset_tool_path_scope
 

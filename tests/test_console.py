@@ -15,8 +15,8 @@ from bumblehive.observability import (
     MODEL_STREAM_CONTENT_DELTA,
     MODEL_STREAM_TOOL_CALL_DELTA,
     TOOL_CALL_FINISHED,
-    make_event,
 )
+from bumblehive.observability.events import make_event
 
 
 def test_console_helpers_create_compact_user_facing_summaries() -> None:

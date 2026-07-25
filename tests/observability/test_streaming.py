@@ -2,8 +2,9 @@ import asyncio
 
 import pytest
 
-from bumblehive.observability import AsyncEventStream, AsyncEventStreamHook
+from bumblehive.observability import AsyncEventStream
 from bumblehive.observability.events import make_event
+from bumblehive.observability.streaming import AsyncEventStreamHook
 
 
 @pytest.mark.asyncio

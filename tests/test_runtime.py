@@ -12,7 +12,7 @@ from bumblehive.providers import (
     ModelResponse,
     ModelStreamCallbacks,
 )
-from bumblehive.session import SessionManager
+from bumblehive.session.manager import SessionManager
 
 
 class FakeProvider(ModelProvider):

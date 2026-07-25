@@ -1,3 +1,3 @@
-from .json_file import JsonSessionStore, SessionFileError
+"""Internal session storage implementations."""
 
-__all__ = ["JsonSessionStore", "SessionFileError"]
+__all__: list[str] = []

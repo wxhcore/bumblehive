@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from bumblehive.observability import make_event
+from bumblehive.observability.events import make_event
 from bumblehive.protocols.errors import AgentError
 from bumblehive_server.app import create_app
 from bumblehive_server.routes.chat import chat
