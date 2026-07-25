@@ -67,7 +67,8 @@ def test_runtime_arguments_build_the_same_structured_config(tmp_path) -> None:
         extra_read_roots=[tmp_path / "read"],
         extra_write_roots=[tmp_path / "write"],
         agent_instructions="Be concise.",
-        tool_names=(),
+        skill_names=["audit"],
+        tool_names=["read_file"],
     ).to_config()
 
     assert config.provider.model == "demo-model"
@@ -76,7 +77,8 @@ def test_runtime_arguments_build_the_same_structured_config(tmp_path) -> None:
     assert config.runtime.extra_read_roots == (str(tmp_path / "read"),)
     assert config.runtime.extra_write_roots == (str(tmp_path / "write"),)
     assert config.agent.instructions == "Be concise."
-    assert config.agent.tool_names == ()
+    assert config.agent.skill_names == ("audit",)
+    assert config.agent.tool_names == ("read_file",)
 
 
 @pytest.mark.parametrize("model", [None, "", "   "])

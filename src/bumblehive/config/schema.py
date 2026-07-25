@@ -61,8 +61,8 @@ class RuntimeArguments:
     extra_write_roots: Sequence[str | Path] = ()
     agent_instructions: str | None = None
     dynamic_context: dict[str, Any] = field(default_factory=dict)
-    skill_names: tuple[str, ...] | None = None
-    tool_names: tuple[str, ...] | None = None
+    skill_names: Sequence[str] | None = None
+    tool_names: Sequence[str] | None = None
     mcp_servers: tuple[MCPServerConfig, ...] = ()
 
     def to_config(self) -> "BumblehiveConfig":
@@ -83,8 +83,16 @@ class RuntimeArguments:
             agent=AgentConfig(
                 instructions=self.agent_instructions,
                 dynamic_context=dict(self.dynamic_context),
-                skill_names=self.skill_names,
-                tool_names=self.tool_names,
+                skill_names=(
+                    tuple(self.skill_names)
+                    if self.skill_names is not None
+                    else None
+                ),
+                tool_names=(
+                    tuple(self.tool_names)
+                    if self.tool_names is not None
+                    else None
+                ),
             ),
             runtime=RuntimeConfig(
                 workspace=(
