@@ -14,26 +14,30 @@ BumbleHive is a lightweight Python library for building AI agents around a clear
 ## Quick Start
 
 ```python
+import asyncio
+import os
+
 import bumblehive
 
 
-runtime = bumblehive.from_config(
-    {
-        "provider": {"model": "gpt-5.4"},
-        "agent": {"tool_names": []},
-    }
-)
+async def main() -> None:
+    config = bumblehive.RuntimeArguments(
+        model=os.environ["BUMBLEHIVE_MODEL"],
+        api_key=os.environ["BUMBLEHIVE_API_KEY"],
+        base_url=os.getenv("BUMBLEHIVE_BASE_URL"),
+        workspace="./demo",
+    )
+    runtime = bumblehive.from_config(config)
+    result = await runtime.run("Summarize Agent Loop in agent-loop.md.")
 
-result = await runtime.run("Hello", session_id="user:123")
-print(result.final_content)
+
+asyncio.run(main())
 ```
 
-## Streaming
+## Examples
 
-```python
-async for event in runtime.stream("Hello", session_id="user:123"):
-    print(event.kind, event.session_id, event.payload)
-```
+See [examples](examples/README.md) for independently runnable Runtime, Loop,
+Provider, Tools, Skills, and Observability examples.
 
 ## Local Development
 

@@ -14,26 +14,30 @@ BumbleHive 是一个轻量的 Python 库，用清晰的执行循环来构建 AI 
 ## 快速开始
 
 ```python
+import asyncio
+import os
+
 import bumblehive
 
 
-runtime = bumblehive.from_config(
-    {
-        "provider": {"model": "gpt-5.4"},
-        "agent": {"tool_names": []},
-    }
-)
+async def main() -> None:
+    config = bumblehive.RuntimeArguments(
+        model=os.environ["BUMBLEHIVE_MODEL"],
+        api_key=os.environ["BUMBLEHIVE_API_KEY"],
+        base_url=os.getenv("BUMBLEHIVE_BASE_URL"),
+        workspace="./demo",
+    )
+    runtime = bumblehive.from_config(config)
+    result = await runtime.run("简述 Agent Loop，保存为 agent-loop.md。")
 
-result = await runtime.run("你好", session_id="user:123")
-print(result.final_content)
+
+asyncio.run(main())
 ```
 
-## 流式事件
+## 示例
 
-```python
-async for event in runtime.stream("你好", session_id="user:123"):
-    print(event.kind, event.session_id, event.payload)
-```
+参见 [examples](examples/README.md)，其中包含可独立运行的 Runtime、Loop、
+Provider、Tools、Skills 和 Observability 示例。
 
 ## 本地开发
 
