@@ -103,6 +103,7 @@ export interface ResultFrame {
   tools_used: string[];
   usage: Record<string, number>;
   stop_reason: string;
+  duration_s?: number;
   error: { code: string; message: string; recoverable: boolean } | null;
 }
 

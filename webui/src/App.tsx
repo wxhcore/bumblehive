@@ -42,6 +42,7 @@ import {
   writeWorkspaceRegistry,
 } from "./lib/workspaces";
 import type {
+  AgentEventFrame,
   AssistantIteration,
   ChatFrame,
   CreatedSession,
@@ -54,6 +55,15 @@ import type {
 } from "./types/api";
 
 type BootstrapStatus = "loading" | "ready" | "error";
+
+const STREAM_CATCH_UP_MS = 72;
+const MIN_STREAM_CHARACTERS_PER_SECOND = 90;
+const MAX_STREAM_FRAME_ELAPSED_MS = 50;
+const STREAM_TEXT_EVENT_KINDS = new Set([
+  "model.stream.content_delta",
+  "model.stream.reasoning_delta",
+  "model.stream.refusal_delta",
+]);
 
 const wait = (milliseconds: number) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
@@ -365,6 +375,234 @@ function completeIterationTools(
   }));
 }
 
+function streamedDelta(frame: AgentEventFrame): string | null {
+  if (!STREAM_TEXT_EVENT_KINDS.has(frame.kind)) return null;
+  const delta = frame.payload.delta;
+  return typeof delta === "string" ? delta : null;
+}
+
+function appendPendingAgentFrame(
+  frames: AgentEventFrame[],
+  frame: AgentEventFrame,
+): void {
+  const delta = streamedDelta(frame);
+  const previous = frames.at(-1);
+  const previousDelta = previous ? streamedDelta(previous) : null;
+  if (
+    delta !== null &&
+    previous &&
+    previousDelta !== null &&
+    previous.kind === frame.kind &&
+    previous.iteration === frame.iteration
+  ) {
+    frames[frames.length - 1] = {
+      ...previous,
+      payload: {
+        ...previous.payload,
+        delta: previousDelta + delta,
+      },
+      timestamp: frame.timestamp,
+    };
+    return;
+  }
+  frames.push(frame);
+}
+
+function takeCodePointPrefix(
+  value: string,
+  limit: number,
+): { prefix: string; rest: string; count: number } {
+  if (limit <= 0 || !value) {
+    return { prefix: "", rest: value, count: 0 };
+  }
+
+  let end = 0;
+  let count = 0;
+  for (const character of value) {
+    if (count >= limit) break;
+    end += character.length;
+    count += 1;
+  }
+  return {
+    prefix: value.slice(0, end),
+    rest: value.slice(end),
+    count,
+  };
+}
+
+function takeAgentFramesForPaint(
+  frames: AgentEventFrame[],
+  textBudget: number,
+): { painted: AgentEventFrame[]; textCount: number } {
+  const painted: AgentEventFrame[] = [];
+  let remainingBudget = textBudget;
+  let textCount = 0;
+
+  while (frames.length > 0) {
+    const frame = frames[0];
+    const delta = streamedDelta(frame);
+    if (delta === null) {
+      painted.push(frame);
+      frames.shift();
+      continue;
+    }
+    if (remainingBudget <= 0) break;
+
+    const taken = takeCodePointPrefix(delta, remainingBudget);
+    if (taken.count === 0) {
+      frames.shift();
+      continue;
+    }
+    painted.push({
+      ...frame,
+      payload: { ...frame.payload, delta: taken.prefix },
+    });
+    textCount += taken.count;
+    remainingBudget -= taken.count;
+
+    if (taken.rest) {
+      frames[0] = {
+        ...frame,
+        payload: { ...frame.payload, delta: taken.rest },
+      };
+      break;
+    }
+    frames.shift();
+  }
+
+  return { painted, textCount };
+}
+
+function applyAgentEventFrames(
+  messages: UiMessage[],
+  assistantId: string,
+  frames: AgentEventFrame[],
+): UiMessage[] {
+  const assistantIndex = messages.findIndex(
+    (message) => message.id === assistantId,
+  );
+  if (assistantIndex < 0) return messages;
+
+  const original = messages[assistantIndex];
+  let updated = original;
+
+  for (const frame of frames) {
+    if (
+      frame.kind === "model.stream.content_delta" ||
+      frame.kind === "model.stream.refusal_delta"
+    ) {
+      const delta = frame.payload.delta;
+      if (typeof delta !== "string") continue;
+      updated = {
+        ...updated,
+        iterations: updateAssistantIteration(
+          updated.iterations,
+          frame.iteration,
+          "model",
+          (modelIteration) => ({
+            ...modelIteration,
+            content: modelIteration.content + delta,
+          }),
+        ),
+      };
+      continue;
+    }
+
+    if (frame.kind === "model.stream.reasoning_delta") {
+      const delta = frame.payload.delta;
+      if (typeof delta !== "string") continue;
+      updated = {
+        ...updated,
+        iterations: updateAssistantIteration(
+          updated.iterations,
+          frame.iteration,
+          "model",
+          (modelIteration) => ({
+            ...modelIteration,
+            reasoning: (modelIteration.reasoning ?? "") + delta,
+          }),
+        ),
+      };
+      continue;
+    }
+
+    if (frame.kind === "model.stream.tool_call_delta") {
+      updated = {
+        ...updated,
+        iterations: updateAssistantIteration(
+          updated.iterations,
+          frame.iteration,
+          "tool",
+          (modelIteration) => ({
+            ...modelIteration,
+            tools: prepareTool(
+              modelIteration.tools,
+              frame.payload,
+              frame.iteration,
+            ),
+          }),
+        ),
+      };
+      continue;
+    }
+
+    if (frame.kind === "tool.call.started") {
+      const tool = startedTool(frame.payload);
+      if (!tool) continue;
+      updated = {
+        ...updated,
+        iterations: updateAssistantIteration(
+          updated.iterations,
+          frame.iteration,
+          "tool",
+          (modelIteration) => ({
+            ...modelIteration,
+            tools: startTool(modelIteration.tools, tool),
+          }),
+        ),
+      };
+      continue;
+    }
+
+    if (frame.kind === "tool.call.finished") {
+      const tool = finishedTool(frame.payload);
+      if (!tool) continue;
+      updated = {
+        ...updated,
+        iterations: finishIterationTool(
+          updated.iterations,
+          frame.iteration,
+          tool,
+        ),
+      };
+      continue;
+    }
+
+    if (frame.kind === "model.response.finished") {
+      const response = asRecord(frame.payload.message);
+      const reasoning = response?.reasoning_content;
+      if (typeof reasoning !== "string" || !reasoning) continue;
+      updated = {
+        ...updated,
+        iterations: updateAssistantIteration(
+          updated.iterations,
+          frame.iteration,
+          "model",
+          (modelIteration) =>
+            modelIteration.reasoning
+              ? modelIteration
+              : { ...modelIteration, reasoning },
+        ),
+      };
+    }
+  }
+
+  if (updated === original) return messages;
+  const next = [...messages];
+  next[assistantIndex] = updated;
+  return next;
+}
+
 function useStableCallback<Args extends unknown[], Result>(
   callback: (...args: Args) => Result,
 ): (...args: Args) => Result {
@@ -414,6 +652,16 @@ export default function App() {
   const runningSessionIdsRef = useRef(new Set<string>());
   const messagesBySessionRef = useRef(new Map<string, UiMessage[]>());
   const assistantIdsRef = useRef(new Map<string, string>());
+  const pendingAgentFramesRef = useRef(
+    new Map<string, AgentEventFrame[]>(),
+  );
+  const streamPaintStateRef = useRef(
+    new Map<string, { credit: number; lastTimestamp: number | null }>(),
+  );
+  const agentFrameFlushAnimationRef = useRef<number | null>(null);
+  const paintPendingAgentFramesRef = useRef<(timestamp: number) => void>(
+    () => undefined,
+  );
   const sessionsLoadVersionRef = useRef(0);
   const sessionSelectionVersionRef = useRef(0);
   const frameHandlerRef = useRef<(sessionId: string, frame: ChatFrame) => void>(
@@ -479,6 +727,120 @@ export default function App() {
     [],
   );
 
+  const scheduleAgentFramePaint = useCallback(() => {
+    if (agentFrameFlushAnimationRef.current !== null) return;
+    agentFrameFlushAnimationRef.current = window.requestAnimationFrame(
+      (timestamp) => {
+        agentFrameFlushAnimationRef.current = null;
+        paintPendingAgentFramesRef.current(timestamp);
+      },
+    );
+  }, []);
+
+  const flushPendingAgentFrames = useCallback(
+    (sessionId?: string) => {
+      const queued: Array<[string, AgentEventFrame[]]> = [];
+      if (sessionId) {
+        const frames = pendingAgentFramesRef.current.get(sessionId);
+        if (frames?.length) {
+          pendingAgentFramesRef.current.delete(sessionId);
+          queued.push([sessionId, frames]);
+        }
+      } else {
+        queued.push(...pendingAgentFramesRef.current);
+        pendingAgentFramesRef.current.clear();
+      }
+
+      if (
+        pendingAgentFramesRef.current.size === 0 &&
+        agentFrameFlushAnimationRef.current !== null
+      ) {
+        window.cancelAnimationFrame(agentFrameFlushAnimationRef.current);
+        agentFrameFlushAnimationRef.current = null;
+      }
+
+      for (const [queuedSessionId, frames] of queued) {
+        streamPaintStateRef.current.delete(queuedSessionId);
+        const assistantId = assistantIdsRef.current.get(queuedSessionId);
+        if (!assistantId) continue;
+        updateSessionMessages(queuedSessionId, (current) =>
+          applyAgentEventFrames(current, assistantId, frames),
+        );
+      }
+    },
+    [updateSessionMessages],
+  );
+
+  const paintPendingAgentFrames = useCallback(
+    (timestamp: number) => {
+      for (const [sessionId, frames] of pendingAgentFramesRef.current) {
+        const assistantId = assistantIdsRef.current.get(sessionId);
+        if (!assistantId) {
+          pendingAgentFramesRef.current.delete(sessionId);
+          streamPaintStateRef.current.delete(sessionId);
+          continue;
+        }
+
+        const paintState = streamPaintStateRef.current.get(sessionId) ?? {
+          credit: 0,
+          lastTimestamp: null,
+        };
+        const elapsed = Math.min(
+          MAX_STREAM_FRAME_ELAPSED_MS,
+          Math.max(
+            0,
+            timestamp - (paintState.lastTimestamp ?? timestamp),
+          ),
+        );
+        const textBacklog = frames.reduce(
+          (total, frame) => total + (streamedDelta(frame)?.length ?? 0),
+          0,
+        );
+        const charactersPerSecond = Math.max(
+          MIN_STREAM_CHARACTERS_PER_SECOND,
+          (textBacklog * 1000) / STREAM_CATCH_UP_MS,
+        );
+        paintState.credit += charactersPerSecond * (elapsed / 1000);
+        paintState.lastTimestamp = timestamp;
+
+        const textBudget = Math.floor(paintState.credit);
+        const { painted, textCount } = takeAgentFramesForPaint(
+          frames,
+          textBudget,
+        );
+        paintState.credit = Math.max(0, paintState.credit - textCount);
+
+        if (frames.length === 0) {
+          pendingAgentFramesRef.current.delete(sessionId);
+          streamPaintStateRef.current.delete(sessionId);
+        } else {
+          streamPaintStateRef.current.set(sessionId, paintState);
+        }
+        if (painted.length > 0) {
+          updateSessionMessages(sessionId, (current) =>
+            applyAgentEventFrames(current, assistantId, painted),
+          );
+        }
+      }
+
+      if (pendingAgentFramesRef.current.size > 0) {
+        scheduleAgentFramePaint();
+      }
+    },
+    [scheduleAgentFramePaint, updateSessionMessages],
+  );
+  paintPendingAgentFramesRef.current = paintPendingAgentFrames;
+
+  const queueAgentFrame = useCallback(
+    (sessionId: string, frame: AgentEventFrame) => {
+      const pending = pendingAgentFramesRef.current.get(sessionId);
+      if (pending) appendPendingAgentFrame(pending, frame);
+      else pendingAgentFramesRef.current.set(sessionId, [frame]);
+      scheduleAgentFramePaint();
+    },
+    [scheduleAgentFramePaint],
+  );
+
   const setSessionRunning = useCallback(
     (sessionId: string, running: boolean) => {
       const next = new Set(runningSessionIdsRef.current);
@@ -535,6 +897,7 @@ export default function App() {
   const failRun = useCallback(
     (sessionId: string, message: string) => {
       if (!runningSessionIdsRef.current.has(sessionId)) return;
+      flushPendingAgentFrames(sessionId);
       socketsRef.current.get(sessionId)?.close();
       socketsRef.current.delete(sessionId);
       setSessionRunning(sessionId, false);
@@ -579,155 +942,22 @@ export default function App() {
       }
       notify(message);
     },
-    [notify, setSessionRunning, setSessionStopping, updateSessionMessages],
+    [
+      flushPendingAgentFrames,
+      notify,
+      setSessionRunning,
+      setSessionStopping,
+      updateSessionMessages,
+    ],
   );
 
   frameHandlerRef.current = (sessionId, frame) => {
     if (frame.type === "event") {
-      if (
-        frame.kind === "model.stream.content_delta" ||
-        frame.kind === "model.stream.refusal_delta"
-      ) {
-        const delta = frame.payload.delta;
-        const assistantId = assistantIdsRef.current.get(sessionId);
-        if (assistantId && typeof delta === "string") {
-          updateSessionMessages(sessionId, (current) =>
-            current.map((item) =>
-              item.id === assistantId
-                ? {
-                    ...item,
-                    iterations: updateAssistantIteration(
-                      item.iterations,
-                      frame.iteration,
-                      "model",
-                      (modelIteration) => ({
-                        ...modelIteration,
-                        content: modelIteration.content + delta,
-                      }),
-                    ),
-                  }
-                : item,
-            ),
-          );
-        }
-      } else if (frame.kind === "model.stream.reasoning_delta") {
-        const delta = frame.payload.delta;
-        const assistantId = assistantIdsRef.current.get(sessionId);
-        if (assistantId && typeof delta === "string") {
-          updateSessionMessages(sessionId, (current) =>
-            current.map((item) =>
-              item.id === assistantId
-                ? {
-                    ...item,
-                    iterations: updateAssistantIteration(
-                      item.iterations,
-                      frame.iteration,
-                      "model",
-                      (modelIteration) => ({
-                        ...modelIteration,
-                        reasoning: (modelIteration.reasoning ?? "") + delta,
-                      }),
-                    ),
-                  }
-                : item,
-            ),
-          );
-        }
-      } else if (frame.kind === "model.stream.tool_call_delta") {
-        const assistantId = assistantIdsRef.current.get(sessionId);
-        if (assistantId) {
-          updateSessionMessages(sessionId, (current) =>
-            current.map((item) =>
-              item.id === assistantId
-                ? {
-                    ...item,
-                    iterations: updateAssistantIteration(
-                      item.iterations,
-                      frame.iteration,
-                      "tool",
-                      (modelIteration) => ({
-                        ...modelIteration,
-                        tools: prepareTool(
-                          modelIteration.tools,
-                          frame.payload,
-                          frame.iteration,
-                        ),
-                      }),
-                    ),
-                  }
-                : item,
-            ),
-          );
-        }
-      } else if (frame.kind === "tool.call.started") {
-        const tool = startedTool(frame.payload);
-        const assistantId = assistantIdsRef.current.get(sessionId);
-        if (tool && assistantId) {
-          updateSessionMessages(sessionId, (current) =>
-            current.map((item) =>
-              item.id === assistantId
-                ? {
-                    ...item,
-                    iterations: updateAssistantIteration(
-                      item.iterations,
-                      frame.iteration,
-                      "tool",
-                      (modelIteration) => ({
-                        ...modelIteration,
-                        tools: startTool(modelIteration.tools, tool),
-                      }),
-                    ),
-                  }
-                : item,
-            ),
-          );
-        }
-      } else if (frame.kind === "tool.call.finished") {
-        const tool = finishedTool(frame.payload);
-        const assistantId = assistantIdsRef.current.get(sessionId);
-        if (tool && assistantId) {
-          updateSessionMessages(sessionId, (current) =>
-            current.map((item) =>
-              item.id === assistantId
-                ? {
-                    ...item,
-                    iterations: finishIterationTool(
-                      item.iterations,
-                      frame.iteration,
-                      tool,
-                    ),
-                  }
-                : item,
-            ),
-          );
-        }
-      } else if (frame.kind === "model.response.finished") {
-        const response = asRecord(frame.payload.message);
-        const reasoning = response?.reasoning_content;
-        const assistantId = assistantIdsRef.current.get(sessionId);
-        if (assistantId && typeof reasoning === "string" && reasoning) {
-          updateSessionMessages(sessionId, (current) =>
-            current.map((item) =>
-              item.id !== assistantId
-                ? item
-                : {
-                    ...item,
-                    iterations: updateAssistantIteration(
-                      item.iterations,
-                      frame.iteration,
-                      "model",
-                      (modelIteration) =>
-                        modelIteration.reasoning
-                          ? modelIteration
-                          : { ...modelIteration, reasoning },
-                    ),
-                  },
-            ),
-          );
-        }
-      }
+      queueAgentFrame(sessionId, frame);
       return;
     }
+
+    flushPendingAgentFrames(sessionId);
 
     if (frame.type === "result") {
       const assistantId = assistantIdsRef.current.get(sessionId);
@@ -793,6 +1023,12 @@ export default function App() {
                       },
                     ],
               error: Boolean(frame.error),
+              durationSeconds:
+                typeof frame.duration_s === "number"
+                  ? frame.duration_s
+                  : item.startedAt
+                    ? Math.max(0, (Date.now() - item.startedAt) / 1000)
+                    : undefined,
             };
           }),
         );
@@ -822,6 +1058,10 @@ export default function App() {
                     item.iterations,
                     "cancelled",
                   ),
+                  durationSeconds:
+                    item.startedAt
+                      ? Math.max(0, (Date.now() - item.startedAt) / 1000)
+                      : item.durationSeconds,
                   stopped: true,
                 }
               : item,
@@ -924,6 +1164,11 @@ export default function App() {
       if (toastTimerRef.current !== null) {
         window.clearTimeout(toastTimerRef.current);
       }
+      if (agentFrameFlushAnimationRef.current !== null) {
+        window.cancelAnimationFrame(agentFrameFlushAnimationRef.current);
+      }
+      streamPaintStateRef.current.clear();
+      pendingAgentFramesRef.current.clear();
     },
     [],
   );
