@@ -23,7 +23,15 @@ interface HomeViewProps {
 export function HomeView({ onSelectPrompt }: HomeViewProps) {
   return (
     <header className="hero">
-      <h1>今天想让 BumbleHive 做点什么？</h1>
+      <h1>
+        <span>今天想让</span>
+        <img
+          className="hero-wordmark"
+          src="/brand/bumblehive-wordmark.png"
+          alt="BumbleHive"
+        />
+        <span>做点什么？</span>
+      </h1>
       <div className="suggestions" aria-label="任务建议">
         {suggestions.map((suggestion) => (
           <button

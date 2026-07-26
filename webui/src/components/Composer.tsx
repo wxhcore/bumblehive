@@ -1,4 +1,9 @@
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  memo,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { ModelOptions } from "./ModelOptions";
 
 interface ComposerProps {
@@ -17,7 +22,7 @@ interface ComposerProps {
   onSelectModel: (model: string) => Promise<void>;
 }
 
-export function Composer({
+export const Composer = memo(function Composer({
   value,
   model,
   models,
@@ -132,4 +137,4 @@ export function Composer({
       </div>
     </form>
   );
-}
+});
