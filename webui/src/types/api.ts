@@ -55,9 +55,11 @@ export interface ModelListResponse {
 
 export interface SessionSummary {
   session_id: string;
+  workspace: string;
   message_count: number;
   title: string;
   last_message: string;
+  created_at: number;
   updated_at: number;
 }
 
@@ -69,8 +71,15 @@ export interface StoredMessage {
 
 export interface SessionDetail {
   session_id: string;
+  workspace: string;
   messages: StoredMessage[];
+  created_at: number;
   updated_at: number;
+}
+
+export interface CreatedSession {
+  session_id: string;
+  workspace: string;
 }
 
 export interface AgentEventFrame {
@@ -146,6 +155,8 @@ export interface UiMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   iterations?: AssistantIteration[];
+  startedAt?: number;
+  durationSeconds?: number;
   stopped?: boolean;
   error?: boolean;
 }

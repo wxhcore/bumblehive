@@ -20,6 +20,9 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Keep the Web UI source helpers despite the generic Python lib rule.
+!webui/src/lib/
+!webui/src/lib/**
 lib64/
 parts/
 sdist/

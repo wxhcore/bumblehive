@@ -1,10 +1,10 @@
-from uuid import uuid4
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..dependencies import get_runtime_service, get_session_reader
 from ..runtime_service import RuntimeService
-from ..schemas import SessionDetail, SessionSummary
+from ..schemas import CreateSessionRequest, SessionDetail, SessionSummary
 from ..session_reader import SessionNotFoundError, SessionReader
 
 
@@ -12,8 +12,18 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
 
 @router.post("")
-async def create_session() -> dict[str, str]:
-    return {"session_id": str(uuid4())}
+async def create_session(
+    request: CreateSessionRequest | None = None,
+    service: RuntimeService = Depends(get_runtime_service),
+    reader: SessionReader = Depends(get_session_reader),
+) -> dict[str, str]:
+    workspace = (
+        Path(request.workspace).expanduser().resolve(strict=False)
+        if request is not None and request.workspace is not None
+        else service.workspace
+    )
+    session_id = await reader.create(workspace)
+    return {"session_id": session_id, "workspace": str(workspace)}
 
 
 @router.get("")
@@ -38,6 +48,8 @@ async def get_session(
 async def delete_session(
     session_id: str,
     service: RuntimeService = Depends(get_runtime_service),
+    reader: SessionReader = Depends(get_session_reader),
 ) -> dict[str, bool]:
-    return {"deleted": await service.delete_session(session_id)}
-
+    session_deleted = await service.delete_session(session_id)
+    metadata_deleted = await reader.delete_metadata(session_id)
+    return {"deleted": session_deleted or metadata_deleted}

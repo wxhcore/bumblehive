@@ -31,6 +31,9 @@ def create_app(
         logger.info("[lifecycle] startup started")
         try:
             await service.startup()
+            migrated_sessions = await reader.migrate_missing_workspace(
+                service.workspace
+            )
         except Exception:
             logger.exception(
                 "[lifecycle] startup failed | duration=%s",
@@ -39,6 +42,11 @@ def create_app(
             raise
         app.state.runtime_service = service
         app.state.session_reader = reader
+        if migrated_sessions:
+            logger.info(
+                "[session] migrated legacy documents | count=%d",
+                migrated_sessions,
+            )
         logger.info(
             "[lifecycle] startup completed | duration=%s",
             elapsed_since(startup_started_at),

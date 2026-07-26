@@ -3,6 +3,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -165,6 +166,7 @@ class FakeService:
 
     def __init__(self) -> None:
         self.runtime = FakeRuntime()
+        self.workspace = Path("/tmp/workspace")
         self.model_requests: list[Any] = []
         self.settings = {
             "provider": {
@@ -204,11 +206,74 @@ class FakeService:
 
 
 class FakeSessionReader:
+    def __init__(self) -> None:
+        self.created_workspaces: list[Any] = []
+        self.migrated_workspaces: list[Any] = []
+        self.deleted_metadata: list[str] = []
+
+    async def create(self, workspace: Any) -> str:
+        self.created_workspaces.append(workspace)
+        return "created-session"
+
+    async def migrate_missing_workspace(self, workspace: Any) -> int:
+        self.migrated_workspaces.append(workspace)
+        return 0
+
+    async def delete_metadata(self, session_id: str) -> bool:
+        self.deleted_metadata.append(session_id)
+        return True
+
     async def list(self) -> list[Any]:
         return []
 
     async def get(self, session_id: str) -> Any:
-        return SimpleNamespace(session_id=session_id, messages=[], updated_at=0.0)
+        return SimpleNamespace(
+            session_id=session_id,
+            workspace="/tmp/workspace",
+            messages=[],
+            created_at=0.0,
+            updated_at=0.0,
+        )
+
+
+def test_create_session_uses_current_workspace() -> None:
+    service = FakeService()
+    reader = FakeSessionReader()
+    app = create_app(
+        runtime_service=service,  # type: ignore[arg-type]
+        session_reader=reader,  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/sessions")
+        selected_workspace_response = client.post(
+            "/api/v1/sessions",
+            json={"workspace": "/tmp/selected-workspace"},
+        )
+        blank_workspace_response = client.post(
+            "/api/v1/sessions",
+            json={"workspace": "   "},
+        )
+        deleted = client.delete("/api/v1/sessions/created-session")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "session_id": "created-session",
+        "workspace": str(service.workspace),
+    }
+    assert selected_workspace_response.status_code == 200
+    assert selected_workspace_response.json() == {
+        "session_id": "created-session",
+        "workspace": str(Path("/tmp/selected-workspace").resolve()),
+    }
+    assert blank_workspace_response.status_code == 422
+    assert reader.created_workspaces == [
+        service.workspace,
+        Path("/tmp/selected-workspace").resolve(),
+    ]
+    assert reader.migrated_workspaces == [service.workspace]
+    assert deleted.json() == {"deleted": True}
+    assert reader.deleted_metadata == ["created-session"]
 
 
 def test_health_and_websocket_stream(caplog: Any) -> None:

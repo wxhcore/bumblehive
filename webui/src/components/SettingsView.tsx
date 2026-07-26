@@ -12,21 +12,27 @@ import type { Settings, SettingsUpdate } from "../types/api";
 
 interface SettingsViewProps {
   settings: Settings;
+  currentWorkspace: string | null;
   canCancel: boolean;
+  focusWorkspace?: boolean;
   onCancel: () => void;
   onSave: (update: SettingsUpdate) => Promise<void>;
 }
 
 export function SettingsView({
   settings,
+  currentWorkspace,
   canCancel,
+  focusWorkspace = false,
   onCancel,
   onSave,
 }: SettingsViewProps) {
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(settings.provider.model ?? "");
   const [baseUrl, setBaseUrl] = useState(settings.provider.base_url || "");
-  const [workspace, setWorkspace] = useState(settings.runtime?.workspace || "");
+  const [workspace, setWorkspace] = useState(
+    currentWorkspace || settings.runtime?.workspace || "",
+  );
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<string | null>(null);
@@ -40,12 +46,12 @@ export function SettingsView({
     setApiKey("");
     setModel(settings.provider.model ?? "");
     setBaseUrl(settings.provider.base_url || "");
-    setWorkspace(settings.runtime?.workspace || "");
+    setWorkspace(currentWorkspace || settings.runtime?.workspace || "");
     setModelOptions([]);
     setModelMenuOpen(false);
     setModelStatus(null);
     setModelLoading(false);
-  }, [settings]);
+  }, [currentWorkspace, settings]);
 
   const loadModels = useCallback(async (options?: { openMenu?: boolean }) => {
     const requestId = ++modelRequestId.current;
@@ -255,6 +261,7 @@ export function SettingsView({
             <input
               value={workspace}
               placeholder="留空使用默认工作区"
+              autoFocus={focusWorkspace}
               onChange={(event) => setWorkspace(event.target.value)}
             />
           </label>

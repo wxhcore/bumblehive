@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 from bumblehive import BumblehiveConfig, BumblehiveRuntime
+from bumblehive.paths import get_workspace_path
 from openai import AsyncOpenAI
 
 from .logging_utils import elapsed_since, safe_log_value
@@ -59,6 +60,10 @@ class RuntimeService:
         if runtime is None:
             raise RuntimeNotStartedError("runtime is not started")
         return runtime.config
+
+    @property
+    def workspace(self) -> Path:
+        return get_workspace_path(self.config.runtime.workspace)
 
     async def startup(self) -> None:
         async with self._lock:
@@ -214,6 +219,8 @@ class RuntimeService:
         provider = data["provider"]
         api_key = provider.pop("api_key", None)
         provider["api_key_configured"] = bool(api_key)
+        runtime = data.setdefault("runtime", {})
+        runtime["workspace"] = str(self.workspace)
         return data
 
     def _load_config(self) -> BumblehiveConfig:

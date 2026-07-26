@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+from contextlib import suppress
 from hashlib import sha256
 from pathlib import Path
+from time import time
 from typing import Any
+from uuid import uuid4
 
 from bumblehive.paths import get_sessions_path
 
@@ -18,6 +22,8 @@ class SessionNotFoundError(KeyError):
 class SessionReader:
     def __init__(self, directory: str | Path | None = None) -> None:
         self.directory = get_sessions_path(directory)
+        self.metadata_directory = self.directory / ".metadata"
+        self.metadata_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     async def list(self) -> list[SessionSummary]:
         return await asyncio.to_thread(self._list)
@@ -25,12 +31,31 @@ class SessionReader:
     async def get(self, session_id: str) -> SessionDetail:
         return await asyncio.to_thread(self._get, session_id)
 
+    async def create(self, workspace: str | Path) -> str:
+        return await asyncio.to_thread(self._create, workspace)
+
+    async def migrate_missing_workspace(self, workspace: str | Path) -> int:
+        return await asyncio.to_thread(self._migrate_missing_workspace, workspace)
+
+    async def delete_metadata(self, session_id: str) -> bool:
+        return await asyncio.to_thread(self._delete_metadata, session_id)
+
     def _list(self) -> list[SessionSummary]:
         sessions: list[SessionSummary] = []
         for path in self.directory.glob("*.json"):
             try:
                 document = self._read_document(path)
-                sessions.append(self._summary(document, path.stat().st_mtime))
+                workspace, created_at = self._read_metadata(
+                    document["session_id"]
+                )
+                sessions.append(
+                    self._summary(
+                        document,
+                        workspace,
+                        created_at,
+                        path.stat().st_mtime,
+                    )
+                )
             except (OSError, TypeError, ValueError):
                 continue
         sessions.sort(key=lambda item: item.updated_at, reverse=True)
@@ -44,15 +69,74 @@ class SessionReader:
             document = self._read_document(path)
             if document["session_id"] != session_id:
                 raise SessionNotFoundError(session_id)
+            workspace, created_at = self._read_metadata(session_id)
             return SessionDetail(
                 session_id=session_id,
+                workspace=workspace,
                 messages=document["messages"],
+                created_at=created_at,
                 updated_at=path.stat().st_mtime,
             )
         except SessionNotFoundError:
             raise
         except (OSError, TypeError, ValueError) as exc:
             raise SessionNotFoundError(session_id) from exc
+
+    def _create(self, workspace: str | Path) -> str:
+        session_id = str(uuid4())
+        session_path = self._path(session_id)
+        metadata_path = self._metadata_path(session_id)
+        created_at = time()
+        try:
+            self._write_json(
+                session_path,
+                {"session_id": session_id, "messages": []},
+            )
+            self._write_json(
+                metadata_path,
+                {
+                    "session_id": session_id,
+                    "workspace": _resolved_workspace(workspace),
+                    "created_at": created_at,
+                },
+            )
+        except (OSError, TypeError, ValueError):
+            session_path.unlink(missing_ok=True)
+            metadata_path.unlink(missing_ok=True)
+            raise
+        return session_id
+
+    def _migrate_missing_workspace(self, workspace: str | Path) -> int:
+        default_workspace = _resolved_workspace(workspace)
+        migrated = 0
+        for path in self.directory.glob("*.json"):
+            try:
+                document = self._read_document(path)
+                session_id = document["session_id"]
+                try:
+                    self._read_metadata(session_id)
+                    continue
+                except (OSError, TypeError, ValueError):
+                    pass
+                self._write_json(
+                    self._metadata_path(session_id),
+                    {
+                        "session_id": session_id,
+                        "workspace": default_workspace,
+                        "created_at": _path_created_at(path),
+                    },
+                )
+            except (OSError, TypeError, ValueError):
+                continue
+            migrated += 1
+        return migrated
+
+    def _delete_metadata(self, session_id: str) -> bool:
+        try:
+            self._metadata_path(session_id).unlink()
+        except FileNotFoundError:
+            return False
+        return True
 
     @staticmethod
     def _read_document(path: Path) -> dict[str, Any]:
@@ -70,8 +154,43 @@ class SessionReader:
             "messages": [dict(message) for message in messages],
         }
 
+    def _read_metadata(self, session_id: str) -> tuple[str, float]:
+        metadata_path = self._metadata_path(session_id)
+        with metadata_path.open(encoding="utf-8") as file:
+            raw = json.load(file)
+        if (
+            not isinstance(raw, dict)
+            or raw.get("session_id") != session_id
+            or not isinstance(raw.get("workspace"), str)
+            or not raw["workspace"].strip()
+        ):
+            raise ValueError("invalid session metadata")
+        created_at = raw.get("created_at")
+        if isinstance(created_at, bool) or not isinstance(created_at, (int, float)):
+            created_at = _path_created_at(metadata_path)
+        return raw["workspace"], float(created_at)
+
     @staticmethod
-    def _summary(document: dict[str, Any], updated_at: float) -> SessionSummary:
+    def _write_json(path: Path, document: dict[str, Any]) -> None:
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("x", encoding="utf-8") as file:
+                with suppress(OSError):
+                    os.chmod(temporary, 0o600)
+                json.dump(document, file, ensure_ascii=False, indent=2)
+                file.write("\n")
+            os.replace(temporary, path)
+        except (OSError, TypeError, ValueError):
+            temporary.unlink(missing_ok=True)
+            raise
+
+    @staticmethod
+    def _summary(
+        document: dict[str, Any],
+        workspace: str,
+        created_at: float,
+        updated_at: float,
+    ) -> SessionSummary:
         messages = document["messages"]
         title = next(
             (
@@ -91,15 +210,33 @@ class SessionReader:
         )
         return SessionSummary(
             session_id=document["session_id"],
+            workspace=workspace,
             message_count=len(messages),
             title=_truncate(title, 80),
             last_message=_truncate(last_message, 120),
+            created_at=created_at,
             updated_at=updated_at,
         )
 
     def _path(self, session_id: str) -> Path:
-        digest = sha256(session_id.encode("utf-8")).hexdigest()
-        return self.directory / f"{digest}.json"
+        return self.directory / _session_filename(session_id)
+
+    def _metadata_path(self, session_id: str) -> Path:
+        return self.metadata_directory / _session_filename(session_id)
+
+
+def _session_filename(session_id: str) -> str:
+    digest = sha256(session_id.encode("utf-8")).hexdigest()
+    return f"{digest}.json"
+
+
+def _resolved_workspace(workspace: str | Path) -> str:
+    return str(Path(workspace).expanduser().resolve(strict=False))
+
+
+def _path_created_at(path: Path) -> float:
+    stat = path.stat()
+    return float(getattr(stat, "st_birthtime", stat.st_mtime))
 
 
 def _message_text(message: dict[str, Any]) -> str:

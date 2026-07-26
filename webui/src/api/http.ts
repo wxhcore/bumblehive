@@ -1,5 +1,6 @@
 import { API_URL } from "./config";
 import type {
+  CreatedSession,
   HealthResponse,
   ModelListRequest,
   ModelListResponse,
@@ -48,11 +49,16 @@ export function getModels(requestBody: ModelListRequest): Promise<ModelListRespo
   return request("/api/v1/models", jsonInit("POST", requestBody));
 }
 
-export async function createSession(): Promise<string> {
-  const response = await request<{ session_id: string }>("/api/v1/sessions", {
-    method: "POST",
-  });
-  return response.session_id;
+export async function createSession(
+  workspace?: string | null,
+): Promise<CreatedSession> {
+  const targetWorkspace = workspace?.trim();
+  return request<CreatedSession>(
+    "/api/v1/sessions",
+    targetWorkspace
+      ? jsonInit("POST", { workspace: targetWorkspace })
+      : { method: "POST" },
+  );
 }
 
 export async function getSessions(): Promise<SessionSummary[]> {

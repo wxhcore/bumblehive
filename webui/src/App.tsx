@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ChatSocket } from "./api/chat-socket";
 import {
   createSession,
@@ -15,9 +21,30 @@ import { Composer } from "./components/Composer";
 import { HomeView } from "./components/HomeView";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
+import {
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  useSidebarWidth,
+} from "./hooks/useSidebarWidth";
+import {
+  isMacDesktop,
+  pickWorkspaceDirectory,
+  startWindowDrag,
+} from "./lib/platform";
+import {
+  mergeDiscoveredWorkspaces,
+  readSelectedWorkspace,
+  readWorkspaceRegistry,
+  removeKnownWorkspace,
+  workspaceKey,
+  workspaceLabel,
+  writeSelectedWorkspace,
+  writeWorkspaceRegistry,
+} from "./lib/workspaces";
 import type {
   AssistantIteration,
   ChatFrame,
+  CreatedSession,
   SessionSummary,
   Settings,
   SettingsUpdate,
@@ -151,12 +178,6 @@ function historyMessages(messages: StoredMessage[]): UiMessage[] {
   });
 
   return result;
-}
-
-function workspaceLabel(path: string | null | undefined): string {
-  if (!path) return "默认工作区";
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.at(-1) || path;
 }
 
 function startedTool(payload: Record<string, unknown>): ToolActivity | null {
@@ -344,11 +365,25 @@ function completeIterationTools(
   }));
 }
 
+function useStableCallback<Args extends unknown[], Result>(
+  callback: (...args: Args) => Result,
+): (...args: Args) => Result {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+  return useCallback((...args: Args) => callbackRef.current(...args), []);
+}
+
 export default function App() {
   const [bootstrapStatus, setBootstrapStatus] =
     useState<BootstrapStatus>("loading");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [workspaceRegistry, setWorkspaceRegistry] = useState(
+    readWorkspaceRegistry,
+  );
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(
+    readSelectedWorkspace,
+  );
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelSwitching, setModelSwitching] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -359,14 +394,20 @@ export default function App() {
   const [stoppingSessionIds, setStoppingSessionIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
-  const [pendingSessionIds, setPendingSessionIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
+  const [pendingSessionWorkspaces, setPendingSessionWorkspaces] = useState<
+    ReadonlyMap<string, string>
+  >(() => new Map());
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [focusSettingsWorkspace, setFocusSettingsWorkspace] =
+    useState(false);
   const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
+  const [removeWorkspacePath, setRemoveWorkspacePath] = useState<string | null>(
+    null,
+  );
   const [toast, setToast] = useState("");
+  const sidebar = useSidebarWidth();
 
   const socketsRef = useRef(new Map<string, ChatSocket>());
   const activeSessionIdRef = useRef<string | null>(null);
@@ -380,7 +421,10 @@ export default function App() {
   );
   const toastTimerRef = useRef<number | null>(null);
   const modelListRequestIdRef = useRef(0);
-
+  const blankSessionIdsRef = useRef(new Map<string, string>());
+  const blankSessionRequestsRef = useRef(
+    new Map<string, Promise<CreatedSession>>(),
+  );
   const notify = useCallback((message: string) => {
     setToast(message);
     if (toastTimerRef.current !== null) {
@@ -463,13 +507,30 @@ export default function App() {
     const loaded = await getSessions();
     if (version !== sessionsLoadVersionRef.current) return;
     setSessions(loaded);
+    setWorkspaceRegistry((current) =>
+      mergeDiscoveredWorkspaces(
+        current,
+        loaded.map((session) => ({
+          path: session.workspace,
+          createdAt: session.created_at,
+        })),
+      ),
+    );
     const persistedIds = new Set(loaded.map((session) => session.session_id));
-    setPendingSessionIds((pending) => {
-      const next = new Set(pending);
+    setPendingSessionWorkspaces((pending) => {
+      const next = new Map(pending);
       persistedIds.forEach((sessionId) => next.delete(sessionId));
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    writeWorkspaceRegistry(workspaceRegistry);
+  }, [workspaceRegistry]);
+
+  useEffect(() => {
+    writeSelectedWorkspace(selectedWorkspace);
+  }, [selectedWorkspace]);
 
   const failRun = useCallback(
     (sessionId: string, message: string) => {
@@ -808,7 +869,39 @@ export default function App() {
           getSessions(),
         ]);
         if (cancelled) return;
+        const currentWorkspace = loadedSettings.runtime?.workspace?.trim();
+        const discoveredRegistry = mergeDiscoveredWorkspaces(
+          readWorkspaceRegistry(),
+          [
+            ...loadedSessions.map((session) => ({
+              path: session.workspace,
+              createdAt: session.created_at,
+            })),
+            ...(currentWorkspace
+              ? [
+                  {
+                    path: currentWorkspace,
+                    createdAt: Date.now() / 1000,
+                  },
+                ]
+              : []),
+          ],
+        );
+        const storedSelection = readSelectedWorkspace();
+        const nextSelection =
+          discoveredRegistry.items.find(
+            (workspace) =>
+              workspaceKey(workspace.path) === workspaceKey(storedSelection),
+          )?.path ??
+          discoveredRegistry.items.find(
+            (workspace) =>
+              workspaceKey(workspace.path) === workspaceKey(currentWorkspace),
+          )?.path ??
+          discoveredRegistry.items[0]?.path ??
+          null;
         setSettings(loadedSettings);
+        setWorkspaceRegistry(discoveredRegistry);
+        setSelectedWorkspace(nextSelection);
         void loadAvailableModels(loadedSettings);
         setSessions(loadedSessions);
         setShowSettings(!isProviderConfigured(loadedSettings));
@@ -873,19 +966,154 @@ export default function App() {
     }
   }
 
-  async function newChat() {
+  function workspaceForSession(sessionId: string | null): string | null {
+    if (!sessionId) return null;
+    return (
+      pendingSessionWorkspaces.get(sessionId) ??
+      sessions.find((session) => session.session_id === sessionId)
+        ?.workspace ??
+      null
+    );
+  }
+
+  function rememberWorkspace(
+    workspace: string | null | undefined,
+    createdAt = Date.now() / 1000,
+    restore = true,
+  ) {
+    const path = workspace?.trim();
+    if (!path) return;
+    setWorkspaceRegistry((current) =>
+      mergeDiscoveredWorkspaces(
+        current,
+        [{ path, createdAt }],
+        restore,
+      ),
+    );
+  }
+
+  function newChatWorkspace(): string | null {
+    return (
+      workspaceForSession(activeSessionIdRef.current) ??
+      selectedWorkspace?.trim() ??
+      null
+    );
+  }
+
+  function reusableBlankSession(workspace: string | null): string | null {
+    const targetKey = workspaceKey(workspace);
+    const rememberedId = blankSessionIdsRef.current.get(targetKey);
+    const rememberedWorkspace = rememberedId
+      ? workspaceForSession(rememberedId)
+      : null;
+    if (
+      rememberedId &&
+      rememberedWorkspace &&
+      workspaceKey(rememberedWorkspace) === targetKey &&
+      !runningSessionIdsRef.current.has(rememberedId) &&
+      (messagesBySessionRef.current.get(rememberedId)?.length ?? 0) === 0
+    ) {
+      return rememberedId;
+    }
+    if (rememberedId) {
+      blankSessionIdsRef.current.delete(targetKey);
+      blankSessionRequestsRef.current.delete(targetKey);
+    }
+
+    for (const [sessionId, pendingWorkspace] of pendingSessionWorkspaces) {
+      if (
+        workspaceKey(pendingWorkspace) === targetKey &&
+        !runningSessionIdsRef.current.has(sessionId) &&
+        (messagesBySessionRef.current.get(sessionId)?.length ?? 0) === 0
+      ) {
+        blankSessionIdsRef.current.set(targetKey, sessionId);
+        return sessionId;
+      }
+    }
+
+    const persisted = sessions.find(
+      (session) =>
+        workspaceKey(session.workspace) === targetKey &&
+        session.message_count === 0 &&
+        !runningSessionIdsRef.current.has(session.session_id) &&
+        (messagesBySessionRef.current.get(session.session_id)?.length ?? 0) ===
+          0,
+    );
+    if (!persisted) return null;
+    blankSessionIdsRef.current.set(targetKey, persisted.session_id);
+    return persisted.session_id;
+  }
+
+  function createBlankSession(
+    workspace: string | null,
+  ): Promise<CreatedSession> {
+    const targetKey = workspaceKey(workspace);
+    const existingRequest = blankSessionRequestsRef.current.get(targetKey);
+    if (existingRequest) return existingRequest;
+
+    const request = createSession(workspace)
+      .then(async (created) => {
+        blankSessionRequestsRef.current.delete(targetKey);
+        if (workspaceKey(created.workspace) !== targetKey) {
+          await deleteSession(created.session_id).catch(() => false);
+          throw new Error(
+            "服务端工作空间状态未更新，请重启 BumbleHive 后重试",
+          );
+        }
+        blankSessionIdsRef.current.set(targetKey, created.session_id);
+        return created;
+      })
+      .catch((error: unknown) => {
+        blankSessionRequestsRef.current.delete(targetKey);
+        throw error;
+      });
+    blankSessionRequestsRef.current.set(targetKey, request);
+    return request;
+  }
+
+  function releaseBlankSession(sessionId: string) {
+    for (const [workspace, rememberedId] of blankSessionIdsRef.current) {
+      if (rememberedId !== sessionId) continue;
+      blankSessionIdsRef.current.delete(workspace);
+      blankSessionRequestsRef.current.delete(workspace);
+      return;
+    }
+  }
+
+  async function newChat(requestedWorkspace?: string | null) {
     if (!settings || !isProviderConfigured(settings)) {
       setShowSettings(true);
       notify("请先完成 API Key 和模型设置");
       return;
     }
+    const workspace = requestedWorkspace?.trim() || newChatWorkspace();
+    if (!workspace) {
+      setShowSettings(true);
+      notify("请先在设置中添加工作空间");
+      return;
+    }
+    rememberWorkspace(workspace);
+    setSelectedWorkspace(workspace);
     try {
       const selectionVersion = ++sessionSelectionVersionRef.current;
-      const sessionId = await createSession();
-      messagesBySessionRef.current.set(sessionId, []);
-      setPendingSessionIds((current) => new Set(current).add(sessionId));
+      const reusableSessionId = reusableBlankSession(workspace);
+      if (reusableSessionId) {
+        if (reusableSessionId !== activeSessionId) {
+          displaySession(reusableSessionId, []);
+          setInput("");
+        }
+        setShowSettings(false);
+        return;
+      }
+
+      const created = await createBlankSession(workspace);
+      messagesBySessionRef.current.set(created.session_id, []);
+      setPendingSessionWorkspaces((current) =>
+        new Map(current).set(created.session_id, created.workspace),
+      );
+      rememberWorkspace(created.workspace, Date.now() / 1000);
       if (selectionVersion !== sessionSelectionVersionRef.current) return;
-      displaySession(sessionId, []);
+      displaySession(created.session_id, []);
       setInput("");
       setShowSettings(false);
     } catch (error) {
@@ -895,6 +1123,11 @@ export default function App() {
 
   async function selectSession(sessionId: string) {
     const selectionVersion = ++sessionSelectionVersionRef.current;
+    const sessionWorkspace = workspaceForSession(sessionId);
+    if (sessionWorkspace) {
+      rememberWorkspace(sessionWorkspace);
+      setSelectedWorkspace(sessionWorkspace);
+    }
     if (sessionId === activeSessionId) {
       setShowSettings(false);
       return;
@@ -902,7 +1135,7 @@ export default function App() {
 
     if (
       runningSessionIdsRef.current.has(sessionId) ||
-      pendingSessionIds.has(sessionId)
+      pendingSessionWorkspaces.has(sessionId)
     ) {
       displaySession(
         sessionId,
@@ -915,6 +1148,8 @@ export default function App() {
     try {
       const detail = await getSession(sessionId);
       if (selectionVersion !== sessionSelectionVersionRef.current) return;
+      rememberWorkspace(detail.workspace, detail.created_at);
+      setSelectedWorkspace(detail.workspace);
       displaySession(sessionId, historyMessages(detail.messages));
       setShowSettings(false);
     } catch (error) {
@@ -936,6 +1171,7 @@ export default function App() {
     setDeleteSessionId(null);
     try {
       await deleteSession(sessionId);
+      releaseBlankSession(sessionId);
       socketsRef.current.get(sessionId)?.close();
       socketsRef.current.delete(sessionId);
       messagesBySessionRef.current.delete(sessionId);
@@ -943,8 +1179,8 @@ export default function App() {
       setSessions((current) =>
         current.filter((session) => session.session_id !== sessionId),
       );
-      setPendingSessionIds((current) => {
-        const next = new Set(current);
+      setPendingSessionWorkspaces((current) => {
+        const next = new Map(current);
         next.delete(sessionId);
         return next;
       });
@@ -954,6 +1190,72 @@ export default function App() {
     } catch (error) {
       notify(error instanceof Error ? error.message : "会话删除失败");
     }
+  }
+
+  function requestRemoveWorkspace(workspace: string) {
+    const key = workspaceKey(workspace);
+    const sessionIds = [
+      ...sessions
+        .filter((session) => workspaceKey(session.workspace) === key)
+        .map((session) => session.session_id),
+      ...[...pendingSessionWorkspaces]
+        .filter(([, pendingWorkspace]) => workspaceKey(pendingWorkspace) === key)
+        .map(([sessionId]) => sessionId),
+    ];
+    if (
+      sessionIds.some((sessionId) =>
+        runningSessionIdsRef.current.has(sessionId),
+      )
+    ) {
+      notify("请先停止这个工作空间中正在运行的任务");
+      return;
+    }
+    setRemoveWorkspacePath(workspace);
+  }
+
+  async function addWorkspace() {
+    try {
+      const workspace = await pickWorkspaceDirectory();
+      if (workspace === undefined) {
+        setFocusSettingsWorkspace(true);
+        setShowSettings(true);
+        notify("请在设置中填写工作区路径");
+        return;
+      }
+      if (!workspace) return;
+
+      rememberWorkspace(workspace, Date.now() / 1000, true);
+      setSelectedWorkspace(workspace);
+      displaySession(null, []);
+      setInput("");
+      setShowSettings(false);
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "工作空间目录选择失败",
+      );
+    }
+  }
+
+  function confirmRemoveWorkspace() {
+    const workspace = removeWorkspacePath;
+    if (!workspace) return;
+    setRemoveWorkspacePath(null);
+    const key = workspaceKey(workspace);
+    const remaining = workspaceRegistry.items.filter(
+      (candidate) => workspaceKey(candidate.path) !== key,
+    );
+    setWorkspaceRegistry((current) =>
+      removeKnownWorkspace(current, workspace),
+    );
+    if (workspaceKey(workspaceForSession(activeSessionId)) === key) {
+      displaySession(null, []);
+      setInput("");
+    }
+    if (workspaceKey(selectedWorkspace) === key) {
+      setSelectedWorkspace(remaining[0]?.path ?? null);
+    }
+    if (remaining.length === 0) setShowSettings(true);
+    notify(`${workspaceLabel(workspace)} 已从侧栏移除`);
   }
 
   async function sendMessage() {
@@ -966,18 +1268,35 @@ export default function App() {
     }
 
     let sessionId = activeSessionId;
+    let taskWorkspace =
+      workspaceForSession(sessionId) ??
+      selectedWorkspace ??
+      settings.runtime?.workspace ??
+      null;
     if (sessionId && runningSessionIdsRef.current.has(sessionId)) return;
     try {
       if (!sessionId) {
-        const createdSessionId = await createSession();
-        sessionId = createdSessionId;
-        displaySession(createdSessionId, []);
-        setPendingSessionIds((current) =>
-          new Set(current).add(createdSessionId),
+        const workspace = newChatWorkspace();
+        if (!workspace) {
+          setShowSettings(true);
+          notify("请先在设置中添加工作空间");
+          return;
+        }
+        const created = await createBlankSession(
+          workspace,
+        );
+        sessionId = created.session_id;
+        taskWorkspace = created.workspace;
+        rememberWorkspace(created.workspace, Date.now() / 1000);
+        setSelectedWorkspace(created.workspace);
+        displaySession(created.session_id, []);
+        setPendingSessionWorkspaces((current) =>
+          new Map(current).set(created.session_id, created.workspace),
         );
       }
 
       const assistantId = createMessageId();
+      releaseBlankSession(sessionId);
       const sessionMessages =
         messagesBySessionRef.current.get(sessionId) ?? messages;
       const runMessages: UiMessage[] = [
@@ -988,6 +1307,7 @@ export default function App() {
           role: "assistant",
           content: "",
           iterations: [],
+          startedAt: Date.now(),
         },
       ];
       assistantIdsRef.current.set(sessionId, assistantId);
@@ -998,7 +1318,7 @@ export default function App() {
       setMessages(runMessages);
 
       const socket = await connectSocket(sessionId);
-      socket.send(task);
+      socket.send(task, taskWorkspace);
     } catch (error) {
       if (sessionId) {
         failRun(
@@ -1031,8 +1351,20 @@ export default function App() {
 
   async function saveSettings(update: SettingsUpdate) {
     const saved = await updateSettings(update);
+    const savedWorkspace = saved.runtime?.workspace?.trim() ?? null;
+    const workspaceChanged =
+      workspaceKey(savedWorkspace) !== workspaceKey(selectedWorkspace);
     setSettings(saved);
+    if (savedWorkspace) {
+      rememberWorkspace(savedWorkspace, Date.now() / 1000, true);
+      setSelectedWorkspace(savedWorkspace);
+    }
+    if (workspaceChanged) {
+      displaySession(null, []);
+      setInput("");
+    }
     void loadAvailableModels(saved);
+    setFocusSettingsWorkspace(false);
     setShowSettings(false);
     notify("设置已保存");
   }
@@ -1069,49 +1401,142 @@ export default function App() {
     activeSessionId && stoppingSessionIds.has(activeSessionId),
   );
   const hasRunningSessions = runningSessionIds.size > 0;
-  const selectableModels = settings
-    ? Array.from(
-        new Set(
-          [settings.provider.model, ...availableModels].filter(
-            (model): model is string => Boolean(model),
-          ),
-        ),
-      )
-    : [];
+  const selectableModels = useMemo(
+    () =>
+      settings
+        ? Array.from(
+            new Set(
+              [settings.provider.model, ...availableModels].filter(
+                (model): model is string => Boolean(model),
+              ),
+            ),
+          )
+        : [],
+    [availableModels, settings],
+  );
   const deleteSessionTitle = deleteSessionId
     ? sessions.find((session) => session.session_id === deleteSessionId)?.title
     : null;
-  const pendingSessions = [...pendingSessionIds].map((sessionId) => {
-    const firstUserMessage = messagesBySessionRef.current
-      .get(sessionId)
-      ?.find((message) => message.role === "user");
-    const title =
-      typeof firstUserMessage?.content === "string"
-        ? firstUserMessage.content.trim()
-        : "";
-    return { sessionId, title: title || "新对话" };
+  const activeFirstUserTitle =
+    messages.find((message) => message.role === "user")?.content.trim() ?? "";
+  const pendingSessions = useMemo(
+    () =>
+      [...pendingSessionWorkspaces].map(([sessionId, workspace]) => {
+        const firstUserMessage = messagesBySessionRef.current
+          .get(sessionId)
+          ?.find((message) => message.role === "user");
+        const title =
+          typeof firstUserMessage?.content === "string"
+            ? firstUserMessage.content.trim()
+            : "";
+        return { sessionId, workspace, title: title || "新对话" };
+      }),
+    [activeFirstUserTitle, activeSessionId, pendingSessionWorkspaces],
+  );
+  const activeSessionTitle = activeSessionId
+    ? sessions.find((session) => session.session_id === activeSessionId)
+        ?.title ??
+      pendingSessions.find((session) => session.sessionId === activeSessionId)
+        ?.title ??
+      "新对话"
+    : "新对话";
+  const activeWorkspace =
+    selectedWorkspace?.trim() ??
+    workspaceForSession(activeSessionId) ??
+    null;
+  const isBlankChat =
+    isMacDesktop &&
+    bootstrapStatus === "ready" &&
+    !showSettings &&
+    messages.length === 0;
+  const handleSidebarNewChat = useStableCallback(() => void newChat());
+  const handleSidebarAddWorkspace = useStableCallback(
+    () => void addWorkspace(),
+  );
+  const handleSidebarNewChatInWorkspace = useStableCallback(
+    (workspace: string) => void newChat(workspace),
+  );
+  const handleSidebarRemoveWorkspace = useStableCallback(
+    requestRemoveWorkspace,
+  );
+  const handleSidebarSelectSession = useStableCallback(
+    (sessionId: string) => void selectSession(sessionId),
+  );
+  const handleSidebarDeleteSession = useStableCallback(requestDeleteSession);
+  const handleSidebarOpenSettings = useStableCallback(() => {
+    if (hasRunningSessions) {
+      notify("请等待所有会话任务完成");
+    } else {
+      setFocusSettingsWorkspace(false);
+      setShowSettings(true);
+    }
+  });
+  const handleComposerSubmit = useStableCallback(() => void sendMessage());
+  const handleComposerStop = useStableCallback(stopRun);
+  const handleComposerSelectModel = useStableCallback(selectModel);
+  const handleComposerOpenSettings = useStableCallback(() => {
+    setFocusSettingsWorkspace(false);
+    setShowSettings(true);
   });
 
   return (
-    <main className="app-shell" aria-label="BumbleHive 对话工作台">
+    <main
+      className={`app-shell${isMacDesktop ? " platform-macos" : ""}${
+        isBlankChat ? " blank-chat" : ""
+      }`}
+      aria-label="BumbleHive 对话工作台"
+      style={sidebar.style}
+    >
+      {isMacDesktop ? (
+        <div
+          className="desktop-titlebar"
+          data-tauri-drag-region
+          aria-hidden="true"
+          onPointerDown={(event) => {
+            if (event.button === 0) startWindowDrag();
+          }}
+        >
+          <div className="desktop-titlebar-sidebar" />
+          <div className="desktop-titlebar-divider" />
+          <div className="desktop-titlebar-main">
+            <span className="titlebar-folder-icon" />
+            <span className="desktop-titlebar-title">
+              {activeSessionTitle}
+            </span>
+          </div>
+        </div>
+      ) : null}
+
       <Sidebar
+        workspaces={workspaceRegistry.items}
         sessions={sessions}
         activeSessionId={activeSessionId}
+        currentWorkspace={activeWorkspace}
         pendingSessions={pendingSessions}
         runningSessionIds={runningSessionIds}
         disabled={bootstrapStatus !== "ready"}
         settingsDisabled={bootstrapStatus !== "ready" || hasRunningSessions}
         sessionSelectionDisabled={bootstrapStatus !== "ready"}
-        onNewChat={() => void newChat()}
-        onSelectSession={(sessionId) => void selectSession(sessionId)}
-        onDeleteSession={requestDeleteSession}
-        onOpenSettings={() => {
-          if (hasRunningSessions) {
-            notify("请等待所有会话任务完成");
-          } else {
-            setShowSettings(true);
-          }
-        }}
+        onNewChat={handleSidebarNewChat}
+        onAddWorkspace={handleSidebarAddWorkspace}
+        onNewChatInWorkspace={handleSidebarNewChatInWorkspace}
+        onRemoveWorkspace={handleSidebarRemoveWorkspace}
+        onSelectSession={handleSidebarSelectSession}
+        onDeleteSession={handleSidebarDeleteSession}
+        onOpenSettings={handleSidebarOpenSettings}
+      />
+
+      <div
+        className="sidebar-resizer"
+        role="separator"
+        aria-label="调整侧栏宽度"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_SIDEBAR_WIDTH}
+        aria-valuemax={MAX_SIDEBAR_WIDTH}
+        aria-valuenow={Math.round(sidebar.width)}
+        tabIndex={0}
+        onDoubleClick={sidebar.reset}
+        {...sidebar.resizerProps}
       />
 
       <section
@@ -1143,8 +1568,13 @@ export default function App() {
           showSettings ? (
             <SettingsView
               settings={settings}
+              currentWorkspace={activeWorkspace}
               canCancel={isProviderConfigured(settings)}
-              onCancel={() => setShowSettings(false)}
+              focusWorkspace={focusSettingsWorkspace}
+              onCancel={() => {
+                setFocusSettingsWorkspace(false);
+                setShowSettings(false);
+              }}
               onSave={saveSettings}
             />
           ) : (
@@ -1162,16 +1592,16 @@ export default function App() {
                 value={input}
                 model={settings.provider.model ?? ""}
                 models={selectableModels}
-                workspace={workspaceLabel(settings.runtime?.workspace)}
+                workspace={workspaceLabel(activeWorkspace)}
                 disabled={bootstrapStatus !== "ready"}
                 isStreaming={isViewingRunningSession}
                 isStopping={isViewingStoppingSession}
                 modelSwitchDisabled={hasRunningSessions || modelSwitching}
                 onChange={setInput}
-                onSubmit={() => void sendMessage()}
-                onStop={stopRun}
-                onSelectModel={selectModel}
-                onOpenSettings={() => setShowSettings(true)}
+                onSubmit={handleComposerSubmit}
+                onStop={handleComposerStop}
+                onSelectModel={handleComposerSelectModel}
+                onOpenSettings={handleComposerOpenSettings}
               />
             </>
           )
@@ -1205,6 +1635,39 @@ export default function App() {
                   onClick={() => void confirmDeleteSession()}
                 >
                   删除
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {removeWorkspacePath ? (
+          <div className="confirm-backdrop" role="presentation">
+            <section
+              className="confirm-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="removeWorkspaceTitle"
+            >
+              <h2 id="removeWorkspaceTitle">移除工作空间？</h2>
+              <p>
+                “{workspaceLabel(removeWorkspacePath)}”将从侧栏移除。本地文件夹和
+                历史会话不会被删除；重新选择同一文件夹即可恢复。
+              </p>
+              <div className="confirm-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setRemoveWorkspacePath(null)}
+                >
+                  取消
+                </button>
+                <button
+                  className="danger-button"
+                  type="button"
+                  onClick={confirmRemoveWorkspace}
+                >
+                  移除
                 </button>
               </div>
             </section>

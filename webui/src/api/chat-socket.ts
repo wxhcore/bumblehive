@@ -65,11 +65,19 @@ export class ChatSocket {
     return this.connectPromise;
   }
 
-  send(content: string): void {
+  send(content: string, workspace?: string | null): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error("聊天服务尚未连接");
     }
-    this.socket.send(JSON.stringify({ type: "message", content }));
+    this.socket.send(
+      JSON.stringify({
+        type: "message",
+        content,
+        ...(workspace?.trim()
+          ? { config: { runtime: { workspace: workspace.trim() } } }
+          : {}),
+      }),
+    );
   }
 
   cancel(): void {
