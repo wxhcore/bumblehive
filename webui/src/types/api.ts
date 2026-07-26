@@ -165,11 +165,12 @@ export interface ShellSessionsToolDetail {
   sessions: ShellSessionSummary[];
 }
 
-export interface MutationEditSummary {
+export interface MutationFileChange {
   path: string;
-  action?: string;
-  added?: number;
-  deleted?: number;
+  added: number;
+  deleted: number;
+  unifiedDiff?: string;
+  truncated?: boolean;
 }
 
 export interface MutationToolDetail {
@@ -180,7 +181,7 @@ export interface MutationToolDetail {
   bytesWritten?: number;
   replacements?: number;
   warning?: string;
-  edits?: MutationEditSummary[];
+  fileChanges?: MutationFileChange[];
 }
 
 export interface ReadToolDetail {

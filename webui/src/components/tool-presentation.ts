@@ -2,7 +2,6 @@ import type {
   ToolActivity,
   ToolActivityStatus,
 } from "../types/api";
-import { textLines } from "../text-lines";
 
 type ToolCopy = Record<ToolActivityStatus, string>;
 
@@ -12,6 +11,8 @@ interface ToolPresentation {
   duration: string;
   technicalName: string;
 }
+
+const MUTATION_TOOLS = new Set(["write_file", "edit_file", "apply_patch"]);
 
 const BUILTIN_TOOL_COPY: Record<string, ToolCopy> = {
   read_file: {
@@ -175,60 +176,39 @@ function displayFileName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) || path;
 }
 
-function textLineCount(value: unknown): number {
-  if (typeof value !== "string" || !value) return 0;
-  return textLines(value).length;
-}
-
 function mutationSummary(tool: ToolActivity): string | null {
+  if (!MUTATION_TOOLS.has(tool.name)) return null;
+
   const argumentsValue = asRecord(tool.arguments);
-  if (!argumentsValue) return null;
-
-  if (tool.name === "write_file") {
-    const path =
-      typeof argumentsValue.path === "string"
-        ? displayFileName(argumentsValue.path)
-        : "";
-    const added = textLineCount(argumentsValue.content);
-    return [path, added ? `+${added}` : ""].filter(Boolean).join(" · ");
-  }
-
-  if (tool.name === "edit_file") {
-    const path =
-      typeof argumentsValue.path === "string"
-        ? displayFileName(argumentsValue.path)
-        : "";
-    const added = textLineCount(argumentsValue.new_text);
-    const deleted = textLineCount(argumentsValue.old_text);
-    const stats = [
-      added ? `+${added}` : "",
-      deleted ? `−${deleted}` : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    return [path, stats].filter(Boolean).join(" · ");
-  }
-
-  if (tool.name !== "apply_patch") return null;
-  const resultEdits =
-    tool.detail?.kind === "mutation" ? tool.detail.edits : undefined;
-  const argumentEdits = Array.isArray(argumentsValue.edits)
-    ? argumentsValue.edits
-    : [];
-  const edits = resultEdits?.length ? resultEdits : argumentEdits;
-  const paths = edits.flatMap((value) => {
-    const edit = asRecord(value);
-    return typeof edit?.path === "string" ? [edit.path] : [];
-  });
+  const fileChanges =
+    tool.detail?.kind === "mutation"
+      ? tool.detail.fileChanges ?? []
+      : [];
+  const argumentPaths =
+    typeof argumentsValue?.path === "string"
+      ? [argumentsValue.path]
+      : Array.isArray(argumentsValue?.edits)
+        ? argumentsValue.edits.flatMap((value) => {
+            const edit = asRecord(value);
+            return typeof edit?.path === "string" ? [edit.path] : [];
+          })
+        : [];
+  const paths = Array.from(
+    new Set(
+      fileChanges.length
+        ? fileChanges.map((change) => change.path)
+        : argumentPaths,
+    ),
+  );
   const target =
     paths.length === 1
       ? displayFileName(paths[0])
       : paths.length > 1
         ? `${paths.length} 个文件`
         : "";
-  const added = resultEdits?.reduce((sum, edit) => sum + (edit.added ?? 0), 0);
-  const deleted = resultEdits?.reduce(
-    (sum, edit) => sum + (edit.deleted ?? 0),
+  const added = fileChanges.reduce((sum, change) => sum + change.added, 0);
+  const deleted = fileChanges.reduce(
+    (sum, change) => sum + change.deleted,
     0,
   );
   const stats = [

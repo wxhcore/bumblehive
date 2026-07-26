@@ -1,26 +1,14 @@
 import { memo, useState } from "react";
 import type {
+  MutationFileChange,
   MutationToolDetail,
   ShellSessionsToolDetail,
   ShellToolDetail,
   ToolActivity,
 } from "../types/api";
-import { textLines } from "../text-lines";
-
-const MAX_DIFF_ROWS = 420;
-const MAX_DIFF_LINE_CHARACTERS = 4_000;
-
-interface DiffFile {
-  path: string;
-  oldText: string;
-  newText: string;
-  added: number;
-  deleted: number;
-  startLine?: number;
-}
 
 interface DiffRow {
-  kind: "addition" | "deletion" | "omitted";
+  kind: "context" | "addition" | "deletion" | "omitted";
   lineNumber: number | null;
   text: string;
 }
@@ -40,116 +28,46 @@ function textValue(
   return typeof record?.[key] === "string" ? record[key] : "";
 }
 
-function mutationFiles(tool: ToolActivity): DiffFile[] {
-  const argumentsValue = asRecord(tool.arguments);
-  const detail =
-    tool.detail?.kind === "mutation" ? tool.detail : undefined;
+const HUNK_HEADER =
+  /^@@ -(?<oldStart>\d+)(?:,\d+)? \+(?<newStart>\d+)(?:,\d+)? @@/;
 
-  if (tool.name === "write_file") {
-    const path = (
-      textValue(argumentsValue, "path") ||
-      detail?.path ||
-      "新文件"
-    ).slice(0, 1_000);
-    const newText = textValue(argumentsValue, "content");
-    return [
-      {
-        path,
-        oldText: "",
-        newText,
-        added: textLines(newText).length,
-        deleted: 0,
-      },
-    ];
-  }
+function diffRows(unifiedDiff: string | undefined): DiffRow[] {
+  if (!unifiedDiff) return [];
 
-  if (tool.name === "edit_file") {
-    const path = (
-      textValue(argumentsValue, "path") ||
-      detail?.path ||
-      "文件"
-    ).slice(0, 1_000);
-    const oldText = textValue(argumentsValue, "old_text");
-    const newText = textValue(argumentsValue, "new_text");
-    const rawStartLine = argumentsValue?.line_hint;
-    return [
-      {
-        path,
-        oldText,
-        newText,
-        added: textLines(newText).length,
-        deleted: textLines(oldText).length,
-        startLine:
-          typeof rawStartLine === "number" && Number.isFinite(rawStartLine)
-            ? rawStartLine
-            : undefined,
-      },
-    ];
-  }
-
-  if (tool.name !== "apply_patch" || !Array.isArray(argumentsValue?.edits)) {
-    return [];
-  }
-
-  const summaries = new Map(
-    (detail?.edits ?? []).map((edit) => [edit.path, edit]),
-  );
-  return argumentsValue.edits.flatMap((rawEdit) => {
-    const edit = asRecord(rawEdit);
-    const path = textValue(edit, "path").slice(0, 1_000);
-    if (!edit || !path) return [];
-    const action = textValue(edit, "action");
-    const oldText = action === "add" ? "" : textValue(edit, "old_text");
-    const newText = textValue(edit, "new_text");
-    const summary = summaries.get(path);
-    return [
-      {
-        path,
-        oldText,
-        newText,
-        added: summary?.added ?? textLines(newText).length,
-        deleted: summary?.deleted ?? textLines(oldText).length,
-      },
-    ];
-  });
-}
-
-function diffRows(file: DiffFile): DiffRow[] {
   const rows: DiffRow[] = [];
-  const startLine = file.startLine ?? 1;
-  textLines(file.oldText).forEach((text, index) => {
-    rows.push({
-      kind: "deletion",
-      lineNumber: startLine + index,
-      text:
-        text.length > MAX_DIFF_LINE_CHARACTERS
-          ? `${text.slice(0, MAX_DIFF_LINE_CHARACTERS)}…`
-          : text,
-    });
-  });
-  textLines(file.newText).forEach((text, index) => {
-    rows.push({
-      kind: "addition",
-      lineNumber: startLine + index,
-      text:
-        text.length > MAX_DIFF_LINE_CHARACTERS
-          ? `${text.slice(0, MAX_DIFF_LINE_CHARACTERS)}…`
-          : text,
-    });
-  });
-  if (rows.length <= MAX_DIFF_ROWS) return rows;
+  let oldLine = 0;
+  let newLine = 0;
+  let inHunk = false;
 
-  const head = rows.slice(0, MAX_DIFF_ROWS - 80);
-  const tail = rows.slice(-79);
-  return [
-    ...head,
-    {
-      kind: "omitted",
-      lineNumber: null,
-      text: `已省略 ${rows.length - head.length - tail.length} 行`,
-    },
-    ...tail,
-  ];
+  for (const line of unifiedDiff.split("\n")) {
+    const header = HUNK_HEADER.exec(line);
+    if (header?.groups) {
+      if (inHunk && rows.length) {
+        rows.push({ kind: "omitted", lineNumber: null, text: "⋯" });
+      }
+      oldLine = Number(header.groups.oldStart);
+      newLine = Number(header.groups.newStart);
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk || line.startsWith("\\ No newline")) continue;
+
+    const marker = line[0];
+    const text = line.slice(1);
+    if (marker === " ") {
+      rows.push({ kind: "context", lineNumber: newLine, text });
+      oldLine += 1;
+      newLine += 1;
+    } else if (marker === "-") {
+      rows.push({ kind: "deletion", lineNumber: oldLine, text });
+      oldLine += 1;
+    } else if (marker === "+") {
+      rows.push({ kind: "addition", lineNumber: newLine, text });
+      newLine += 1;
+    }
+  }
+
+  return rows;
 }
 
 function displayName(path: string): string {
@@ -164,11 +82,11 @@ const FileDiffCard = memo(function FileDiffCard({
   file,
   defaultOpen,
 }: {
-  file: DiffFile;
+  file: MutationFileChange;
   defaultOpen: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const rows = open ? diffRows(file) : [];
+  const rows = open ? diffRows(file.unifiedDiff) : [];
 
   return (
     <section className={`tool-diff-file${open ? " open" : ""}`}>
@@ -205,30 +123,39 @@ const FileDiffCard = memo(function FileDiffCard({
         </button>
       </div>
       {open ? (
-        <div className="tool-diff-code" role="region" aria-label={file.path}>
-          {rows.length ? (
-            rows.map((row, index) => (
-              <div
-                className={`tool-diff-row tool-diff-${row.kind}`}
-                key={`${row.kind}-${row.lineNumber ?? "more"}-${index}`}
-              >
-                <span className="tool-diff-gutter" aria-hidden="true">
-                  {row.kind === "addition"
-                    ? "+"
-                    : row.kind === "deletion"
-                      ? "−"
-                      : "⋯"}
-                </span>
-                <span className="tool-diff-line-number" aria-hidden="true">
-                  {row.lineNumber ?? ""}
-                </span>
-                <code>{row.text || " "}</code>
+        <>
+          <div className="tool-diff-code" role="region" aria-label={file.path}>
+            {rows.length ? (
+              rows.map((row, index) => (
+                <div
+                  className={`tool-diff-row tool-diff-${row.kind}`}
+                  key={`${row.kind}-${row.lineNumber ?? "more"}-${index}`}
+                >
+                  <span className="tool-diff-gutter" aria-hidden="true">
+                    {row.kind === "addition"
+                      ? "+"
+                      : row.kind === "deletion"
+                        ? "−"
+                        : ""}
+                  </span>
+                  <span className="tool-diff-line-number" aria-hidden="true">
+                    {row.lineNumber ?? ""}
+                  </span>
+                  <code>{row.text || " "}</code>
+                </div>
+              ))
+            ) : (
+              <div className="tool-detail-empty">
+                {file.truncated
+                  ? "差异过大，仅保留修改统计"
+                  : "文件已修改，没有可展示的文本差异"}
               </div>
-            ))
-          ) : (
-            <div className="tool-detail-empty">没有可展示的文本差异</div>
-          )}
-        </div>
+            )}
+          </div>
+          {file.truncated && rows.length ? (
+            <div className="tool-detail-footnote">差异内容已截断</div>
+          ) : null}
+        </>
       ) : null}
     </section>
   );
@@ -380,7 +307,9 @@ function MutationDetail({
   detail: MutationToolDetail;
   tool: ToolActivity;
 }) {
-  const files = mutationFiles(tool);
+  const files = detail.fileChanges ?? [];
+  const running =
+    tool.status === "preparing" || tool.status === "running";
   return (
     <div className="tool-mutation-card">
       {detail.dryRun ? (
@@ -390,11 +319,15 @@ function MutationDetail({
         <FileDiffCard
           defaultOpen={files.length === 1 || index === 0}
           file={file}
-          key={`${file.path}-${index}`}
+          key={file.path}
         />
       ))}
-      {!files.length ? (
-        <div className="tool-detail-empty">文件已更新，没有可展示的文本差异</div>
+      {!files.length && !detail.dryRun ? (
+        <div className="tool-detail-empty">
+          {running
+            ? "正在等待文件修改结果…"
+            : "没有记录到文件内容变化"}
+        </div>
       ) : null}
       {detail.warning ? (
         <div className="tool-detail-warning">{detail.warning}</div>

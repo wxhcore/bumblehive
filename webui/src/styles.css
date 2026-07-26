@@ -1081,12 +1081,23 @@ button.tool-step:focus-visible,
   background: rgba(238, 79, 72, 0.105);
 }
 
+.tool-diff-deletion .tool-diff-gutter,
+.tool-diff-deletion .tool-diff-line-number {
+  color: #c23d35;
+}
+
 .tool-diff-addition {
   box-shadow: inset 3px 0 #20a65a;
   background: rgba(52, 180, 99, 0.12);
 }
 
+.tool-diff-addition .tool-diff-gutter,
+.tool-diff-addition .tool-diff-line-number {
+  color: #18864b;
+}
+
 .tool-diff-omitted {
+  min-height: 18px;
   background: rgba(23, 24, 26, 0.025);
 }
 

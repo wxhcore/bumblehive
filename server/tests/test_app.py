@@ -169,6 +169,21 @@ def test_ui_event_filter_builds_bounded_tool_details() -> None:
         "tool.call.finished",
         run_id="run-1",
         ok=True,
+        file_changes=[
+            {
+                "path": "webui/src/App.tsx",
+                "added": 8,
+                "deleted": 6,
+                "unified_diff": (
+                    "--- webui/src/App.tsx\n"
+                    "+++ webui/src/App.tsx\n"
+                    "@@ -117,7 +117,9 @@\n"
+                    " context\n"
+                    "-old\n"
+                    "+new"
+                ),
+            }
+        ],
         tool_result={
             "role": "tool",
             "tool_call_id": "call-patch",
@@ -196,12 +211,19 @@ def test_ui_event_filter_builds_bounded_tool_details() -> None:
     assert mutation_frame["payload"]["tool_result"]["detail"] == {
         "kind": "mutation",
         "dryRun": False,
-        "edits": [
+        "fileChanges": [
             {
                 "path": "webui/src/App.tsx",
-                "action": "replace",
                 "added": 8,
                 "deleted": 6,
+                "unifiedDiff": (
+                    "--- webui/src/App.tsx\n"
+                    "+++ webui/src/App.tsx\n"
+                    "@@ -117,7 +117,9 @@\n"
+                    " context\n"
+                    "-old\n"
+                    "+new"
+                ),
             }
         ],
     }

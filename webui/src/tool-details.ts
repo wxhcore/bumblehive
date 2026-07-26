@@ -1,5 +1,5 @@
 import type {
-  MutationEditSummary,
+  MutationFileChange,
   MutationToolDetail,
   ReadToolDetail,
   ShellSessionSummary,
@@ -224,22 +224,25 @@ function shellSessionsDetail(
   return { kind: "shellSessions", sessions };
 }
 
-function mutationEdits(value: unknown): MutationEditSummary[] | undefined {
+function mutationFileChanges(
+  value: unknown,
+): MutationFileChange[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const edits = value.flatMap((item) => {
-    const edit = asRecord(item);
-    const path = edit ? stringValue(edit, "path") : undefined;
-    if (!edit || !path) return [];
+  const changes = value.flatMap((item) => {
+    const change = asRecord(item);
+    const path = change ? stringValue(change, "path") : undefined;
+    if (!change || !path) return [];
     return [
       {
         path: path.slice(0, 1_000),
-        action: limitedStringValue(edit, 100, "action"),
-        added: numberValue(edit, "added"),
-        deleted: numberValue(edit, "deleted"),
-      } satisfies MutationEditSummary,
+        added: Math.max(0, numberValue(change, "added") ?? 0),
+        deleted: Math.max(0, numberValue(change, "deleted") ?? 0),
+        unifiedDiff: stringValue(change, "unifiedDiff"),
+        truncated: booleanValue(change, "truncated"),
+      } satisfies MutationFileChange,
     ];
   });
-  return edits.length ? edits.slice(0, 20) : undefined;
+  return changes.length ? changes.slice(0, 20) : undefined;
 }
 
 function mutationDetail(
@@ -257,7 +260,7 @@ function mutationDetail(
     ),
     replacements: numberValue(document, "replacements"),
     warning: limitedStringValue(document, 1_000, "warning"),
-    edits: mutationEdits(document.edits),
+    fileChanges: mutationFileChanges(document.fileChanges),
   };
 }
 

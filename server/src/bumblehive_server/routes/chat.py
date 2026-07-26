@@ -40,6 +40,8 @@ _DIRECT_UI_EVENT_KINDS = frozenset(
 )
 _SHELL_OUTPUT_PREVIEW_CHARS = 16_000
 _SHELL_STDERR_PREVIEW_CHARS = 6_000
+_MUTATION_DIFF_CHARS = 256_000
+_MUTATION_FILE_ITEMS = 20
 _MUTATION_TOOLS = frozenset({"write_file", "edit_file", "apply_patch"})
 _SHELL_TOOLS = frozenset({"exec", "write_stdin"})
 _READ_TOOLS = frozenset({"read_file", "list_dir", "find_files", "grep"})
@@ -277,6 +279,12 @@ def _ui_event_frame(event: AgentEvent) -> dict[str, Any] | None:
         if isinstance(name, str):
             detail = _ui_tool_detail(name, result_document)
             if detail is not None:
+                if name in _MUTATION_TOOLS:
+                    file_changes = _mutation_file_changes(
+                        event.payload.get("file_changes")
+                    )
+                    if file_changes:
+                        detail["fileChanges"] = file_changes
                 payload["tool_result"]["detail"] = detail
         result_error = _tool_result_error(result_document)
         if result_error is not None:
@@ -343,7 +351,7 @@ def _ui_tool_detail(
     if name in _SHELL_TOOLS:
         return _shell_tool_detail(document)
     if name in _MUTATION_TOOLS:
-        return _mutation_tool_detail(name, document)
+        return _mutation_tool_detail(document)
     if name in _READ_TOOLS:
         return _read_tool_detail(name, document)
     return None
@@ -561,10 +569,7 @@ def _shell_tool_detail(document: Mapping[str, Any]) -> dict[str, Any]:
     return detail
 
 
-def _mutation_tool_detail(
-    name: str,
-    document: Mapping[str, Any],
-) -> dict[str, Any]:
+def _mutation_tool_detail(document: Mapping[str, Any]) -> dict[str, Any]:
     detail: dict[str, Any] = {"kind": "mutation"}
     _copy_text(detail, "path", document, "path", 1_000)
     _copy_if_type(detail, "created", document, "created", bool)
@@ -574,24 +579,42 @@ def _mutation_tool_detail(
     warning = document.get("warning")
     if isinstance(warning, str):
         detail["warning"] = warning[:1_000]
-
-    if name == "apply_patch":
-        raw_edits = document.get("edits")
-        if isinstance(raw_edits, list):
-            edits: list[dict[str, Any]] = []
-            for raw_edit in raw_edits[:20]:
-                if not isinstance(raw_edit, Mapping):
-                    continue
-                path = raw_edit.get("path")
-                if not isinstance(path, str):
-                    continue
-                edit: dict[str, Any] = {"path": path[:1_000]}
-                _copy_if_type(edit, "action", raw_edit, "action", str)
-                _copy_if_number(edit, "added", raw_edit, "added")
-                _copy_if_number(edit, "deleted", raw_edit, "deleted")
-                edits.append(edit)
-            detail["edits"] = edits
     return detail
+
+
+def _mutation_file_changes(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+
+    changes: list[dict[str, Any]] = []
+    remaining_diff_chars = _MUTATION_DIFF_CHARS
+    for item in value[:_MUTATION_FILE_ITEMS]:
+        if not isinstance(item, Mapping):
+            continue
+        path = item.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+
+        change: dict[str, Any] = {
+            "path": path[:1_000],
+            "added": _nonnegative_int(item.get("added")),
+            "deleted": _nonnegative_int(item.get("deleted")),
+        }
+        unified_diff = item.get("unified_diff")
+        if (
+            isinstance(unified_diff, str)
+            and unified_diff
+            and len(unified_diff) <= remaining_diff_chars
+        ):
+            change["unifiedDiff"] = unified_diff
+            remaining_diff_chars -= len(unified_diff)
+        elif isinstance(unified_diff, str) and unified_diff:
+            change["truncated"] = True
+
+        if item.get("truncated") is True:
+            change["truncated"] = True
+        changes.append(change)
+    return changes
 
 
 def _bounded_text(value: Any, limit: int) -> tuple[str, int]:
