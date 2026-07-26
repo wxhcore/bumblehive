@@ -32,6 +32,12 @@ import {
   startWindowDrag,
 } from "./lib/platform";
 import {
+  detailFromStoredToolResult,
+  normalizeToolActivityOutcome,
+  parseToolActivityDetail,
+  toolResultError,
+} from "./tool-details";
+import {
   mergeDiscoveredWorkspaces,
   readSelectedWorkspace,
   readWorkspaceRegistry,
@@ -127,13 +133,6 @@ function storedToolCalls(value: unknown, messageIndex: number): ToolActivity[] {
   });
 }
 
-function storedToolError(content: unknown): string | null {
-  const parsed = parseArguments(content);
-  const document = asRecord(parsed);
-  const error = asRecord(document?.error);
-  return typeof error?.message === "string" ? error.message : null;
-}
-
 function historyMessages(messages: StoredMessage[]): UiMessage[] {
   const result: UiMessage[] = [];
   const toolsByCallId = new Map<string, ToolActivity>();
@@ -152,6 +151,12 @@ function historyMessages(messages: StoredMessage[]): UiMessage[] {
       const content = messageContent(message.content);
       const reasoning = messageContent(message.reasoning_content);
       const tools = storedToolCalls(message.tool_calls, index);
+      const uiMetadata = asRecord(message._bumblehive_ui);
+      const durationSeconds =
+        typeof uiMetadata?.duration_s === "number" &&
+        Number.isFinite(uiMetadata.duration_s)
+          ? uiMetadata.duration_s
+          : undefined;
       if (!content && !reasoning && !tools.length) return;
       tools.forEach((tool) => toolsByCallId.set(tool.id, tool));
       const modelIteration: AssistantIteration = {
@@ -164,12 +169,16 @@ function historyMessages(messages: StoredMessage[]): UiMessage[] {
       const previous = result.at(-1);
       if (previous?.role === "assistant") {
         previous.iterations = [...(previous.iterations ?? []), modelIteration];
+        if (durationSeconds !== undefined) {
+          previous.durationSeconds = durationSeconds;
+        }
       } else {
         result.push({
           id: `history-${index}`,
           role: "assistant",
           content: "",
           iterations: [modelIteration],
+          durationSeconds,
         });
       }
       return;
@@ -180,9 +189,11 @@ function historyMessages(messages: StoredMessage[]): UiMessage[] {
         typeof message.tool_call_id === "string" ? message.tool_call_id : "";
       const tool = callId ? toolsByCallId.get(callId) : undefined;
       if (tool) {
-        const errorMessage = storedToolError(message.content);
+        const errorMessage = toolResultError(message.content);
         tool.status = errorMessage ? "error" : "completed";
         tool.errorMessage = errorMessage || undefined;
+        tool.detail = detailFromStoredToolResult(tool.name, message.content);
+        Object.assign(tool, normalizeToolActivityOutcome(tool));
       }
     }
   });
@@ -221,6 +232,7 @@ function finishedTool(payload: Record<string, unknown>): ToolActivity | null {
       typeof payload.duration_s === "number" ? payload.duration_s : undefined,
     errorMessage:
       typeof error?.message === "string" ? error.message : undefined,
+    detail: parseToolActivityDetail(result.detail),
   };
 }
 
@@ -288,14 +300,26 @@ function finishTool(
   finished: ToolActivity,
 ): ToolActivity[] {
   const current = [...(tools ?? [])];
-  const index = current.findIndex(
-    (tool) =>
-      tool.id === finished.id ||
-      ((tool.status === "running" || tool.status === "preparing") &&
-        tool.name === finished.name),
-  );
-  if (index === -1) return [...current, finished];
-  current[index] = { ...current[index], ...finished };
+  let index = current.findIndex((tool) => tool.id === finished.id);
+  if (index < 0) {
+    for (let candidate = current.length - 1; candidate >= 0; candidate -= 1) {
+      const tool = current[candidate];
+      if (
+        (tool.status === "running" || tool.status === "preparing") &&
+        tool.name === finished.name
+      ) {
+        index = candidate;
+        break;
+      }
+    }
+  }
+  if (index === -1) {
+    return [...current, normalizeToolActivityOutcome(finished)];
+  }
+  current[index] = normalizeToolActivityOutcome({
+    ...current[index],
+    ...finished,
+  });
   return current;
 }
 
@@ -337,14 +361,27 @@ function finishIterationTool(
   finished: ToolActivity,
 ): AssistantIteration[] {
   const current = [...(iterations ?? [])];
-  const ownerIndex = current.findIndex((item) =>
-    item.tools?.some(
-      (tool) =>
-        tool.id === finished.id ||
-        ((tool.status === "running" || tool.status === "preparing") &&
-          tool.name === finished.name),
-    ),
+  let ownerIndex = current.findIndex((item) =>
+    item.tools?.some((tool) => tool.id === finished.id),
   );
+  if (ownerIndex < 0) {
+    for (
+      let candidate = current.length - 1;
+      candidate >= 0;
+      candidate -= 1
+    ) {
+      if (
+        current[candidate].tools?.some(
+          (tool) =>
+            (tool.status === "running" || tool.status === "preparing") &&
+            tool.name === finished.name,
+        )
+      ) {
+        ownerIndex = candidate;
+        break;
+      }
+    }
+  }
 
   if (ownerIndex >= 0) {
     current[ownerIndex] = {
@@ -934,6 +971,11 @@ export default function App() {
                     };
                     return completed;
                   })(),
+                  durationSeconds:
+                    item.durationSeconds ??
+                    (item.startedAt
+                      ? Math.max(0, (Date.now() - item.startedAt) / 1000)
+                      : undefined),
                   error: true,
                 }
               : item,

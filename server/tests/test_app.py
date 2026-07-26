@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -7,12 +8,17 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from bumblehive.observability.events import make_event
 from bumblehive.protocols.errors import AgentError
 from bumblehive_server.app import create_app
-from bumblehive_server.routes.chat import chat
+from bumblehive_server.routes.chat import (
+    _persist_run_duration,
+    _ui_event_frame,
+    chat,
+)
 
 
 @dataclass
@@ -30,11 +36,25 @@ class FakeStream:
     def __init__(self) -> None:
         self._events = [
             make_event(
+                "model.request.started",
+                run_id="run-1",
+                session_id="session-1",
+                request={
+                    "messages": [{"role": "user", "content": "internal prompt"}]
+                },
+            ),
+            make_event(
                 "model.stream.content_delta",
                 run_id="run-1",
                 session_id="session-1",
                 delta="Hello",
-            )
+            ),
+            make_event(
+                "model.response.finished",
+                run_id="run-1",
+                session_id="session-1",
+                message={"role": "assistant", "content": "Hello"},
+            ),
         ]
 
     def __aiter__(self) -> AsyncIterator[Any]:
@@ -54,6 +74,277 @@ class FakeStream:
 class FakeRuntime:
     def stream(self, *_args: Any, **_kwargs: Any) -> FakeStream:
         return FakeStream()
+
+
+def test_ui_event_filter_removes_unused_and_large_payloads() -> None:
+    internal = make_event(
+        "model.request.started",
+        run_id="run-1",
+        request={"messages": [{"role": "user", "content": "private prompt"}]},
+    )
+    assert _ui_event_frame(internal) is None
+
+    tool_finished = make_event(
+        "tool.call.finished",
+        run_id="run-1",
+        ok=True,
+        tool_result={
+            "role": "tool",
+            "tool_call_id": "call-1",
+            "name": "read_file",
+            "content": "large tool output",
+        },
+        duration_s=0.25,
+    )
+    tool_frame = _ui_event_frame(tool_finished)
+    assert tool_frame is not None
+    assert tool_frame["payload"] == {
+        "ok": True,
+        "tool_result": {
+            "tool_call_id": "call-1",
+            "name": "read_file",
+            "detail": {"kind": "read"},
+        },
+        "duration_s": 0.25,
+    }
+
+    response_without_reasoning = make_event(
+        "model.response.finished",
+        run_id="run-1",
+        message={"role": "assistant", "content": "answer"},
+    )
+    assert _ui_event_frame(response_without_reasoning) is None
+
+    response_with_reasoning = make_event(
+        "model.response.finished",
+        run_id="run-1",
+        message={
+            "role": "assistant",
+            "content": "answer",
+            "reasoning_content": "reasoning",
+        },
+    )
+    reasoning_frame = _ui_event_frame(response_with_reasoning)
+    assert reasoning_frame is not None
+    assert reasoning_frame["payload"] == {
+        "message": {"reasoning_content": "reasoning"}
+    }
+
+
+def test_ui_event_filter_builds_bounded_tool_details() -> None:
+    shell_finished = make_event(
+        "tool.call.finished",
+        run_id="run-1",
+        ok=True,
+        tool_result={
+            "role": "tool",
+            "tool_call_id": "call-shell",
+            "name": "exec",
+            "content": json.dumps(
+                {
+                    "command": "npm run build",
+                    "working_dir": "/tmp/workspace",
+                    "exit_code": 0,
+                    "stdout": "x" * 20_000,
+                    "stderr": "",
+                    "stdout_truncated_chars": 12,
+                }
+            ),
+        },
+        duration_s=1.25,
+    )
+
+    shell_frame = _ui_event_frame(shell_finished)
+
+    assert shell_frame is not None
+    shell_result = shell_frame["payload"]["tool_result"]
+    assert shell_result["name"] == "exec"
+    assert shell_result["detail"]["kind"] == "shell"
+    assert shell_result["detail"]["command"] == "npm run build"
+    assert "已省略" in shell_result["detail"]["stdout"]
+    assert shell_result["detail"]["truncatedCharacters"] == 4_012
+    assert "x" * 20_000 not in str(shell_frame)
+
+    mutation_finished = make_event(
+        "tool.call.finished",
+        run_id="run-1",
+        ok=True,
+        tool_result={
+            "role": "tool",
+            "tool_call_id": "call-patch",
+            "name": "apply_patch",
+            "content": json.dumps(
+                {
+                    "success": True,
+                    "dry_run": False,
+                    "edits": [
+                        {
+                            "action": "replace",
+                            "path": "webui/src/App.tsx",
+                            "added": 8,
+                            "deleted": 6,
+                        }
+                    ],
+                }
+            ),
+        },
+    )
+
+    mutation_frame = _ui_event_frame(mutation_finished)
+
+    assert mutation_frame is not None
+    assert mutation_frame["payload"]["tool_result"]["detail"] == {
+        "kind": "mutation",
+        "dryRun": False,
+        "edits": [
+            {
+                "path": "webui/src/App.tsx",
+                "action": "replace",
+                "added": 8,
+                "deleted": 6,
+            }
+        ],
+    }
+
+    read_finished = make_event(
+        "tool.call.finished",
+        run_id="run-1",
+        ok=True,
+        tool_result={
+            "role": "tool",
+            "tool_call_id": "call-grep",
+            "name": "grep",
+            "content": json.dumps(
+                {
+                    "total_matches": 7,
+                    "files": [
+                        "webui/src/App.tsx",
+                        "webui/src/components/ChatView.tsx",
+                    ],
+                    "truncated": False,
+                    "matches": [
+                        {
+                            "path": "webui/src/App.tsx",
+                            "line": 10,
+                            "text": "private matching content",
+                        }
+                    ],
+                }
+            ),
+        },
+    )
+
+    read_frame = _ui_event_frame(read_finished)
+
+    assert read_frame is not None
+    assert read_frame["payload"]["tool_result"]["detail"] == {
+        "kind": "read",
+        "totalMatches": 7,
+        "truncated": False,
+        "items": [
+            "webui/src/App.tsx",
+            "webui/src/components/ChatView.tsx",
+        ],
+    }
+    assert "private matching content" not in str(read_frame)
+
+
+def test_ui_event_filter_promotes_builtin_result_errors() -> None:
+    tool_finished = make_event(
+        "tool.call.finished",
+        run_id="run-1",
+        ok=True,
+        tool_result={
+            "role": "tool",
+            "tool_call_id": "call-1",
+            "name": "read_file",
+            "content": json.dumps({"error": "path does not exist"}),
+        },
+    )
+
+    tool_frame = _ui_event_frame(tool_finished)
+
+    assert tool_frame is not None
+    assert tool_frame["payload"]["ok"] is False
+    assert tool_frame["payload"]["error"]["message"] == "path does not exist"
+
+
+def test_ui_event_filter_builds_bounded_exec_session_details() -> None:
+    sessions = [
+        {
+            "session_id": f"session-{index}-" + "s" * 400,
+            "command": "python task.py " + "x" * 5_000,
+            "working_dir": "/tmp/" + "workspace/" * 200,
+            "running": True,
+            "exit_code": None,
+            "elapsed_seconds": 12.5,
+            "idle_seconds": 1.25,
+            "remaining_seconds": None,
+        }
+        for index in range(25)
+    ]
+    tool_finished = make_event(
+        "tool.call.finished",
+        run_id="run-1",
+        ok=True,
+        tool_result={
+            "role": "tool",
+            "tool_call_id": "call-sessions",
+            "name": "list_exec_sessions",
+            "content": json.dumps({"sessions": sessions}),
+        },
+    )
+
+    tool_frame = _ui_event_frame(tool_finished)
+
+    assert tool_frame is not None
+    detail = tool_frame["payload"]["tool_result"]["detail"]
+    assert detail["kind"] == "shellSessions"
+    assert len(detail["sessions"]) == 20
+    first = detail["sessions"][0]
+    assert len(first["sessionId"]) == 300
+    assert len(first["command"]) == 4_000
+    assert len(first["workingDirectory"]) == 1_000
+    assert first["running"] is True
+    assert first["exitCode"] is None
+    assert first["elapsedSeconds"] == 12.5
+    assert first["idleSeconds"] == 1.25
+    assert first["remainingSeconds"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_duration_is_persisted_on_the_final_assistant_message() -> None:
+    class FakeSessions:
+        def __init__(self) -> None:
+            self.messages = [
+                {"role": "user", "content": "task"},
+                {"role": "assistant", "content": None, "tool_calls": []},
+                {"role": "assistant", "content": "done"},
+            ]
+            self.session = SimpleNamespace(lock=asyncio.Lock())
+
+        async def get(self, _session_id: str) -> Any:
+            return self.session
+
+        def get_history(self, _session: Any) -> list[dict[str, Any]]:
+            return [dict(message) for message in self.messages]
+
+        async def replace_and_save(
+            self,
+            _session: Any,
+            messages: list[dict[str, Any]],
+        ) -> None:
+            self.messages = messages
+
+    sessions = FakeSessions()
+    runtime = SimpleNamespace(sessions=sessions)
+
+    await _persist_run_duration(runtime, "session-1", 12.3456)
+
+    assert "_bumblehive_ui" not in sessions.messages[1]
+    assert sessions.messages[2]["_bumblehive_ui"] == {
+        "duration_s": 12.346
+    }
 
 
 class BlockingFakeStream:

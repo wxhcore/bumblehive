@@ -2,6 +2,7 @@ import type {
   ToolActivity,
   ToolActivityStatus,
 } from "../types/api";
+import { textLines } from "../text-lines";
 
 type ToolCopy = Record<ToolActivityStatus, string>;
 
@@ -17,70 +18,70 @@ const BUILTIN_TOOL_COPY: Record<string, ToolCopy> = {
     preparing: "正在准备读取文件",
     running: "正在读取文件",
     completed: "已读取文件",
-    error: "读取文件失败",
+    error: "已尝试读取文件",
     cancelled: "读取文件已停止",
   },
   write_file: {
     preparing: "正在生成文件内容",
     running: "正在写入文件",
     completed: "已写入文件",
-    error: "写入文件失败",
+    error: "已尝试写入文件",
     cancelled: "写入文件已停止",
   },
   edit_file: {
     preparing: "正在准备编辑文件",
     running: "正在编辑文件",
     completed: "已编辑文件",
-    error: "编辑文件失败",
+    error: "已尝试编辑文件",
     cancelled: "编辑文件已停止",
   },
   apply_patch: {
     preparing: "正在生成文件修改",
-    running: "正在应用文件修改",
-    completed: "已应用文件修改",
-    error: "应用文件修改失败",
-    cancelled: "应用文件修改已停止",
+    running: "正在编辑文件",
+    completed: "已编辑文件",
+    error: "已尝试编辑文件",
+    cancelled: "编辑文件已停止",
   },
   list_dir: {
     preparing: "正在准备查看目录",
     running: "正在查看目录",
     completed: "已查看目录",
-    error: "查看目录失败",
+    error: "已尝试查看目录",
     cancelled: "查看目录已停止",
   },
   find_files: {
     preparing: "正在准备查找文件",
     running: "正在查找文件",
     completed: "已查找文件",
-    error: "查找文件失败",
+    error: "已尝试查找文件",
     cancelled: "查找文件已停止",
   },
   grep: {
     preparing: "正在准备搜索内容",
     running: "正在搜索内容",
     completed: "已搜索内容",
-    error: "搜索内容失败",
+    error: "已尝试搜索内容",
     cancelled: "搜索内容已停止",
   },
   exec: {
     preparing: "正在生成 Shell 命令",
     running: "正在运行 Shell 命令",
     completed: "已运行 Shell 命令",
-    error: "Shell 命令运行失败",
+    error: "已运行 Shell 命令",
     cancelled: "Shell 命令已停止",
   },
   write_stdin: {
     preparing: "正在准备向 Shell 发送输入",
     running: "正在向 Shell 发送输入",
     completed: "已向 Shell 发送输入",
-    error: "向 Shell 发送输入失败",
+    error: "已尝试向 Shell 发送输入",
     cancelled: "向 Shell 发送输入已停止",
   },
   list_exec_sessions: {
     preparing: "正在准备查看 Shell 任务",
     running: "正在查看 Shell 任务",
     completed: "已查看 Shell 任务",
-    error: "查看 Shell 任务失败",
+    error: "已尝试查看 Shell 任务",
     cancelled: "查看 Shell 任务已停止",
   },
 };
@@ -127,7 +128,7 @@ const FALLBACK_COPY: ToolCopy = {
   preparing: "正在准备外部操作",
   running: "正在执行外部操作",
   completed: "已完成外部操作",
-  error: "外部操作失败",
+  error: "已执行外部操作",
   cancelled: "外部操作已停止",
 };
 
@@ -136,7 +137,7 @@ function actionCopy(action: string, completed: string): ToolCopy {
     preparing: `正在准备${action}`,
     running: `正在${action}`,
     completed,
-    error: `${action}失败`,
+    error: `已尝试${action}`,
     cancelled: `${action}已停止`,
   };
 }
@@ -160,6 +161,83 @@ function shortValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function displayFileName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) || path;
+}
+
+function textLineCount(value: unknown): number {
+  if (typeof value !== "string" || !value) return 0;
+  return textLines(value).length;
+}
+
+function mutationSummary(tool: ToolActivity): string | null {
+  const argumentsValue = asRecord(tool.arguments);
+  if (!argumentsValue) return null;
+
+  if (tool.name === "write_file") {
+    const path =
+      typeof argumentsValue.path === "string"
+        ? displayFileName(argumentsValue.path)
+        : "";
+    const added = textLineCount(argumentsValue.content);
+    return [path, added ? `+${added}` : ""].filter(Boolean).join(" · ");
+  }
+
+  if (tool.name === "edit_file") {
+    const path =
+      typeof argumentsValue.path === "string"
+        ? displayFileName(argumentsValue.path)
+        : "";
+    const added = textLineCount(argumentsValue.new_text);
+    const deleted = textLineCount(argumentsValue.old_text);
+    const stats = [
+      added ? `+${added}` : "",
+      deleted ? `−${deleted}` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return [path, stats].filter(Boolean).join(" · ");
+  }
+
+  if (tool.name !== "apply_patch") return null;
+  const resultEdits =
+    tool.detail?.kind === "mutation" ? tool.detail.edits : undefined;
+  const argumentEdits = Array.isArray(argumentsValue.edits)
+    ? argumentsValue.edits
+    : [];
+  const edits = resultEdits?.length ? resultEdits : argumentEdits;
+  const paths = edits.flatMap((value) => {
+    const edit = asRecord(value);
+    return typeof edit?.path === "string" ? [edit.path] : [];
+  });
+  const target =
+    paths.length === 1
+      ? displayFileName(paths[0])
+      : paths.length > 1
+        ? `${paths.length} 个文件`
+        : "";
+  const added = resultEdits?.reduce((sum, edit) => sum + (edit.added ?? 0), 0);
+  const deleted = resultEdits?.reduce(
+    (sum, edit) => sum + (edit.deleted ?? 0),
+    0,
+  );
+  const stats = [
+    added ? `+${added}` : "",
+    deleted ? `−${deleted}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return [target, stats].filter(Boolean).join(" · ");
 }
 
 function streamedToolHint(argumentsValue: string): string {
@@ -226,6 +304,17 @@ function toolSummary(tool: ToolActivity): string {
         ? "参数未完成"
         : "正在生成参数";
     return [hint, progress].filter(Boolean).join(" · ");
+  }
+
+  const mutation = mutationSummary(tool);
+  if (mutation !== null) return mutation;
+
+  if (
+    tool.name === "list_exec_sessions" &&
+    tool.detail?.kind === "shellSessions"
+  ) {
+    const count = tool.detail.sessions.length;
+    return count ? `${count} 个活动会话` : "没有活动会话";
   }
 
   const argumentsValue = tool.arguments;

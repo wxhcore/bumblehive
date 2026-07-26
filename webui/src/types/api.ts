@@ -132,6 +132,78 @@ export type ToolActivityStatus =
   | "cancelled"
   | "error";
 
+export interface ShellToolDetail {
+  kind: "shell";
+  sessionId?: string;
+  command?: string;
+  workingDirectory?: string;
+  output: string;
+  stdout: string;
+  stderr: string;
+  exitCode?: number | null;
+  running?: boolean;
+  done?: boolean;
+  timedOut?: boolean;
+  terminated?: boolean;
+  elapsedSeconds?: number;
+  truncatedCharacters: number;
+}
+
+export interface ShellSessionSummary {
+  sessionId: string;
+  command: string;
+  workingDirectory?: string;
+  running: boolean;
+  exitCode?: number | null;
+  elapsedSeconds?: number;
+  idleSeconds?: number;
+  remainingSeconds?: number | null;
+}
+
+export interface ShellSessionsToolDetail {
+  kind: "shellSessions";
+  sessions: ShellSessionSummary[];
+}
+
+export interface MutationEditSummary {
+  path: string;
+  action?: string;
+  added?: number;
+  deleted?: number;
+}
+
+export interface MutationToolDetail {
+  kind: "mutation";
+  path?: string;
+  created?: boolean;
+  dryRun?: boolean;
+  bytesWritten?: number;
+  replacements?: number;
+  warning?: string;
+  edits?: MutationEditSummary[];
+}
+
+export interface ReadToolDetail {
+  kind: "read";
+  path?: string;
+  startLine?: number;
+  endLine?: number;
+  totalLines?: number;
+  pages?: string;
+  totalPages?: number;
+  totalEntries?: number;
+  totalMatches?: number;
+  items?: string[];
+  truncated?: boolean;
+  deduplicated?: boolean;
+}
+
+export type ToolActivityDetail =
+  | ShellToolDetail
+  | ShellSessionsToolDetail
+  | MutationToolDetail
+  | ReadToolDetail;
+
 export interface ToolActivity {
   id: string;
   name: string;
@@ -141,6 +213,7 @@ export interface ToolActivity {
   status: ToolActivityStatus;
   durationSeconds?: number;
   errorMessage?: string;
+  detail?: ToolActivityDetail;
 }
 
 export interface AssistantIteration {
