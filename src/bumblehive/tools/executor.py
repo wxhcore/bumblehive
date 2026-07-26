@@ -6,7 +6,8 @@ from ..observability.emitter import EventEmitter
 from ..observability.emitters import ToolEvents
 from ..protocols.errors import AgentError
 from ..protocols.tool_calls import ToolCall, ToolResult
-from .registry import ToolRegistry
+from .file_changes import FileChangeTracker
+from .registry import PreparedToolCall, ToolRegistry
 
 
 class ToolExecutor:
@@ -29,21 +30,29 @@ class ToolExecutor:
         tool_events = ToolEvents(emitter)
         await tool_events.call_started(call)
 
+        prepared = self.registry.prepare_call(call.name, call.arguments)
+        tracker = (
+            FileChangeTracker.prepare(call.name, prepared.arguments)
+            if not prepared.is_error
+            else FileChangeTracker()
+        )
         started_at_ns = time.perf_counter_ns()
-        result = await self._execute_call_core(call)
+        result = await self._execute_call_core(call, prepared=prepared)
         duration_s = (time.perf_counter_ns() - started_at_ns) / 1_000_000_000
         await tool_events.call_finished(
             call=call,
             result=result,
             duration_s=duration_s,
+            file_changes=tracker.finish(),
         )
         return result
 
     async def _execute_call_core(
         self,
         call: ToolCall,
+        *,
+        prepared: PreparedToolCall,
     ) -> ToolResult:
-        prepared = self.registry.prepare_call(call.name, call.arguments)
         if prepared.is_error:
             return ToolResult(
                 call_id=call.id,

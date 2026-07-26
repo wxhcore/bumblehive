@@ -233,9 +233,11 @@ class ToolEvents:
         call: ToolCall,
         result: ToolResult,
         duration_s: float,
+        file_changes: list[dict[str, Any]] | None = None,
     ) -> None:
         await self.emitter.emit(
             TOOL_CALL_FINISHED,
             **tool_result_payload(result, call=call),
             duration_s=round(duration_s, 4),
+            file_changes=file_changes or None,
         )
