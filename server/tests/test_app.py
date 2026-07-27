@@ -14,11 +14,11 @@ from fastapi.testclient import TestClient
 from bumblehive.observability.events import make_event
 from bumblehive.protocols.errors import AgentError
 from bumblehive_server.app import create_app
-from bumblehive_server.routes.chat import (
-    _persist_run_duration,
-    _ui_event_frame,
-    chat,
+from bumblehive_server.chat.frames import ui_event_frame as _ui_event_frame
+from bumblehive_server.chat.streaming import (
+    persist_run_duration as _persist_run_duration,
 )
+from bumblehive_server.routes.chat import chat
 
 
 @dataclass
