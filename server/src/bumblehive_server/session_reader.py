@@ -31,8 +31,13 @@ class SessionReader:
     async def get(self, session_id: str) -> SessionDetail:
         return await asyncio.to_thread(self._get, session_id)
 
-    async def create(self, workspace: str | Path) -> str:
-        return await asyncio.to_thread(self._create, workspace)
+    async def create(
+        self,
+        workspace: str | Path,
+        *,
+        title: str | None = None,
+    ) -> str:
+        return await asyncio.to_thread(self._create, workspace, title)
 
     async def migrate_missing_workspace(self, workspace: str | Path) -> int:
         return await asyncio.to_thread(self._migrate_missing_workspace, workspace)
@@ -45,7 +50,7 @@ class SessionReader:
         for path in self.directory.glob("*.json"):
             try:
                 document = self._read_document(path)
-                workspace, created_at = self._read_metadata(
+                workspace, created_at, title = self._read_metadata(
                     document["session_id"]
                 )
                 sessions.append(
@@ -54,6 +59,7 @@ class SessionReader:
                         workspace,
                         created_at,
                         path.stat().st_mtime,
+                        title,
                     )
                 )
             except (OSError, TypeError, ValueError):
@@ -69,7 +75,7 @@ class SessionReader:
             document = self._read_document(path)
             if document["session_id"] != session_id:
                 raise SessionNotFoundError(session_id)
-            workspace, created_at = self._read_metadata(session_id)
+            workspace, created_at, _ = self._read_metadata(session_id)
             return SessionDetail(
                 session_id=session_id,
                 workspace=workspace,
@@ -82,24 +88,25 @@ class SessionReader:
         except (OSError, TypeError, ValueError) as exc:
             raise SessionNotFoundError(session_id) from exc
 
-    def _create(self, workspace: str | Path) -> str:
+    def _create(self, workspace: str | Path, title: str | None) -> str:
         session_id = str(uuid4())
         session_path = self._path(session_id)
         metadata_path = self._metadata_path(session_id)
         created_at = time()
+        metadata: dict[str, Any] = {
+            "session_id": session_id,
+            "workspace": _resolved_workspace(workspace),
+            "created_at": created_at,
+        }
+        display_title = _normalized_title(title)
+        if display_title:
+            metadata["title"] = display_title
         try:
             self._write_json(
                 session_path,
                 {"session_id": session_id, "messages": []},
             )
-            self._write_json(
-                metadata_path,
-                {
-                    "session_id": session_id,
-                    "workspace": _resolved_workspace(workspace),
-                    "created_at": created_at,
-                },
-            )
+            self._write_json(metadata_path, metadata)
         except (OSError, TypeError, ValueError):
             session_path.unlink(missing_ok=True)
             metadata_path.unlink(missing_ok=True)
@@ -154,7 +161,7 @@ class SessionReader:
             "messages": [dict(message) for message in messages],
         }
 
-    def _read_metadata(self, session_id: str) -> tuple[str, float]:
+    def _read_metadata(self, session_id: str) -> tuple[str, float, str]:
         metadata_path = self._metadata_path(session_id)
         with metadata_path.open(encoding="utf-8") as file:
             raw = json.load(file)
@@ -168,7 +175,11 @@ class SessionReader:
         created_at = raw.get("created_at")
         if isinstance(created_at, bool) or not isinstance(created_at, (int, float)):
             created_at = _path_created_at(metadata_path)
-        return raw["workspace"], float(created_at)
+        return (
+            raw["workspace"],
+            float(created_at),
+            _normalized_title(raw.get("title")),
+        )
 
     @staticmethod
     def _write_json(path: Path, document: dict[str, Any]) -> None:
@@ -190,9 +201,10 @@ class SessionReader:
         workspace: str,
         created_at: float,
         updated_at: float,
+        metadata_title: str,
     ) -> SessionSummary:
         messages = document["messages"]
-        title = next(
+        title = metadata_title or next(
             (
                 _message_text(message)
                 for message in messages
@@ -252,3 +264,9 @@ def _truncate(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return f"{value[: limit - 1]}…"
+
+
+def _normalized_title(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return _truncate(" ".join(value.split()), 80)

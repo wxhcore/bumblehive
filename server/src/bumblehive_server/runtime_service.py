@@ -16,6 +16,8 @@ from bumblehive.paths import get_workspace_path
 from openai import AsyncOpenAI
 
 from .logging_utils import elapsed_since, safe_log_value
+from .session_reader import SessionReader
+from .subagents import register_subagent_tool
 
 
 RuntimeFactory = Callable[[BumblehiveConfig], BumblehiveRuntime]
@@ -40,10 +42,12 @@ class RuntimeService:
         self,
         config_path: str | Path,
         *,
+        session_reader: SessionReader | None = None,
         runtime_factory: RuntimeFactory = BumblehiveRuntime.from_config,
         openai_client_factory: OpenAIClientFactory | None = None,
     ) -> None:
         self.config_path = Path(config_path).expanduser()
+        self._session_reader = session_reader
         self._runtime_factory = runtime_factory
         self._openai_client_factory = openai_client_factory or AsyncOpenAI
         self._runtime: BumblehiveRuntime | None = None
@@ -121,8 +125,7 @@ class RuntimeService:
             )
             raise
         logger.info(
-            "[session] delete completed | session_id=%s | deleted=%s | "
-            "duration=%s",
+            "[session] delete completed | session_id=%s | deleted=%s | duration=%s",
             safe_log_value(session_id),
             str(deleted).lower(),
             elapsed_since(started_at),
@@ -240,6 +243,7 @@ class RuntimeService:
         runtime = self._runtime_factory(config)
         try:
             await runtime.initialize_tools()
+            register_subagent_tool(runtime, self._session_reader)
         except BaseException:
             await runtime.close()
             raise
@@ -300,9 +304,7 @@ def _normalize_base_url(value: str) -> str:
     ):
         raise ValueError("Base URL must be a valid HTTP(S) URL")
     path = parsed.path.rstrip("/")
-    return urlunsplit(
-        (parsed.scheme.lower(), parsed.netloc.lower(), path, "", "")
-    )
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, "", ""))
 
 
 def _model_ids(response: Any) -> list[str]:

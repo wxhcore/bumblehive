@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from types import SimpleNamespace
@@ -7,7 +8,18 @@ import pytest
 
 from bumblehive import BumblehiveConfig
 from bumblehive.config import ProviderConfig
+from bumblehive.observability.events import make_event
+from bumblehive.protocols import ToolCall
+from bumblehive.protocols.errors import AgentError
+from bumblehive.tools import PathAllowlist, ToolManager
+from bumblehive.tools.scope import (
+    bind_tool_path_scope,
+    bind_tool_session,
+    reset_tool_path_scope,
+    reset_tool_session,
+)
 from bumblehive_server.runtime_service import RuntimeBusyError, RuntimeService
+from bumblehive_server.subagents import observe_subagents
 
 
 class FakeRuntime:
@@ -71,6 +83,163 @@ class FakeOpenAIClientFactory:
         client = FakeOpenAIClient(self.models)
         self.clients.append(client)
         return client
+
+
+class RecordingSessionReader:
+    def __init__(self, session_id: str = "child-session") -> None:
+        self.session_id = session_id
+        self.created_workspaces: list[Any] = []
+        self.created_titles: list[str | None] = []
+
+    async def create(
+        self,
+        workspace: Any,
+        *,
+        title: str | None = None,
+    ) -> str:
+        self.created_workspaces.append(workspace)
+        self.created_titles.append(title)
+        return self.session_id
+
+
+class SequentialSessionReader(RecordingSessionReader):
+    async def create(
+        self,
+        workspace: Any,
+        *,
+        title: str | None = None,
+    ) -> str:
+        self.created_workspaces.append(workspace)
+        self.created_titles.append(title)
+        return f"child-session-{len(self.created_workspaces)}"
+
+
+class RecordingSubagentObserver:
+    def __init__(self) -> None:
+        self.created: list[dict[str, str]] = []
+        self.events: list[Any] = []
+        self.results: list[dict[str, Any]] = []
+        self.errors: list[dict[str, str]] = []
+        self.cancelled: list[str] = []
+
+    async def on_created(
+        self,
+        *,
+        session_id: str,
+        workspace: str,
+        title: str,
+        content: str,
+    ) -> None:
+        self.created.append(
+            {
+                "session_id": session_id,
+                "workspace": workspace,
+                "title": title,
+                "content": content,
+            }
+        )
+
+    async def on_event(self, event: Any) -> None:
+        self.events.append(event)
+
+    async def on_result(
+        self,
+        *,
+        session_id: str,
+        result: Any,
+        duration_s: float,
+    ) -> None:
+        self.results.append(
+            {
+                "session_id": session_id,
+                "result": result,
+                "duration_s": duration_s,
+            }
+        )
+
+    async def on_error(self, *, session_id: str, message: str) -> None:
+        self.errors.append({"session_id": session_id, "message": message})
+
+    async def on_cancelled(self, *, session_id: str) -> None:
+        self.cancelled.append(session_id)
+
+
+class SubagentFakeStream:
+    def __init__(
+        self,
+        runtime: "SubagentFakeRuntime",
+        session_id: str,
+    ) -> None:
+        self.runtime = runtime
+        self.session_id = session_id
+
+    def __aiter__(self) -> Any:
+        return self._iterate()
+
+    async def _iterate(self) -> Any:
+        yield make_event(
+            "model.stream.content_delta",
+            run_id=f"run-{self.session_id}",
+            session_id=self.session_id,
+            delta=f"Streaming {self.session_id}",
+        )
+        await self.runtime.run_release.wait()
+        if self.runtime.run_exception is not None:
+            raise self.runtime.run_exception
+
+    async def result(self) -> Any:
+        return self.runtime.run_result
+
+    async def aclose(self) -> None:
+        return None
+
+
+class SubagentFakeRuntime(FakeRuntime):
+    def __init__(self, config: BumblehiveConfig) -> None:
+        super().__init__(config)
+        self.tools = ToolManager()
+        self.run_started = asyncio.Event()
+        self.run_release = asyncio.Event()
+        self.expected_run_count = 1
+        self.run_calls: list[dict[str, Any]] = []
+        self.run_result = SimpleNamespace(final_content="Child answer", error=None)
+        self.run_exception: Exception | None = None
+
+    def stream(
+        self,
+        message: str,
+        *,
+        session_id: str,
+        config: dict[str, Any],
+    ) -> SubagentFakeStream:
+        self.run_calls.append(
+            {
+                "message": message,
+                "session_id": session_id,
+                "config": config,
+            }
+        )
+        if len(self.run_calls) >= self.expected_run_count:
+            self.run_started.set()
+        return SubagentFakeStream(self, session_id)
+
+
+def _start_subagent_tool(
+    runtime: SubagentFakeRuntime,
+    *,
+    workspace: Any,
+    title: str,
+    task: str,
+) -> asyncio.Task[str]:
+    session_token = bind_tool_session("parent-session")
+    path_token = bind_tool_path_scope(workspace, PathAllowlist())
+    try:
+        tool = runtime.tools.get_tool("sub_agent")
+        assert tool is not None
+        return asyncio.create_task(tool.execute(title=title, task=task))
+    finally:
+        reset_tool_path_scope(path_token)
+        reset_tool_session(session_token)
 
 
 @pytest.mark.asyncio
@@ -397,3 +566,261 @@ async def test_runtime_service_logs_config_load_failure(
     ]
     assert len(failure_records) == 1
     assert failure_records[0].exc_info is not None
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_registers_subagent_on_startup_and_replacement(
+    tmp_path,
+) -> None:
+    reader = RecordingSessionReader()
+    runtimes: list[SubagentFakeRuntime] = []
+
+    def factory(config: BumblehiveConfig) -> Any:
+        runtime = SubagentFakeRuntime(config)
+        runtimes.append(runtime)
+        return runtime
+
+    service = RuntimeService(
+        tmp_path / "config.json",
+        session_reader=reader,  # type: ignore[arg-type]
+        runtime_factory=factory,
+    )
+
+    await service.startup()
+    await service.update_config({"provider": {"model": "replacement"}})
+
+    assert len(runtimes) == 2
+    assert all(runtime.tools.get_tool("sub_agent") is not None for runtime in runtimes)
+    tool = runtimes[0].tools.get_tool("sub_agent")
+    assert tool is not None
+    assert tool.parameters["required"] == ["title", "task"]
+    assert tool.parameters["properties"]["title"]["maxLength"] == 80
+    assert "independent read-only sub-agent" in tool.description
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_subagent_tool_runs_a_read_only_child_session(tmp_path) -> None:
+    reader = RecordingSessionReader()
+    observer = RecordingSubagentObserver()
+    runtime: SubagentFakeRuntime | None = None
+
+    def factory(config: BumblehiveConfig) -> Any:
+        nonlocal runtime
+        runtime = SubagentFakeRuntime(config)
+        return runtime
+
+    service = RuntimeService(
+        tmp_path / "config.json",
+        session_reader=reader,  # type: ignore[arg-type]
+        runtime_factory=factory,
+    )
+    await service.startup()
+    assert runtime is not None
+
+    workspace = tmp_path / "workspace"
+    with observe_subagents(observer):
+        tool_task = _start_subagent_tool(
+            runtime,
+            workspace=workspace,
+            title="Inspect the project",
+            task="  Inspect the project  ",
+        )
+    await runtime.run_started.wait()
+
+    assert reader.created_workspaces == [workspace.resolve()]
+    assert reader.created_titles == ["Inspect the project"]
+    assert observer.created == [
+        {
+            "session_id": "child-session",
+            "workspace": str(workspace.resolve()),
+            "title": "Inspect the project",
+            "content": "Inspect the project",
+        }
+    ]
+    assert [event.session_id for event in observer.events] == ["child-session"]
+    assert runtime.run_calls == [
+        {
+            "message": "Inspect the project",
+            "session_id": "child-session",
+            "config": {
+                "runtime": {"workspace": str(workspace.resolve())},
+                "agent": {
+                    "tool_names": (
+                        "read_file",
+                        "list_dir",
+                        "find_files",
+                        "grep",
+                    )
+                },
+            },
+        }
+    ]
+
+    runtime.run_release.set()
+    assert await tool_task == "Child answer"
+    assert [item["session_id"] for item in observer.results] == [
+        "child-session"
+    ]
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_subagent_tool_runs_multiple_calls_in_parallel(tmp_path) -> None:
+    reader = SequentialSessionReader()
+    observer = RecordingSubagentObserver()
+    runtime: SubagentFakeRuntime | None = None
+
+    def factory(config: BumblehiveConfig) -> Any:
+        nonlocal runtime
+        runtime = SubagentFakeRuntime(config)
+        return runtime
+
+    service = RuntimeService(
+        tmp_path / "config.json",
+        session_reader=reader,  # type: ignore[arg-type]
+        runtime_factory=factory,
+    )
+    await service.startup()
+    assert runtime is not None
+    runtime.expected_run_count = 2
+
+    session_token = bind_tool_session("parent-session")
+    try:
+        with observe_subagents(observer):
+            calls_task = asyncio.create_task(
+                runtime.tools.execute_many(
+                    [
+                        ToolCall(
+                            id="call-1",
+                            name="sub_agent",
+                            arguments={
+                                "title": "Inspect A",
+                                "task": "Inspect task A",
+                            },
+                        ),
+                        ToolCall(
+                            id="call-2",
+                            name="sub_agent",
+                            arguments={
+                                "title": "Inspect B",
+                                "task": "Inspect task B",
+                            },
+                        ),
+                    ],
+                    tool_names=["sub_agent"],
+                    workspace=tmp_path / "workspace",
+                )
+            )
+    finally:
+        reset_tool_session(session_token)
+
+    await asyncio.wait_for(runtime.run_started.wait(), timeout=1)
+
+    assert [call["message"] for call in runtime.run_calls] == [
+        "Inspect task A",
+        "Inspect task B",
+    ]
+    assert reader.created_titles == ["Inspect A", "Inspect B"]
+    assert {
+        call["session_id"] for call in runtime.run_calls
+    } == {"child-session-1", "child-session-2"}
+    assert {
+        event.session_id for event in observer.events
+    } == {"child-session-1", "child-session-2"}
+
+    runtime.run_release.set()
+    results = await calls_task
+
+    assert [result.content for result in results] == [
+        "Child answer",
+        "Child answer",
+    ]
+    assert {
+        item["session_id"] for item in observer.results
+    } == {"child-session-1", "child-session-2"}
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_subagent_tool_cleans_running_state_on_error_and_cancellation(
+    tmp_path,
+) -> None:
+    reader = RecordingSessionReader()
+    observer = RecordingSubagentObserver()
+    runtime: SubagentFakeRuntime | None = None
+
+    def factory(config: BumblehiveConfig) -> Any:
+        nonlocal runtime
+        runtime = SubagentFakeRuntime(config)
+        return runtime
+
+    service = RuntimeService(
+        tmp_path / "config.json",
+        session_reader=reader,  # type: ignore[arg-type]
+        runtime_factory=factory,
+    )
+    await service.startup()
+    assert runtime is not None
+
+    runtime.run_result = SimpleNamespace(
+        final_content=None,
+        error=AgentError(code="model_error", message="child failed"),
+    )
+    with observe_subagents(observer):
+        failed_task = _start_subagent_tool(
+            runtime,
+            workspace=tmp_path / "workspace",
+            title="Test failure",
+            task="Fail",
+        )
+    await runtime.run_started.wait()
+    runtime.run_release.set()
+
+    with pytest.raises(RuntimeError, match="child failed"):
+        await failed_task
+    assert [item["session_id"] for item in observer.results] == [
+        "child-session"
+    ]
+
+    runtime.run_started.clear()
+    runtime.run_release.clear()
+    runtime.run_result = SimpleNamespace(final_content="unused", error=None)
+    runtime.run_exception = RuntimeError("stream failed")
+    with observe_subagents(observer):
+        errored_task = _start_subagent_tool(
+            runtime,
+            workspace=tmp_path / "workspace",
+            title="Test stream error",
+            task="Error",
+        )
+    await runtime.run_started.wait()
+    runtime.run_release.set()
+
+    with pytest.raises(RuntimeError, match="stream failed"):
+        await errored_task
+    assert observer.errors == [
+        {
+            "session_id": "child-session",
+            "message": "stream failed",
+        }
+    ]
+
+    runtime.run_started.clear()
+    runtime.run_release.clear()
+    runtime.run_exception = None
+    runtime.run_result = SimpleNamespace(final_content="unused", error=None)
+    with observe_subagents(observer):
+        cancelled_task = _start_subagent_tool(
+            runtime,
+            workspace=tmp_path / "workspace",
+            title="Test cancellation",
+            task="Wait",
+        )
+    await runtime.run_started.wait()
+    cancelled_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled_task
+    assert observer.cancelled == ["child-session"]
+    await service.shutdown()

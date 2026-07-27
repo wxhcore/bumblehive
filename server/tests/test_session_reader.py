@@ -38,6 +38,42 @@ async def test_session_reader_lists_and_loads_json_sessions(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_session_reader_prefers_persisted_display_title(tmp_path) -> None:
+    reader = SessionReader(tmp_path)
+    session_id = await reader.create(
+        "/tmp/demo",
+        title="  Inspect   concurrency  ",
+    )
+    path = tmp_path / f"{sha256(session_id.encode()).hexdigest()}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "session_id": session_id,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "A much longer self-contained task",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    sessions = await reader.list()
+
+    assert sessions[0].title == "Inspect concurrency"
+    metadata_path = (
+        tmp_path
+        / ".metadata"
+        / f"{sha256(session_id.encode()).hexdigest()}.json"
+    )
+    assert json.loads(metadata_path.read_text(encoding="utf-8"))["title"] == (
+        "Inspect concurrency"
+    )
+
+
+@pytest.mark.asyncio
 async def test_session_reader_raises_for_missing_session(tmp_path) -> None:
     reader = SessionReader(tmp_path)
     with pytest.raises(SessionNotFoundError):

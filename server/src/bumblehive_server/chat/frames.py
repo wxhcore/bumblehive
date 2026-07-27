@@ -30,12 +30,14 @@ _DIRECT_UI_EVENT_KINDS = frozenset(
 
 
 def result_frame(
+    session_id: str,
     result: AgentRunResult,
     duration_s: float,
 ) -> dict[str, Any]:
     error = asdict(result.error) if result.error is not None else None
     return {
         "type": "result",
+        "session_id": session_id,
         "final_content": result.final_content,
         "tools_used": result.tools_used,
         "usage": result.usage,

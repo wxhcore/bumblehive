@@ -25,8 +25,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        service = runtime_service or RuntimeService(server_settings.config_path)
         reader = session_reader or SessionReader()
+        service = runtime_service or RuntimeService(
+            server_settings.config_path,
+            session_reader=reader,
+        )
         startup_started_at = perf_counter()
         logger.info("[lifecycle] startup started")
         try:

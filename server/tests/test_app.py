@@ -14,8 +14,12 @@ from fastapi.testclient import TestClient
 from bumblehive.observability.events import make_event
 from bumblehive.protocols.errors import AgentError
 from bumblehive_server.app import create_app
-from bumblehive_server.chat.frames import ui_event_frame as _ui_event_frame
+from bumblehive_server.chat.frames import (
+    result_frame as _result_frame,
+    ui_event_frame as _ui_event_frame,
+)
 from bumblehive_server.chat.streaming import (
+    WebSocketSubagentObserver as _WebSocketSubagentObserver,
     persist_run_duration as _persist_run_duration,
 )
 from bumblehive_server.routes.chat import chat
@@ -74,6 +78,59 @@ class FakeStream:
 class FakeRuntime:
     def stream(self, *_args: Any, **_kwargs: Any) -> FakeStream:
         return FakeStream()
+
+
+class RecordingWebSocket:
+    def __init__(self) -> None:
+        self.frames: list[dict[str, Any]] = []
+
+    async def send_json(self, frame: dict[str, Any]) -> None:
+        self.frames.append(frame)
+
+
+@pytest.mark.asyncio
+async def test_subagent_observer_reuses_existing_websocket_frames() -> None:
+    websocket = RecordingWebSocket()
+    observer = _WebSocketSubagentObserver(
+        websocket,  # type: ignore[arg-type]
+        SimpleNamespace(),
+    )
+
+    await observer.on_created(
+        session_id="child-session",
+        workspace="/tmp/workspace",
+        title="Inspect project",
+        content="Inspect the project",
+    )
+    await observer.on_event(
+        make_event(
+            "model.stream.content_delta",
+            run_id="child-run",
+            session_id="child-session",
+            delta="Partial",
+        )
+    )
+    await observer.on_result(
+        session_id="child-session",
+        result=FakeResult(final_content="Complete"),  # type: ignore[arg-type]
+        duration_s=1.25,
+    )
+
+    assert websocket.frames[0] == {
+        "type": "session_created",
+        "session_id": "child-session",
+        "workspace": "/tmp/workspace",
+        "title": "Inspect project",
+        "content": "Inspect the project",
+    }
+    assert websocket.frames[1]["type"] == "event"
+    assert websocket.frames[1]["session_id"] == "child-session"
+    assert websocket.frames[1]["payload"] == {"delta": "Partial"}
+    assert websocket.frames[2] == _result_frame(
+        "child-session",
+        FakeResult(final_content="Complete"),  # type: ignore[arg-type]
+        1.25,
+    )
 
 
 def test_ui_event_filter_removes_unused_and_large_payloads() -> None:
@@ -524,7 +581,13 @@ class FakeSessionReader:
         self.migrated_workspaces: list[Any] = []
         self.deleted_metadata: list[str] = []
 
-    async def create(self, workspace: Any) -> str:
+    async def create(
+        self,
+        workspace: Any,
+        *,
+        title: str | None = None,
+    ) -> str:
+        assert title is None
         self.created_workspaces.append(workspace)
         return "created-session"
 
@@ -633,6 +696,7 @@ def test_health_and_websocket_stream(caplog: Any) -> None:
     assert event["kind"] == "model.stream.content_delta"
     assert event["payload"]["delta"] == "Hello"
     assert result["type"] == "result"
+    assert result["session_id"] == "session-1"
     assert result["final_content"] == "Hello"
     assert deleted.status_code == 200
     assert deleted.json() == {"deleted": True}
