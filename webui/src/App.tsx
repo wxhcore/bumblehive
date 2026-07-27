@@ -62,6 +62,11 @@ import type {
 
 type BootstrapStatus = "loading" | "ready" | "error";
 
+interface PendingSessionInfo {
+  workspace: string;
+  title?: string;
+}
+
 const STREAM_CATCH_UP_MS = 72;
 const MIN_STREAM_CHARACTERS_PER_SECOND = 90;
 const MAX_STREAM_FRAME_ELAPSED_MS = 50;
@@ -83,6 +88,14 @@ function isProviderConfigured(settings: Settings): boolean {
 
 function createMessageId(): string {
   return crypto.randomUUID();
+}
+
+function frameSessionId(frame: ChatFrame, fallback: string): string {
+  return "session_id" in frame &&
+    typeof frame.session_id === "string" &&
+    frame.session_id
+    ? frame.session_id
+    : fallback;
 }
 
 function messageContent(content: unknown): string {
@@ -669,8 +682,8 @@ export default function App() {
   const [stoppingSessionIds, setStoppingSessionIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
-  const [pendingSessionWorkspaces, setPendingSessionWorkspaces] = useState<
-    ReadonlyMap<string, string>
+  const [pendingSessionInfo, setPendingSessionInfo] = useState<
+    ReadonlyMap<string, PendingSessionInfo>
   >(() => new Map());
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
@@ -916,7 +929,7 @@ export default function App() {
       ),
     );
     const persistedIds = new Set(loaded.map((session) => session.session_id));
-    setPendingSessionWorkspaces((pending) => {
+    setPendingSessionInfo((pending) => {
       const next = new Map(pending);
       persistedIds.forEach((sessionId) => next.delete(sessionId));
       return next;
@@ -994,6 +1007,35 @@ export default function App() {
   );
 
   frameHandlerRef.current = (sessionId, frame) => {
+    if (frame.type === "session_created") {
+      if (runningSessionIdsRef.current.has(sessionId)) return;
+
+      const assistantId = createMessageId();
+      assistantIdsRef.current.set(sessionId, assistantId);
+      messagesBySessionRef.current.set(sessionId, [
+        {
+          id: createMessageId(),
+          role: "user",
+          content: frame.content,
+        },
+        {
+          id: assistantId,
+          role: "assistant",
+          content: "",
+          iterations: [],
+          startedAt: Date.now(),
+        },
+      ]);
+      setPendingSessionInfo((current) =>
+        new Map(current).set(sessionId, {
+          workspace: frame.workspace,
+          title: frame.title,
+        }),
+      );
+      setSessionRunning(sessionId, true);
+      return;
+    }
+
     if (frame.type === "event") {
       queueAgentFrame(sessionId, frame);
       return;
@@ -1232,7 +1274,8 @@ export default function App() {
     existing?.close();
 
     const socket = new ChatSocket(sessionId, {
-      onFrame: (frame) => frameHandlerRef.current(sessionId, frame),
+      onFrame: (frame) =>
+        frameHandlerRef.current(frameSessionId(frame, sessionId), frame),
       onDisconnect: () => {
         if (socketsRef.current.get(sessionId) === socket) {
           socketsRef.current.delete(sessionId);
@@ -1256,7 +1299,7 @@ export default function App() {
   function workspaceForSession(sessionId: string | null): string | null {
     if (!sessionId) return null;
     return (
-      pendingSessionWorkspaces.get(sessionId) ??
+      pendingSessionInfo.get(sessionId)?.workspace ??
       sessions.find((session) => session.session_id === sessionId)
         ?.workspace ??
       null
@@ -1307,9 +1350,9 @@ export default function App() {
       blankSessionRequestsRef.current.delete(targetKey);
     }
 
-    for (const [sessionId, pendingWorkspace] of pendingSessionWorkspaces) {
+    for (const [sessionId, pending] of pendingSessionInfo) {
       if (
-        workspaceKey(pendingWorkspace) === targetKey &&
+        workspaceKey(pending.workspace) === targetKey &&
         !runningSessionIdsRef.current.has(sessionId) &&
         (messagesBySessionRef.current.get(sessionId)?.length ?? 0) === 0
       ) {
@@ -1395,8 +1438,10 @@ export default function App() {
 
       const created = await createBlankSession(workspace);
       messagesBySessionRef.current.set(created.session_id, []);
-      setPendingSessionWorkspaces((current) =>
-        new Map(current).set(created.session_id, created.workspace),
+      setPendingSessionInfo((current) =>
+        new Map(current).set(created.session_id, {
+          workspace: created.workspace,
+        }),
       );
       rememberWorkspace(created.workspace, Date.now() / 1000);
       if (selectionVersion !== sessionSelectionVersionRef.current) return;
@@ -1422,7 +1467,7 @@ export default function App() {
 
     if (
       runningSessionIdsRef.current.has(sessionId) ||
-      pendingSessionWorkspaces.has(sessionId)
+      pendingSessionInfo.has(sessionId)
     ) {
       displaySession(
         sessionId,
@@ -1466,7 +1511,7 @@ export default function App() {
       setSessions((current) =>
         current.filter((session) => session.session_id !== sessionId),
       );
-      setPendingSessionWorkspaces((current) => {
+      setPendingSessionInfo((current) => {
         const next = new Map(current);
         next.delete(sessionId);
         return next;
@@ -1485,8 +1530,8 @@ export default function App() {
       ...sessions
         .filter((session) => workspaceKey(session.workspace) === key)
         .map((session) => session.session_id),
-      ...[...pendingSessionWorkspaces]
-        .filter(([, pendingWorkspace]) => workspaceKey(pendingWorkspace) === key)
+      ...[...pendingSessionInfo]
+        .filter(([, pending]) => workspaceKey(pending.workspace) === key)
         .map(([sessionId]) => sessionId),
     ];
     if (
@@ -1577,8 +1622,10 @@ export default function App() {
         rememberWorkspace(created.workspace, Date.now() / 1000);
         setSelectedWorkspace(created.workspace);
         displaySession(created.session_id, []);
-        setPendingSessionWorkspaces((current) =>
-          new Map(current).set(created.session_id, created.workspace),
+        setPendingSessionInfo((current) =>
+          new Map(current).set(created.session_id, {
+            workspace: created.workspace,
+          }),
         );
       }
 
@@ -1708,17 +1755,21 @@ export default function App() {
     messages.find((message) => message.role === "user")?.content.trim() ?? "";
   const pendingSessions = useMemo(
     () =>
-      [...pendingSessionWorkspaces].map(([sessionId, workspace]) => {
+      [...pendingSessionInfo].map(([sessionId, pending]) => {
         const firstUserMessage = messagesBySessionRef.current
           .get(sessionId)
           ?.find((message) => message.role === "user");
-        const title =
+        const messageTitle =
           typeof firstUserMessage?.content === "string"
             ? firstUserMessage.content.trim()
             : "";
-        return { sessionId, workspace, title: title || "新对话" };
+        return {
+          sessionId,
+          workspace: pending.workspace,
+          title: pending.title || messageTitle || "新对话",
+        };
       }),
-    [activeFirstUserTitle, activeSessionId, pendingSessionWorkspaces],
+    [activeFirstUserTitle, activeSessionId, pendingSessionInfo],
   );
   const activeSessionTitle = activeSessionId
     ? sessions.find((session) => session.session_id === activeSessionId)

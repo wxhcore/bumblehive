@@ -97,8 +97,17 @@ export interface ReadyFrame {
   session_id: string;
 }
 
+export interface SessionCreatedFrame {
+  type: "session_created";
+  session_id: string;
+  workspace: string;
+  title: string;
+  content: string;
+}
+
 export interface ResultFrame {
   type: "result";
+  session_id: string;
   final_content: string | null;
   tools_used: string[];
   usage: Record<string, number>;
@@ -109,6 +118,7 @@ export interface ResultFrame {
 
 export interface ErrorFrame {
   type: "error";
+  session_id?: string;
   code: string;
   message: string;
 }
@@ -120,6 +130,7 @@ export interface CancelledFrame {
 
 export type ChatFrame =
   | ReadyFrame
+  | SessionCreatedFrame
   | AgentEventFrame
   | ResultFrame
   | ErrorFrame
