@@ -18,6 +18,7 @@ import {
   ToolDetailPanel,
 } from "./ToolDetailPanel";
 import { normalizeToolActivityOutcome } from "../tool-details";
+import { SubAgentActivity } from "./SubAgentActivity";
 import { getToolPresentation } from "./tool-presentation";
 
 const MARKDOWN_PLUGINS = [remarkGfm];
@@ -95,11 +96,13 @@ const READ_ACTIVITY_TOOLS = new Set([
 
 type ToolDisplayRow =
   | { kind: "tool"; tool: ToolActivity }
-  | { kind: "reads"; id: string; tools: ToolActivity[] };
+  | { kind: "reads"; id: string; tools: ToolActivity[] }
+  | { kind: "subagents"; id: string; tools: ToolActivity[] };
 
 function toolDisplayRows(tools: ToolActivity[]): ToolDisplayRow[] {
   const rows: ToolDisplayRow[] = [];
   let reads: ToolActivity[] = [];
+  let subagents: ToolActivity[] = [];
 
   function flushReads() {
     if (!reads.length) return;
@@ -111,15 +114,33 @@ function toolDisplayRows(tools: ToolActivity[]): ToolDisplayRow[] {
     reads = [];
   }
 
+  function flushSubagents() {
+    if (!subagents.length) return;
+    rows.push({
+      kind: "subagents",
+      id: `subagents-${subagents[0].id}-${subagents.at(-1)?.id}`,
+      tools: subagents,
+    });
+    subagents = [];
+  }
+
   tools.forEach((tool) => {
     if (READ_ACTIVITY_TOOLS.has(tool.name) && tool.status !== "error") {
+      flushSubagents();
       reads.push(tool);
       return;
     }
+    if (tool.name === "sub_agent") {
+      flushReads();
+      subagents.push(tool);
+      return;
+    }
     flushReads();
+    flushSubagents();
     rows.push({ kind: "tool", tool });
   });
   flushReads();
+  flushSubagents();
   return rows;
 }
 
@@ -455,6 +476,8 @@ const ToolSteps = memo(function ToolSteps({ tools }: { tools: ToolActivity[] }) 
       {rows.map((row) =>
         row.kind === "reads" ? (
           <ReadActivity key={row.id} tools={row.tools} />
+        ) : row.kind === "subagents" ? (
+          <SubAgentActivity key={row.id} tools={row.tools} />
         ) : (
           <ToolEntry key={row.tool.id} tool={row.tool} />
         ),

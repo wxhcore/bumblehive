@@ -533,6 +533,258 @@ button:disabled {
   min-width: 0;
 }
 
+.subagent-entry {
+  color: rgba(23, 24, 26, 0.72);
+}
+
+.subagent-summary {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 7px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) max-content 10px;
+  align-items: center;
+  gap: 9px;
+  border-radius: 9px;
+  list-style: none;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background 160ms ease;
+}
+
+.subagent-summary::-webkit-details-marker {
+  display: none;
+}
+
+.subagent-summary:hover,
+.subagent-summary:focus-visible,
+.subagent-entry[open] > .subagent-summary {
+  outline: none;
+  background: rgba(23, 24, 26, 0.035);
+}
+
+.subagent-logo {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(132, 94, 0, 0.08);
+}
+
+.subagent-logo img {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  display: block;
+  border-radius: 50%;
+}
+
+.subagent-logo.active::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1px solid rgba(213, 159, 9, 0.5);
+  border-radius: 50%;
+  background: rgba(var(--hive-yellow-rgb), 0.12);
+  box-shadow:
+    0 0 0 3px rgba(var(--hive-yellow-rgb), 0.1),
+    0 0 10px 1px rgba(var(--hive-yellow-rgb), 0.2);
+  animation: bee-breathe 1.7s ease-in-out infinite;
+}
+
+@keyframes bee-breathe {
+  0%,
+  100% {
+    opacity: 0.38;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+.subagent-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.subagent-label {
+  overflow: hidden;
+  color: rgba(23, 24, 26, 0.76);
+  font-size: 12.75px;
+  font-weight: 560;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(23, 24, 26, 0.45);
+  font-size: 11.75px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-duration {
+  color: rgba(23, 24, 26, 0.34);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.subagent-entry[open] > .subagent-summary .tool-detail-chevron {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.subagent-error .subagent-label {
+  color: rgba(157, 54, 45, 0.82);
+}
+
+.subagent-cancelled .subagent-copy {
+  opacity: 0.72;
+}
+
+.subagent-task-detail {
+  min-width: 0;
+  margin: 4px 6px 8px 29px;
+  padding: 9px 11px 10px;
+  border: 1px solid rgba(23, 24, 26, 0.08);
+  border-radius: 10px;
+  background: rgba(247, 247, 248, 0.58);
+}
+
+.subagent-detail-label {
+  display: block;
+  margin-bottom: 4px;
+  color: rgba(23, 24, 26, 0.38);
+  font-size: 10.75px;
+  font-weight: 580;
+  letter-spacing: 0.02em;
+}
+
+.subagent-task-detail p {
+  margin: 0;
+  color: rgba(23, 24, 26, 0.62);
+  font-size: 12px;
+  line-height: 1.58;
+  white-space: pre-wrap;
+}
+
+.subagent-task-detail .subagent-error-message {
+  margin-top: 7px;
+  color: rgba(157, 54, 45, 0.78);
+}
+
+.hive-bee-list {
+  min-width: 0;
+  margin: 4px 6px 8px 29px;
+  padding-left: 11px;
+  display: grid;
+  gap: 2px;
+  border-left: 1px solid rgba(23, 24, 26, 0.09);
+}
+
+.hive-bee-item {
+  min-width: 0;
+  padding: 6px 5px;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) max-content;
+  align-items: start;
+  gap: 8px;
+  border-radius: 8px;
+  transition: background 160ms ease;
+}
+
+.hive-bee-item:hover {
+  background: rgba(23, 24, 26, 0.03);
+}
+
+.hive-bee-mark {
+  width: 12px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  color: rgba(23, 24, 26, 0.5);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.hive-bee-mark > span {
+  width: 6px;
+  height: 6px;
+  display: block;
+  border-radius: 50%;
+  background: #d59f09;
+  animation: hive-bee-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes hive-bee-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.hive-bee-error .hive-bee-mark,
+.hive-bee-error .hive-bee-status,
+.hive-bee-error .hive-bee-error {
+  color: rgba(157, 54, 45, 0.78);
+}
+
+.hive-bee-cancelled {
+  opacity: 0.72;
+}
+
+.hive-bee-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.hive-bee-title {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(23, 24, 26, 0.68);
+  font-size: 12.25px;
+  font-weight: 530;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hive-bee-task,
+.hive-bee-error {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(23, 24, 26, 0.4);
+  display: -webkit-box;
+  font-size: 11.25px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.hive-bee-status {
+  padding-top: 1px;
+  color: rgba(23, 24, 26, 0.38);
+  font-size: 11.25px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .tool-step {
   width: 100%;
   min-width: 0;
