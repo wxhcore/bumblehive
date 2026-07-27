@@ -11,10 +11,24 @@ from bumblehive_server.runtime_service import RuntimeBusyError, RuntimeService
 
 
 class FakeRuntime:
-    def __init__(self, config: BumblehiveConfig) -> None:
+    def __init__(
+        self,
+        config: BumblehiveConfig,
+        *,
+        initialize_error: Exception | None = None,
+    ) -> None:
         self.config = config
+        self.initialize_error = initialize_error
+        self.initialize_calls = 0
+        self.initialized = False
         self.closed = False
         self.deleted_sessions: list[str] = []
+
+    async def initialize_tools(self) -> None:
+        self.initialize_calls += 1
+        if self.initialize_error is not None:
+            raise self.initialize_error
+        self.initialized = True
 
     async def close(self) -> None:
         self.closed = True
@@ -78,6 +92,8 @@ async def test_runtime_service_starts_without_a_config_file(
         deleted = await service.delete_session("session-1")
 
     assert service.ready is True
+    assert runtimes[0].initialized is True
+    assert runtimes[0].initialize_calls == 1
     assert deleted is True
     assert service.config.provider.model is None
     assert service.public_config()["provider"] == {
@@ -151,6 +167,8 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
         "mcp_servers": [],
     }
     assert runtimes[0].closed is True
+    assert runtimes[1].initialized is True
+    assert runtimes[1].initialize_calls == 1
 
     with caplog.at_level(logging.INFO, logger="uvicorn.error.bumblehive"):
         async with service.lease():
@@ -164,6 +182,67 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
 
     await service.shutdown()
     assert runtimes[-1].closed is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_startup_closes_failed_runtime(tmp_path) -> None:
+    runtimes: list[FakeRuntime] = []
+
+    def factory(config: BumblehiveConfig) -> Any:
+        runtime = FakeRuntime(
+            config,
+            initialize_error=RuntimeError("MCP unavailable"),
+        )
+        runtimes.append(runtime)
+        return runtime
+
+    service = RuntimeService(
+        tmp_path / "missing.json",
+        runtime_factory=factory,
+    )
+
+    with pytest.raises(RuntimeError, match="MCP unavailable"):
+        await service.startup()
+
+    assert service.ready is False
+    assert runtimes[0].initialize_calls == 1
+    assert runtimes[0].closed is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_keeps_current_when_replacement_init_fails(
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    BumblehiveConfig(provider=ProviderConfig(model="old-model")).to_json_file(
+        config_path
+    )
+    runtimes: list[FakeRuntime] = []
+
+    def factory(config: BumblehiveConfig) -> Any:
+        runtime = FakeRuntime(
+            config,
+            initialize_error=(RuntimeError("MCP unavailable") if runtimes else None),
+        )
+        runtimes.append(runtime)
+        return runtime
+
+    service = RuntimeService(config_path, runtime_factory=factory)
+    await service.startup()
+
+    with pytest.raises(RuntimeError, match="MCP unavailable"):
+        await service.update_config({"provider": {"model": "new-model"}})
+
+    assert service.config.provider.model == "old-model"
+    assert (
+        json.loads(config_path.read_text(encoding="utf-8"))["provider"]["model"]
+        == "old-model"
+    )
+    assert runtimes[0].closed is False
+    assert runtimes[1].initialize_calls == 1
+    assert runtimes[1].closed is True
+
+    await service.shutdown()
 
 
 @pytest.mark.asyncio

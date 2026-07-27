@@ -85,7 +85,8 @@ class RuntimeService:
                 source,
                 elapsed_since(load_started_at),
             )
-            self._runtime = self._runtime_factory(config)
+            runtime = await self._create_ready_runtime(config)
+            self._runtime = runtime
 
     async def shutdown(self) -> None:
         async with self._lock:
@@ -191,8 +192,12 @@ class RuntimeService:
 
                 merged = _deep_merge(current.config.to_dict(), patch)
                 config = BumblehiveConfig.from_mapping(merged)
-                replacement = self._runtime_factory(config)
-                self._write_config(config)
+                replacement = await self._create_ready_runtime(config)
+                try:
+                    self._write_config(config)
+                except BaseException:
+                    await replacement.close()
+                    raise
                 self._runtime = replacement
 
             await current.close()
@@ -227,6 +232,18 @@ class RuntimeService:
         if not self.config_path.exists():
             return BumblehiveConfig()
         return BumblehiveConfig.from_json_file(self.config_path)
+
+    async def _create_ready_runtime(
+        self,
+        config: BumblehiveConfig,
+    ) -> BumblehiveRuntime:
+        runtime = self._runtime_factory(config)
+        try:
+            await runtime.initialize_tools()
+        except BaseException:
+            await runtime.close()
+            raise
+        return runtime
 
     def _write_config(self, config: BumblehiveConfig) -> None:
         self.config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
