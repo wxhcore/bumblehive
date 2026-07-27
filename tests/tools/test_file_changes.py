@@ -175,7 +175,7 @@ async def test_dry_run_failed_and_unchanged_calls_emit_no_file_changes(
 async def test_large_diff_keeps_stats_without_emitting_malformed_diff(
     tmp_path,
 ) -> None:
-    content = "\n".join(f"line {number}" for number in range(1, 601)) + "\n"
+    content = "\n".join(f"line {number}" for number in range(1, 1_101)) + "\n"
 
     result, event = await _execute(
         _manager(),
@@ -188,7 +188,7 @@ async def test_large_diff_keeps_stats_without_emitting_malformed_diff(
     assert event.payload["file_changes"] == [
         {
             "path": "large.txt",
-            "added": 600,
+            "added": 1_100,
             "deleted": 0,
             "truncated": True,
         }

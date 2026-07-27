@@ -19,7 +19,7 @@ from .builtins.workspace import (
 _MUTATION_TOOLS = frozenset({"write_file", "edit_file", "apply_patch"})
 _MAX_TRACKED_FILES = 20
 _MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
-_MAX_DIFF_LINES = 500
+_MAX_DIFF_LINES = 1_000
 _MAX_DIFF_LINE_CHARACTERS = 1_200
 _MAX_TOTAL_DIFF_CHARACTERS = 256_000
 _DIFF_CONTEXT_LINES = 3
