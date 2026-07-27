@@ -125,9 +125,10 @@ def register_subagent_tool(
 
         workspace_path = path_scope.workspace
         workspace = str(workspace_path)
-        child_session_id = await session_reader.create(
+        child_session_id = await session_reader.create_child(
             workspace_path,
             title=title,
+            parent_session_id=parent_session_id,
         )
         observer = _CURRENT_OBSERVER.get()
         started_at = perf_counter()

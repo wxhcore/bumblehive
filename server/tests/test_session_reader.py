@@ -40,9 +40,10 @@ async def test_session_reader_lists_and_loads_json_sessions(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_session_reader_prefers_persisted_display_title(tmp_path) -> None:
     reader = SessionReader(tmp_path)
-    session_id = await reader.create(
+    session_id = await reader.create_child(
         "/tmp/demo",
         title="  Inspect   concurrency  ",
+        parent_session_id="parent-session",
     )
     path = tmp_path / f"{sha256(session_id.encode()).hexdigest()}.json"
     path.write_text(
@@ -68,9 +69,9 @@ async def test_session_reader_prefers_persisted_display_title(tmp_path) -> None:
         / ".metadata"
         / f"{sha256(session_id.encode()).hexdigest()}.json"
     )
-    assert json.loads(metadata_path.read_text(encoding="utf-8"))["title"] == (
-        "Inspect concurrency"
-    )
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["title"] == "Inspect concurrency"
+    assert metadata["parent_session_id"] == "parent-session"
 
 
 @pytest.mark.asyncio

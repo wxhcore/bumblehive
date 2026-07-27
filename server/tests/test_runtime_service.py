@@ -90,27 +90,32 @@ class RecordingSessionReader:
         self.session_id = session_id
         self.created_workspaces: list[Any] = []
         self.created_titles: list[str | None] = []
+        self.created_parent_session_ids: list[str | None] = []
 
-    async def create(
+    async def create_child(
         self,
         workspace: Any,
         *,
-        title: str | None = None,
+        title: str,
+        parent_session_id: str,
     ) -> str:
         self.created_workspaces.append(workspace)
         self.created_titles.append(title)
+        self.created_parent_session_ids.append(parent_session_id)
         return self.session_id
 
 
 class SequentialSessionReader(RecordingSessionReader):
-    async def create(
+    async def create_child(
         self,
         workspace: Any,
         *,
-        title: str | None = None,
+        title: str,
+        parent_session_id: str,
     ) -> str:
         self.created_workspaces.append(workspace)
         self.created_titles.append(title)
+        self.created_parent_session_ids.append(parent_session_id)
         return f"child-session-{len(self.created_workspaces)}"
 
 
@@ -630,6 +635,7 @@ async def test_subagent_tool_runs_a_read_only_child_session(tmp_path) -> None:
 
     assert reader.created_workspaces == [workspace.resolve()]
     assert reader.created_titles == ["Inspect the project"]
+    assert reader.created_parent_session_ids == ["parent-session"]
     assert observer.created == [
         {
             "session_id": "child-session",

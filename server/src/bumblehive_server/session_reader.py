@@ -34,10 +34,22 @@ class SessionReader:
     async def create(
         self,
         workspace: str | Path,
-        *,
-        title: str | None = None,
     ) -> str:
-        return await asyncio.to_thread(self._create, workspace, title)
+        return await asyncio.to_thread(self._create, workspace, None, None)
+
+    async def create_child(
+        self,
+        workspace: str | Path,
+        *,
+        title: str,
+        parent_session_id: str,
+    ) -> str:
+        return await asyncio.to_thread(
+            self._create,
+            workspace,
+            title,
+            parent_session_id,
+        )
 
     async def migrate_missing_workspace(self, workspace: str | Path) -> int:
         return await asyncio.to_thread(self._migrate_missing_workspace, workspace)
@@ -88,7 +100,12 @@ class SessionReader:
         except (OSError, TypeError, ValueError) as exc:
             raise SessionNotFoundError(session_id) from exc
 
-    def _create(self, workspace: str | Path, title: str | None) -> str:
+    def _create(
+        self,
+        workspace: str | Path,
+        title: str | None,
+        parent_session_id: str | None,
+    ) -> str:
         session_id = str(uuid4())
         session_path = self._path(session_id)
         metadata_path = self._metadata_path(session_id)
@@ -101,6 +118,8 @@ class SessionReader:
         display_title = _normalized_title(title)
         if display_title:
             metadata["title"] = display_title
+        if parent_session_id:
+            metadata["parent_session_id"] = parent_session_id
         try:
             self._write_json(
                 session_path,

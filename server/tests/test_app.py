@@ -584,10 +584,7 @@ class FakeSessionReader:
     async def create(
         self,
         workspace: Any,
-        *,
-        title: str | None = None,
     ) -> str:
-        assert title is None
         self.created_workspaces.append(workspace)
         return "created-session"
 
