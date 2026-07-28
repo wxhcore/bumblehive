@@ -43,5 +43,8 @@ jobs:
       - name: Install WebUI dependencies
         run: pnpm --filter bumblehive-webui... install --frozen-lockfile
 
+      - name: Test WebUI
+        run: pnpm --filter bumblehive-webui run test
+
       - name: Build WebUI
         run: pnpm --filter bumblehive-webui run build
