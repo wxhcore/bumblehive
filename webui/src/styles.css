@@ -1584,6 +1584,10 @@ button:not(:disabled):active {
   transform: translateY(-50%) scale(0.96);
 }
 
+.session-toggle:not(:disabled):active {
+  transform: translateY(-50%);
+}
+
 @media (max-width: 1180px) {
   :root {
         --content-shift: -20px;
@@ -2058,6 +2062,30 @@ textarea {
   white-space: nowrap;
 }
 
+.sidebar-chevron {
+  display: block;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  overflow: visible;
+  transform: rotate(0deg);
+  transform-origin: 50% 50%;
+  transition: transform 150ms ease;
+}
+
+.sidebar-chevron path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.sidebar-chevron.expanded {
+  transform: rotate(90deg);
+}
+
 .workspace-actions {
   display: flex;
   flex: 0 0 auto;
@@ -2153,10 +2181,26 @@ textarea {
 }
 
 .workspace-sessions {
+  min-width: 0;
+  margin-left: 16px;
+  padding-left: 4px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 1px;
+  border-left: 1px solid rgba(74, 58, 18, 0.16);
+}
+
+.session-branch {
+  width: 100%;
+  min-width: 0;
+}
+
+.session-children {
+  min-width: 0;
+  margin-left: 18px;
+  padding-left: 2px;
+  border-left: 1px solid rgba(74, 58, 18, 0.16);
 }
 
 .conversation-row {
@@ -2190,6 +2234,14 @@ textarea {
   padding-right: 34px;
 }
 
+.conversation-row.has-children .conversation {
+  padding-right: 82px;
+}
+
+.conversation-row.child-session .conversation {
+  padding-left: 28px;
+}
+
 .conversation:hover,
 .conversation:focus-visible {
   outline: none;
@@ -2221,6 +2273,83 @@ textarea {
   border-top-color: rgba(32, 29, 21, 0.82);
   background: transparent;
   box-shadow: none;
+}
+
+.conversation-row.child-session .conversation.running::before {
+  left: 11px;
+}
+
+.workspace-sessions
+  > .session-branch
+  > .conversation-row
+  > .conversation {
+  padding-left: 12px;
+}
+
+.workspace-sessions
+  > .session-branch
+  > .conversation-row
+  > .conversation.running {
+  padding-left: 33px;
+}
+
+.session-toggle {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: 32px;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 7px;
+  color: rgba(45, 37, 17, 0.48);
+  background: transparent;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.session-toggle > img {
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
+  opacity: 0.72;
+}
+
+.session-toggle:hover,
+.session-toggle:focus-visible {
+  outline: none;
+  color: rgba(45, 37, 17, 0.82);
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.session-bee-mark {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 13px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  opacity: 0.68;
+  transform: translate(-50%, -50%);
+}
+
+.session-bee-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.session-bee-mark.running img {
+  opacity: 0;
 }
 
 .session-delete {
@@ -2257,7 +2386,7 @@ textarea {
 
 .empty-workspace {
   height: 30px;
-  padding: 7px 10px 7px 33px;
+  padding: 7px 10px 7px 12px;
   color: rgba(45, 37, 17, 0.43);
   font-size: 12px;
 }

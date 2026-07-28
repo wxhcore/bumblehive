@@ -65,6 +65,39 @@ type BootstrapStatus = "loading" | "ready" | "error";
 interface PendingSessionInfo {
   workspace: string;
   title?: string;
+  parentSessionId?: string;
+}
+
+function sessionBranchIds(
+  rootSessionId: string,
+  sessions: readonly SessionSummary[],
+  pendingSessions: ReadonlyMap<string, PendingSessionInfo>,
+): Set<string> {
+  const childrenByParent = new Map<string, string[]>();
+  const addChild = (sessionId: string, parentSessionId?: string | null) => {
+    const parentId = parentSessionId?.trim();
+    if (!parentId) return;
+    const children = childrenByParent.get(parentId);
+    if (children) children.push(sessionId);
+    else childrenByParent.set(parentId, [sessionId]);
+  };
+  sessions.forEach((session) =>
+    addChild(session.session_id, session.parent_session_id),
+  );
+  pendingSessions.forEach((pending, sessionId) =>
+    addChild(sessionId, pending.parentSessionId),
+  );
+
+  const branchIds = new Set([rootSessionId]);
+  const pendingIds = [rootSessionId];
+  for (let index = 0; index < pendingIds.length; index += 1) {
+    for (const childId of childrenByParent.get(pendingIds[index]) ?? []) {
+      if (branchIds.has(childId)) continue;
+      branchIds.add(childId);
+      pendingIds.push(childId);
+    }
+  }
+  return branchIds;
 }
 
 const STREAM_CATCH_UP_MS = 72;
@@ -714,9 +747,13 @@ export default function App() {
   );
   const sessionsLoadVersionRef = useRef(0);
   const sessionSelectionVersionRef = useRef(0);
-  const frameHandlerRef = useRef<(sessionId: string, frame: ChatFrame) => void>(
-    () => undefined,
-  );
+  const frameHandlerRef = useRef<
+    (
+      sessionId: string,
+      sourceSessionId: string,
+      frame: ChatFrame,
+    ) => void
+  >(() => undefined);
   const toastTimerRef = useRef<number | null>(null);
   const modelListRequestIdRef = useRef(0);
   const blankSessionIdsRef = useRef(new Map<string, string>());
@@ -1006,7 +1043,7 @@ export default function App() {
     ],
   );
 
-  frameHandlerRef.current = (sessionId, frame) => {
+  frameHandlerRef.current = (sessionId, sourceSessionId, frame) => {
     if (frame.type === "session_created") {
       if (runningSessionIdsRef.current.has(sessionId)) return;
 
@@ -1030,6 +1067,8 @@ export default function App() {
         new Map(current).set(sessionId, {
           workspace: frame.workspace,
           title: frame.title,
+          parentSessionId:
+            sourceSessionId === sessionId ? undefined : sourceSessionId,
         }),
       );
       setSessionRunning(sessionId, true);
@@ -1275,7 +1314,11 @@ export default function App() {
 
     const socket = new ChatSocket(sessionId, {
       onFrame: (frame) =>
-        frameHandlerRef.current(frameSessionId(frame, sessionId), frame),
+        frameHandlerRef.current(
+          frameSessionId(frame, sessionId),
+          sessionId,
+          frame,
+        ),
       onDisconnect: () => {
         if (socketsRef.current.get(sessionId) === socket) {
           socketsRef.current.delete(sessionId);
@@ -1490,8 +1533,17 @@ export default function App() {
   }
 
   function requestDeleteSession(sessionId: string) {
-    if (runningSessionIdsRef.current.has(sessionId)) {
-      notify("请先停止这个会话的任务");
+    const branchIds = sessionBranchIds(
+      sessionId,
+      sessions,
+      pendingSessionInfo,
+    );
+    if (
+      [...branchIds].some((branchId) =>
+        runningSessionIdsRef.current.has(branchId),
+      )
+    ) {
+      notify("请先停止这个会话及其 Bee 子会话中的任务");
       return;
     }
     setDeleteSessionId(sessionId);
@@ -1502,21 +1554,27 @@ export default function App() {
     if (!sessionId) return;
     setDeleteSessionId(null);
     try {
-      await deleteSession(sessionId);
-      releaseBlankSession(sessionId);
-      socketsRef.current.get(sessionId)?.close();
-      socketsRef.current.delete(sessionId);
-      messagesBySessionRef.current.delete(sessionId);
-      assistantIdsRef.current.delete(sessionId);
+      const deletedSessionIds = new Set(await deleteSession(sessionId));
+      for (const deletedId of deletedSessionIds) {
+        releaseBlankSession(deletedId);
+        socketsRef.current.get(deletedId)?.close();
+        socketsRef.current.delete(deletedId);
+        messagesBySessionRef.current.delete(deletedId);
+        assistantIdsRef.current.delete(deletedId);
+        pendingAgentFramesRef.current.delete(deletedId);
+        streamPaintStateRef.current.delete(deletedId);
+      }
       setSessions((current) =>
-        current.filter((session) => session.session_id !== sessionId),
+        current.filter(
+          (session) => !deletedSessionIds.has(session.session_id),
+        ),
       );
       setPendingSessionInfo((current) => {
         const next = new Map(current);
-        next.delete(sessionId);
+        deletedSessionIds.forEach((deletedId) => next.delete(deletedId));
         return next;
       });
-      if (sessionId === activeSessionId) {
+      if (activeSessionId && deletedSessionIds.has(activeSessionId)) {
         displaySession(null, []);
       }
     } catch (error) {
@@ -1751,6 +1809,9 @@ export default function App() {
   const deleteSessionTitle = deleteSessionId
     ? sessions.find((session) => session.session_id === deleteSessionId)?.title
     : null;
+  const deleteSessionChildCount = deleteSessionId
+    ? sessionBranchIds(deleteSessionId, sessions, pendingSessionInfo).size - 1
+    : 0;
   const activeFirstUserTitle =
     messages.find((message) => message.role === "user")?.content.trim() ?? "";
   const pendingSessions = useMemo(
@@ -1767,6 +1828,7 @@ export default function App() {
           sessionId,
           workspace: pending.workspace,
           title: pending.title || messageTitle || "新对话",
+          parentSessionId: pending.parentSessionId,
         };
       }),
     [activeFirstUserTitle, activeSessionId, pendingSessionInfo],
@@ -1955,9 +2017,15 @@ export default function App() {
             >
               <h2 id="deleteSessionTitle">删除会话？</h2>
               <p>
-                {deleteSessionTitle
-                  ? `“${deleteSessionTitle}”将被永久删除。`
-                  : "该会话将被永久删除。"}
+                {deleteSessionChildCount > 0
+                  ? `${
+                      deleteSessionTitle
+                        ? `“${deleteSessionTitle}”`
+                        : "该会话"
+                    }及其 ${deleteSessionChildCount} 个 Bee 子会话将被永久删除。`
+                  : deleteSessionTitle
+                    ? `“${deleteSessionTitle}”将被永久删除。`
+                    : "该会话将被永久删除。"}
               </p>
               <div className="confirm-actions">
                 <button

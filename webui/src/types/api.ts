@@ -55,6 +55,7 @@ export interface ModelListResponse {
 
 export interface SessionSummary {
   session_id: string;
+  parent_session_id: string | null;
   workspace: string;
   message_count: number;
   title: string;

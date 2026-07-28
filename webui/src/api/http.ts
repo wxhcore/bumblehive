@@ -72,10 +72,13 @@ export function getSession(sessionId: string): Promise<SessionDetail> {
   return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}`);
 }
 
-export async function deleteSession(sessionId: string): Promise<boolean> {
-  const response = await request<{ deleted: boolean }>(
+export async function deleteSession(sessionId: string): Promise<string[]> {
+  const response = await request<{
+    deleted: boolean;
+    deleted_session_ids: string[];
+  }>(
     `/api/v1/sessions/${encodeURIComponent(sessionId)}`,
     { method: "DELETE" },
   );
-  return response.deleted;
+  return response.deleted_session_ids;
 }

@@ -1,4 +1,10 @@
-import { memo, useMemo, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   workspaceKey,
   workspaceLabel,
@@ -10,6 +16,7 @@ export interface PendingSession {
   sessionId: string;
   workspace: string;
   title: string;
+  parentSessionId?: string;
 }
 
 interface SidebarProps {
@@ -33,9 +40,11 @@ interface SidebarProps {
 
 interface SidebarSession {
   id: string;
+  parentId: string | null;
   title: string;
   searchableText: string;
   createdAt: number;
+  children: SidebarSession[];
 }
 
 interface WorkspaceGroup {
@@ -55,6 +64,178 @@ function compareCreatedAt(left: number, right: number): number {
   if (!Number.isFinite(left)) return 1;
   if (!Number.isFinite(right)) return -1;
   return left - right;
+}
+
+function sessionParent(
+  session: SidebarSession,
+  sessionsById: ReadonlyMap<string, SidebarSession>,
+): SidebarSession | null {
+  if (!session.parentId) return null;
+  const parent = sessionsById.get(session.parentId);
+  if (!parent) return null;
+
+  const visited = new Set([session.id]);
+  let current: SidebarSession | undefined = parent;
+  while (current) {
+    if (visited.has(current.id)) return null;
+    visited.add(current.id);
+    current = current.parentId
+      ? sessionsById.get(current.parentId)
+      : undefined;
+  }
+  return parent;
+}
+
+function sortSessionTree(sessions: SidebarSession[]): void {
+  sessions.sort(
+    (left, right) =>
+      compareCreatedAt(right.createdAt, left.createdAt) ||
+      left.id.localeCompare(right.id),
+  );
+  sessions.forEach((session) => sortSessionTree(session.children));
+}
+
+function filterSessionTree(
+  session: SidebarSession,
+  query: string,
+): SidebarSession | null {
+  if (includesQuery(session.searchableText, query)) return session;
+  const children = session.children.flatMap((child) => {
+    const match = filterSessionTree(child, query);
+    return match ? [match] : [];
+  });
+  return children.length ? { ...session, children } : null;
+}
+
+function branchIsRunning(
+  session: SidebarSession,
+  runningSessionIds: ReadonlySet<string>,
+): boolean {
+  return (
+    runningSessionIds.has(session.id) ||
+    session.children.some((child) =>
+      branchIsRunning(child, runningSessionIds),
+    )
+  );
+}
+
+function SidebarChevron({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      className={`sidebar-chevron${expanded ? " expanded" : ""}`}
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M4.125 2.25 7.875 6 4.125 9.75" />
+    </svg>
+  );
+}
+
+interface SessionBranchProps {
+  session: SidebarSession;
+  depth: number;
+  activeSessionId: string | null;
+  expandedSessionIds: ReadonlySet<string>;
+  runningSessionIds: ReadonlySet<string>;
+  searching: boolean;
+  sessionSelectionDisabled: boolean;
+  onToggle: (sessionId: string) => void;
+  onSelect: (sessionId: string) => void;
+  onDelete: (sessionId: string) => void;
+}
+
+function SessionBranch({
+  session,
+  depth,
+  activeSessionId,
+  expandedSessionIds,
+  runningSessionIds,
+  searching,
+  sessionSelectionDisabled,
+  onToggle,
+  onSelect,
+  onDelete,
+}: SessionBranchProps) {
+  const hasChildren = session.children.length > 0;
+  const expanded =
+    hasChildren &&
+    (searching || expandedSessionIds.has(session.id));
+  const running = runningSessionIds.has(session.id);
+  const branchRunning = branchIsRunning(session, runningSessionIds);
+
+  return (
+    <div className="session-branch">
+      <div
+        className={`conversation-row${depth ? " child-session" : ""}${
+          hasChildren ? " has-children" : ""
+        }`}
+      >
+        {depth ? (
+          <span
+            className={`session-bee-mark${running ? " running" : ""}`}
+            aria-hidden="true"
+          >
+            <img alt="" src="/brand/bumblehive-bee.png" />
+          </span>
+        ) : null}
+        <button
+          className={`conversation${
+            session.id === activeSessionId ? " active" : ""
+          }${running ? " running" : ""}`}
+          type="button"
+          disabled={sessionSelectionDisabled}
+          onClick={() => onSelect(session.id)}
+          title={session.title}
+        >
+          {session.title}
+        </button>
+        {hasChildren ? (
+          <button
+            className="session-toggle"
+            type="button"
+            aria-label={`${expanded ? "折叠" : "展开"}${session.title}的 ${
+              session.children.length
+            } 个 Bee 会话`}
+            aria-expanded={expanded}
+            onClick={() => onToggle(session.id)}
+          >
+            <img alt="" src="/brand/bumblehive-bee.png" />
+            <span>{session.children.length}</span>
+            <SidebarChevron expanded={expanded} />
+          </button>
+        ) : null}
+        <button
+          className="session-delete"
+          type="button"
+          disabled={sessionSelectionDisabled || branchRunning}
+          aria-label={`删除${session.title}`}
+          onClick={() => onDelete(session.id)}
+        >
+          ×
+        </button>
+      </div>
+      {expanded ? (
+        <div className="session-children">
+          {session.children.map((child) => (
+            <SessionBranch
+              key={child.id}
+              session={child}
+              depth={depth + 1}
+              activeSessionId={activeSessionId}
+              expandedSessionIds={expandedSessionIds}
+              runningSessionIds={runningSessionIds}
+              searching={searching}
+              sessionSelectionDisabled={sessionSelectionDisabled}
+              onToggle={onToggle}
+              onSelect={onSelect}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export const Sidebar = memo(function Sidebar({
@@ -80,6 +261,27 @@ export const Sidebar = memo(function Sidebar({
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  const [expandedSessionIds, setExpandedSessionIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const seenPendingSessionIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    const parentsToExpand: string[] = [];
+    for (const session of pendingSessions) {
+      if (seenPendingSessionIdsRef.current.has(session.sessionId)) continue;
+      seenPendingSessionIdsRef.current.add(session.sessionId);
+      if (session.parentSessionId) {
+        parentsToExpand.push(session.parentSessionId);
+      }
+    }
+    if (!parentsToExpand.length) return;
+    setExpandedSessionIds((current) => {
+      const next = new Set(current);
+      parentsToExpand.forEach((sessionId) => next.add(sessionId));
+      return next;
+    });
+  }, [pendingSessions]);
 
   const groups = useMemo(() => {
     const persistedIds = new Set(
@@ -123,9 +325,11 @@ export const Sidebar = memo(function Sidebar({
         session.title || session.last_message || "未命名会话";
       groupFor(session.workspace, createdAt).sessions.push({
         id: session.session_id,
+        parentId: session.parent_session_id?.trim() || null,
         title,
         searchableText: `${title} ${session.last_message}`,
         createdAt,
+        children: [],
       });
     }
     for (const pending of pendingSessions) {
@@ -133,9 +337,11 @@ export const Sidebar = memo(function Sidebar({
       if (!visibleWorkspaceKeys.has(workspaceKey(pending.workspace))) continue;
       groupFor(pending.workspace).sessions.push({
         id: pending.sessionId,
+        parentId: pending.parentSessionId?.trim() || null,
         title: pending.title,
         searchableText: pending.title,
         createdAt: Number.POSITIVE_INFINITY,
+        children: [],
       });
     }
 
@@ -146,14 +352,19 @@ export const Sidebar = memo(function Sidebar({
           compareCreatedAt(left.createdAt, right.createdAt) ||
           left.label.localeCompare(right.label),
       )
-      .map((group) => ({
-        ...group,
-        sessions: [...group.sessions].sort(
-          (left, right) =>
-            compareCreatedAt(right.createdAt, left.createdAt) ||
-            left.id.localeCompare(right.id),
-        ),
-      }));
+      .map((group) => {
+        const sessionsById = new Map(
+          group.sessions.map((session) => [session.id, session]),
+        );
+        const roots: SidebarSession[] = [];
+        for (const session of group.sessions) {
+          const parent = sessionParent(session, sessionsById);
+          if (parent) parent.children.push(session);
+          else roots.push(session);
+        }
+        sortSessionTree(roots);
+        return { ...group, sessions: roots };
+      });
     if (!normalizedQuery) return result;
     return result.flatMap((group) => {
       const workspaceMatches =
@@ -161,9 +372,10 @@ export const Sidebar = memo(function Sidebar({
         includesQuery(group.path, normalizedQuery);
       const matchingSessions = workspaceMatches
         ? group.sessions
-        : group.sessions.filter((session) =>
-            includesQuery(session.searchableText, normalizedQuery),
-          );
+        : group.sessions.flatMap((session) => {
+            const match = filterSessionTree(session, normalizedQuery);
+            return match ? [match] : [];
+          });
       return matchingSessions.length
         ? [{ ...group, sessions: matchingSessions }]
         : [];
@@ -175,6 +387,15 @@ export const Sidebar = memo(function Sidebar({
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSession(sessionId: string) {
+    setExpandedSessionIds((current) => {
+      const next = new Set(current);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
       return next;
     });
   }
@@ -248,7 +469,7 @@ export const Sidebar = memo(function Sidebar({
             const expanded =
               searching || !collapsedWorkspaces.has(group.key);
             const workspaceRunning = group.sessions.some((session) =>
-              runningSessionIds.has(session.id),
+              branchIsRunning(session, runningSessionIds),
             );
             return (
               <section
@@ -301,33 +522,19 @@ export const Sidebar = memo(function Sidebar({
                 {expanded ? (
                   <div className="workspace-sessions">
                     {group.sessions.map((session) => (
-                      <div className="conversation-row" key={session.id}>
-                        <button
-                          className={`conversation${
-                            session.id === activeSessionId ? " active" : ""
-                          }${
-                            runningSessionIds.has(session.id) ? " running" : ""
-                          }`}
-                          type="button"
-                          disabled={sessionSelectionDisabled}
-                          onClick={() => onSelectSession(session.id)}
-                          title={session.title}
-                        >
-                          {session.title}
-                        </button>
-                        <button
-                          className="session-delete"
-                          type="button"
-                          disabled={
-                            sessionSelectionDisabled ||
-                            runningSessionIds.has(session.id)
-                          }
-                          aria-label={`删除${session.title}`}
-                          onClick={() => onDeleteSession(session.id)}
-                        >
-                          ×
-                        </button>
-                      </div>
+                      <SessionBranch
+                        key={session.id}
+                        session={session}
+                        depth={0}
+                        activeSessionId={activeSessionId}
+                        expandedSessionIds={expandedSessionIds}
+                        runningSessionIds={runningSessionIds}
+                        searching={searching}
+                        sessionSelectionDisabled={sessionSelectionDisabled}
+                        onToggle={toggleSession}
+                        onSelect={onSelectSession}
+                        onDelete={onDeleteSession}
+                      />
                     ))}
                     {group.sessions.length === 0 ? (
                       <div className="empty-workspace">还没有会话</div>
