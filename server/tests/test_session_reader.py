@@ -31,6 +31,7 @@ async def test_session_reader_lists_and_loads_json_sessions(tmp_path) -> None:
     assert sessions[0].title == "Hello"
     assert sessions[0].last_message == "Hi"
     assert sessions[0].workspace == str(Path("/tmp/demo").resolve())
+    assert sessions[0].parent_session_id is None
     assert sessions[0].created_at <= sessions[0].updated_at
     assert detail.workspace == str(Path("/tmp/demo").resolve())
     assert detail.created_at == sessions[0].created_at
@@ -64,6 +65,7 @@ async def test_session_reader_prefers_persisted_display_title(tmp_path) -> None:
     sessions = await reader.list()
 
     assert sessions[0].title == "Inspect concurrency"
+    assert sessions[0].parent_session_id == "parent-session"
     metadata_path = (
         tmp_path
         / ".metadata"
@@ -72,6 +74,27 @@ async def test_session_reader_prefers_persisted_display_title(tmp_path) -> None:
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert metadata["title"] == "Inspect concurrency"
     assert metadata["parent_session_id"] == "parent-session"
+
+
+@pytest.mark.asyncio
+async def test_session_reader_finds_all_descendants(tmp_path) -> None:
+    reader = SessionReader(tmp_path)
+    parent_id = await reader.create("/tmp/demo")
+    child_id = await reader.create_child(
+        "/tmp/demo",
+        title="Child",
+        parent_session_id=parent_id,
+    )
+    grandchild_id = await reader.create_child(
+        "/tmp/demo",
+        title="Grandchild",
+        parent_session_id=child_id,
+    )
+    unrelated_id = await reader.create("/tmp/demo")
+
+    assert await reader.descendant_ids(parent_id) == [child_id, grandchild_id]
+    assert await reader.descendant_ids(child_id) == [grandchild_id]
+    assert await reader.descendant_ids(unrelated_id) == []
 
 
 @pytest.mark.asyncio

@@ -538,6 +538,7 @@ class FakeService:
         self.runtime = FakeRuntime()
         self.workspace = Path("/tmp/workspace")
         self.model_requests: list[Any] = []
+        self.deleted_sessions: list[str] = []
         self.settings = {
             "provider": {
                 "type": "openai_chat_completions",
@@ -567,7 +568,8 @@ class FakeService:
         self.model_requests.append({"base_url": base_url, "api_key": api_key})
         return ["test-model", "other-model"]
 
-    async def delete_session(self, _session_id: str) -> bool:
+    async def delete_session(self, session_id: str) -> bool:
+        self.deleted_sessions.append(session_id)
         return True
 
     @asynccontextmanager
@@ -580,6 +582,7 @@ class FakeSessionReader:
         self.created_workspaces: list[Any] = []
         self.migrated_workspaces: list[Any] = []
         self.deleted_metadata: list[str] = []
+        self.descendants: dict[str, list[str]] = {}
 
     async def create(
         self,
@@ -595,6 +598,9 @@ class FakeSessionReader:
     async def delete_metadata(self, session_id: str) -> bool:
         self.deleted_metadata.append(session_id)
         return True
+
+    async def descendant_ids(self, session_id: str) -> list[str]:
+        return self.descendants.get(session_id, [])
 
     async def list(self) -> list[Any]:
         return []
@@ -645,8 +651,44 @@ def test_create_session_uses_current_workspace() -> None:
         Path("/tmp/selected-workspace").resolve(),
     ]
     assert reader.migrated_workspaces == [service.workspace]
-    assert deleted.json() == {"deleted": True}
+    assert deleted.json() == {
+        "deleted": True,
+        "deleted_session_ids": ["created-session"],
+    }
+    assert service.deleted_sessions == ["created-session"]
     assert reader.deleted_metadata == ["created-session"]
+
+
+def test_delete_session_cascades_to_descendants() -> None:
+    service = FakeService()
+    reader = FakeSessionReader()
+    reader.descendants["parent-session"] = [
+        "child-session",
+        "grandchild-session",
+    ]
+    app = create_app(
+        runtime_service=service,  # type: ignore[arg-type]
+        session_reader=reader,  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        deleted = client.delete("/api/v1/sessions/parent-session")
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {
+        "deleted": True,
+        "deleted_session_ids": [
+            "grandchild-session",
+            "child-session",
+            "parent-session",
+        ],
+    }
+    assert service.deleted_sessions == [
+        "grandchild-session",
+        "child-session",
+        "parent-session",
+    ]
+    assert reader.deleted_metadata == service.deleted_sessions
 
 
 def test_health_and_websocket_stream(caplog: Any) -> None:
@@ -696,7 +738,10 @@ def test_health_and_websocket_stream(caplog: Any) -> None:
     assert result["session_id"] == "session-1"
     assert result["final_content"] == "Hello"
     assert deleted.status_code == 200
-    assert deleted.json() == {"deleted": True}
+    assert deleted.json() == {
+        "deleted": True,
+        "deleted_session_ids": ["session-1"],
+    }
     assert "[lifecycle] startup completed | duration=" in caplog.text
     assert "[websocket] connected | session_id=session-1" in caplog.text
     assert "[agent] started | session_id=session-1" in caplog.text

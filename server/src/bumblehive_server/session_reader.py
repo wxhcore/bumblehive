@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from collections import deque
 from contextlib import suppress
 from hashlib import sha256
 from pathlib import Path
@@ -57,13 +58,21 @@ class SessionReader:
     async def delete_metadata(self, session_id: str) -> bool:
         return await asyncio.to_thread(self._delete_metadata, session_id)
 
+    async def descendant_ids(self, session_id: str) -> list[str]:
+        return await asyncio.to_thread(self._descendant_ids, session_id)
+
     def _list(self) -> list[SessionSummary]:
         sessions: list[SessionSummary] = []
         for path in self.directory.glob("*.json"):
             try:
                 document = self._read_document(path)
-                workspace, created_at, title = self._read_metadata(
-                    document["session_id"]
+                (
+                    workspace,
+                    created_at,
+                    title,
+                    parent_session_id,
+                ) = self._read_metadata(
+                    document["session_id"],
                 )
                 sessions.append(
                     self._summary(
@@ -72,6 +81,7 @@ class SessionReader:
                         created_at,
                         path.stat().st_mtime,
                         title,
+                        parent_session_id,
                     )
                 )
             except (OSError, TypeError, ValueError):
@@ -87,7 +97,7 @@ class SessionReader:
             document = self._read_document(path)
             if document["session_id"] != session_id:
                 raise SessionNotFoundError(session_id)
-            workspace, created_at, _ = self._read_metadata(session_id)
+            workspace, created_at, _, _ = self._read_metadata(session_id)
             return SessionDetail(
                 session_id=session_id,
                 workspace=workspace,
@@ -164,6 +174,42 @@ class SessionReader:
             return False
         return True
 
+    def _descendant_ids(self, session_id: str) -> list[str]:
+        children_by_parent: dict[str, list[str]] = {}
+        for path in self.metadata_directory.glob("*.json"):
+            try:
+                with path.open(encoding="utf-8") as file:
+                    metadata = json.load(file)
+                if not isinstance(metadata, dict):
+                    continue
+                child_id = metadata.get("session_id")
+                parent_id = metadata.get("parent_session_id")
+                if (
+                    not isinstance(child_id, str)
+                    or not child_id.strip()
+                    or not isinstance(parent_id, str)
+                    or not parent_id.strip()
+                ):
+                    continue
+                children_by_parent.setdefault(parent_id.strip(), []).append(
+                    child_id.strip()
+                )
+            except (OSError, TypeError, ValueError):
+                continue
+
+        descendants: list[str] = []
+        visited = {session_id}
+        pending = deque([session_id])
+        while pending:
+            parent_id = pending.popleft()
+            for child_id in children_by_parent.get(parent_id, []):
+                if child_id in visited:
+                    continue
+                visited.add(child_id)
+                descendants.append(child_id)
+                pending.append(child_id)
+        return descendants
+
     @staticmethod
     def _read_document(path: Path) -> dict[str, Any]:
         with path.open(encoding="utf-8") as file:
@@ -180,7 +226,10 @@ class SessionReader:
             "messages": [dict(message) for message in messages],
         }
 
-    def _read_metadata(self, session_id: str) -> tuple[str, float, str]:
+    def _read_metadata(
+        self,
+        session_id: str,
+    ) -> tuple[str, float, str, str | None]:
         metadata_path = self._metadata_path(session_id)
         with metadata_path.open(encoding="utf-8") as file:
             raw = json.load(file)
@@ -194,10 +243,16 @@ class SessionReader:
         created_at = raw.get("created_at")
         if isinstance(created_at, bool) or not isinstance(created_at, (int, float)):
             created_at = _path_created_at(metadata_path)
+        parent_session_id = raw.get("parent_session_id")
+        if not isinstance(parent_session_id, str) or not parent_session_id.strip():
+            parent_session_id = None
+        else:
+            parent_session_id = parent_session_id.strip()
         return (
             raw["workspace"],
             float(created_at),
             _normalized_title(raw.get("title")),
+            parent_session_id,
         )
 
     @staticmethod
@@ -221,6 +276,7 @@ class SessionReader:
         created_at: float,
         updated_at: float,
         metadata_title: str,
+        parent_session_id: str | None,
     ) -> SessionSummary:
         messages = document["messages"]
         title = metadata_title or next(
@@ -241,6 +297,7 @@ class SessionReader:
         )
         return SessionSummary(
             session_id=document["session_id"],
+            parent_session_id=parent_session_id,
             workspace=workspace,
             message_count=len(messages),
             title=_truncate(title, 80),

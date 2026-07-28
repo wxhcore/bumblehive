@@ -41,6 +41,7 @@ class ModelListRequest(BaseModel):
 
 class SessionSummary(BaseModel):
     session_id: str
+    parent_session_id: str | None = None
     workspace: str
     message_count: int
     title: str
