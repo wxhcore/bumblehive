@@ -8,11 +8,11 @@ From the repository root:
 
 ```bash
 conda activate bumblehive_env
-npm run setup
-npm run dev:server
+pnpm run setup
+pnpm run dev:server
 ```
 
-The root launcher sets the cross-platform `PYTHONPATH` automatically. Use `npm run dev` to start the Server and WebUI together.
+See the root README for the Node.js and pnpm prerequisites. The root launcher sets the cross-platform `PYTHONPATH` automatically. Use `pnpm run dev` to start the Server and WebUI together.
 
 The server listens on `127.0.0.1:18421` by default and reads configuration from
 `~/.bumblehive/config.json`.
@@ -45,7 +45,7 @@ Build the standalone binary from the repository root with the Python build
 environment activated:
 
 ```bash
-npm run build:sidecar
+pnpm run build:sidecar
 ```
 
 The script writes a standalone directory to

@@ -41,40 +41,34 @@ Provider, Tools, Skills, and Observability examples.
 
 ## Local Development
 
-The Python SDK, Server, and WebUI development workflow supports macOS, Windows, and Ubuntu Linux. The base requirements are Python 3.11+ and Node.js 20.19+/22.12+. A dedicated Conda environment is recommended:
+The Python SDK, Server, and WebUI development workflow supports macOS, Windows, and Ubuntu Linux. It requires Python 3.11+, Node.js 22.12+, and pnpm 10.33.0. A dedicated Conda environment is recommended:
 
 ```bash
 conda create -n bumblehive_env python=3.11 -y
 conda activate bumblehive_env
-npm run setup
+pnpm run setup
 ```
 
-`npm run setup` uses the currently active Python interpreter, without depending on a fixed Conda installation path. It installs the Python SDK, Server, and WebUI dependencies and runs the core environment check. `npm run dev` repeats that lightweight preflight before starting either process. If a requirement is missing, the command stops with a targeted error. The same commands are used on Ubuntu Linux; no Tauri system dependencies are required for this workflow. Set `BUMBLEHIVE_PYTHON` to an interpreter path to override the active interpreter.
+`pnpm run setup` is the only project setup entry point. It installs every Node workspace dependency from the root lockfile, then uses the active Python interpreter to install the SDK, Server, test, and desktop packaging dependencies before running the core environment check. `pnpm run dev` repeats that lightweight preflight before starting either process. If a requirement is missing, the command stops with a targeted error. The same command works on Ubuntu Linux and does not require the desktop system toolchain. Set `BUMBLEHIVE_PYTHON` to an interpreter path to override the active interpreter.
 
 For daily development:
 
 ```bash
 conda activate bumblehive_env
-npm run dev
+pnpm run dev
 ```
 
-This starts the Server on `127.0.0.1:18421` and the WebUI on `127.0.0.1:1420`. Use `npm run dev:server` or `npm run dev:web` to run one component, and `npm test` for the Python test suite.
+This starts the Server on `127.0.0.1:18421` and the WebUI on `127.0.0.1:1420`. Use `pnpm run dev:server` or `pnpm run dev:web` to run one component, and `pnpm test` for the Python test suite.
 
 ### Desktop
 
 The optional desktop workflow currently targets macOS and Windows. macOS additionally requires Rust and Xcode Command Line Tools. Windows additionally requires the Rust MSVC toolchain, WebView2, and Microsoft C++ Build Tools with the Desktop development with C++ workload.
 
-On a clean checkout, install the additional desktop dependencies once:
+After the shared `pnpm run setup`, start development or create the installer for the current platform:
 
 ```bash
-npm run setup:desktop
+pnpm run dev:desktop
+pnpm run build:desktop
 ```
 
-Then start development or create the installer for the current platform:
-
-```bash
-npm run dev:desktop
-npm run build:desktop
-```
-
-`npm run setup:desktop` includes the SDK, Server, and WebUI setup, adds Tauri and PyInstaller dependencies, and verifies the complete desktop environment. Both `dev:desktop` and `build:desktop` repeat that preflight and automatically package the Python Server as a sidecar before starting Tauri. `build:desktop` creates an app and DMG on macOS or an NSIS installer on Windows.
+Both commands verify Rust, Tauri, and the platform toolchain, then automatically package the Python Server as a sidecar before starting Tauri. `build:desktop` creates an app and DMG on macOS or an NSIS installer on Windows.

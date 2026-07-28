@@ -41,40 +41,34 @@ Provider、Tools、Skills 和 Observability 示例。
 
 ## 本地开发
 
-Python SDK、Server 和 WebUI 的开发流程支持 macOS、Windows 和 Ubuntu Linux。基础环境需要 Python 3.11+、Node.js 20.19+/22.12+。推荐使用独立的 Conda 环境：
+Python SDK、Server 和 WebUI 的开发流程支持 macOS、Windows 和 Ubuntu Linux。环境要求为 Python 3.11+、Node.js 22.12+ 和 pnpm 10.33.0。推荐使用独立的 Conda 环境：
 
 ```bash
 conda create -n bumblehive_env python=3.11 -y
 conda activate bumblehive_env
-npm run setup
+pnpm run setup
 ```
 
-`npm run setup` 使用当前激活的 Python，不依赖固定的 Conda 安装路径。它会安装 Python SDK、Server 和 WebUI 依赖，并自动检查核心环境；`npm run dev` 也会在启动两个进程前重复这项轻量预检。缺少任何必要条件时，命令都会停止并给出明确提示。Ubuntu Linux 使用相同命令，该流程不需要安装 Tauri 系统依赖。如需覆盖当前解释器，可以通过 `BUMBLEHIVE_PYTHON` 指定 Python 路径。
+`pnpm run setup` 是唯一的项目安装入口。它会按照根目录锁文件安装全部 Node workspace 依赖，并使用当前激活的 Python 安装 SDK、Server、测试和桌面打包依赖，最后检查核心环境。`pnpm run dev` 也会在启动两个进程前重复这项轻量预检。缺少任何必要条件时，命令都会停止并给出明确提示。Ubuntu Linux 使用相同命令，该流程不要求安装桌面系统工具链。如需覆盖当前解释器，可以通过 `BUMBLEHIVE_PYTHON` 指定 Python 路径。
 
 日常开发只需：
 
 ```bash
 conda activate bumblehive_env
-npm run dev
+pnpm run dev
 ```
 
-该命令同时启动 Server（`127.0.0.1:18421`）和 WebUI（`127.0.0.1:1420`）。也可以单独运行 `npm run dev:server` 或 `npm run dev:web`，使用 `npm test` 执行 Python 测试。
+该命令同时启动 Server（`127.0.0.1:18421`）和 WebUI（`127.0.0.1:1420`）。也可以单独运行 `pnpm run dev:server` 或 `pnpm run dev:web`，使用 `pnpm test` 执行 Python 测试。
 
 ### 桌面端
 
 可选的桌面端流程目前面向 macOS 和 Windows。macOS 还需要 Rust 和 Xcode Command Line Tools；Windows 还需要 Rust MSVC toolchain、WebView2，以及包含“使用 C++ 的桌面开发”工作负载的 Microsoft C++ Build Tools。
 
-全新检出项目后，只需安装一次额外的桌面端依赖：
+完成统一的 `pnpm run setup` 后，可以启动桌面开发模式，或为当前平台生成安装包：
 
 ```bash
-npm run setup:desktop
+pnpm run dev:desktop
+pnpm run build:desktop
 ```
 
-之后可以启动桌面开发模式，或为当前平台生成安装包：
-
-```bash
-npm run dev:desktop
-npm run build:desktop
-```
-
-`npm run setup:desktop` 会执行 SDK、Server 和 WebUI 的安装，额外安装 Tauri 与 PyInstaller 依赖，并自动检查完整的桌面环境。`dev:desktop` 和 `build:desktop` 也会重复这项预检，再使用当前 Python 环境自动将 Server 打包成 sidecar，然后启动 Tauri。`build:desktop` 在 macOS 生成 app 和 DMG，在 Windows 生成 NSIS 安装包。
+这两个命令会检查 Rust、Tauri 和平台工具链，再使用当前 Python 环境自动将 Server 打包成 sidecar，然后启动 Tauri。`build:desktop` 在 macOS 生成 app 和 DMG，在 Windows 生成 NSIS 安装包。
