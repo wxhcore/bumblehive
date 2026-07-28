@@ -5,8 +5,8 @@
   "version": "0.1.0",
   "identifier": "com.bumblehive.desktop",
   "build": {
-    "beforeDevCommand": "npm --prefix ../webui run dev",
-    "beforeBuildCommand": "npm --prefix ../webui run build",
+    "beforeDevCommand": "pnpm --dir ../webui run dev",
+    "beforeBuildCommand": "pnpm --dir ../webui run build",
     "devUrl": "http://127.0.0.1:1420",
     "frontendDist": "../../webui/dist"
   },

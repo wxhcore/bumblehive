@@ -199,7 +199,7 @@ def test_ui_event_filter_builds_bounded_tool_details() -> None:
             "name": "exec",
             "content": json.dumps(
                 {
-                    "command": "npm run build",
+                    "command": "pnpm run build",
                     "working_dir": "/tmp/workspace",
                     "exit_code": 0,
                     "stdout": "x" * 20_000,
@@ -217,7 +217,7 @@ def test_ui_event_filter_builds_bounded_tool_details() -> None:
     shell_result = shell_frame["payload"]["tool_result"]
     assert shell_result["name"] == "exec"
     assert shell_result["detail"]["kind"] == "shell"
-    assert shell_result["detail"]["command"] == "npm run build"
+    assert shell_result["detail"]["command"] == "pnpm run build"
     assert "已省略" in shell_result["detail"]["stdout"]
     assert shell_result["detail"]["truncatedCharacters"] == 4_012
     assert "x" * 20_000 not in str(shell_frame)

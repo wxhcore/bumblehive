@@ -1,0 +1,10 @@
+packages:
+  - webui
+  - desktop
+
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude: []
+
+blockExoticSubdeps: true
+strictDepBuilds: true
+allowBuilds: {}

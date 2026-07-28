@@ -1,13 +1,19 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const npm = "npm";
+const pnpm = "pnpm";
 const python = process.env.BUMBLEHIVE_PYTHON || "python";
 const desktop = process.argv.includes("--desktop");
-const setupCommand = desktop ? "npm run setup:desktop" : "npm run setup";
+const setupCommand = "pnpm run setup";
+const packageManager = JSON.parse(
+  readFileSync(resolve(root, "package.json"), "utf8"),
+).packageManager;
+const expectedPnpmVersion = /^pnpm@([^+]+)(?:\+|$)/.exec(
+  packageManager || "",
+)?.[1];
 let errors = 0;
 let warnings = 0;
 
@@ -70,7 +76,6 @@ const nodeMatch = process.versions.node.match(/^(\d+)\.(\d+)\.(\d+)/);
 const nodeMajor = Number(nodeMatch?.[1] || 0);
 const nodeMinor = Number(nodeMatch?.[2] || 0);
 const supportedNode =
-  (nodeMajor === 20 && nodeMinor >= 19) ||
   (nodeMajor === 22 && nodeMinor >= 12) ||
   nodeMajor > 22;
 if (supportedNode) {
@@ -78,10 +83,21 @@ if (supportedNode) {
 } else {
   fail(
     "Node.js " + process.version +
-      " is unsupported; install Node.js 20.19+, 22.12+, or newer.",
+      " is unsupported; install Node.js 22.12 or newer.",
   );
 }
-checkCommand("npm", npm, ["--version"]);
+const pnpmVersion = checkCommand("pnpm", pnpm, ["--version"]);
+if (!expectedPnpmVersion) {
+  fail("package.json must pin pnpm in its packageManager field.");
+} else if (
+  pnpmVersion &&
+  firstLine(pnpmVersion) !== expectedPnpmVersion
+) {
+  fail(
+    "pnpm " + firstLine(pnpmVersion) +
+      " is unsupported; use pnpm " + expectedPnpmVersion + ".",
+  );
+}
 
 const pythonInfoResult = capture(python, [
   "-c",
@@ -196,12 +212,12 @@ if (pythonInfo) {
 checkPath(
   "Workspace Node dependencies",
   resolve(root, "node_modules", "concurrently", "package.json"),
-  "Run 'npm run setup'.",
+  "Run 'pnpm run setup'.",
 );
 checkPath(
   "WebUI dependencies",
   resolve(root, "webui", "node_modules", "vite", "package.json"),
-  "Run 'npm run setup'.",
+  "Run 'pnpm run setup'.",
 );
 if (desktop) {
   console.log("\nDesktop packaging");
@@ -215,7 +231,7 @@ if (desktop) {
       "cli",
       "package.json",
     ),
-    "Run 'npm run setup:desktop'.",
+    "Run 'pnpm run setup'.",
   );
   const rust = checkCommand("Rust", "rustc", ["-Vv"]);
   checkCommand("Cargo", "cargo", ["--version"]);

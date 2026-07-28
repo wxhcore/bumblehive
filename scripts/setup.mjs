@@ -3,11 +3,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const npm = "npm";
+const pnpm = "pnpm";
 const python = process.env.BUMBLEHIVE_PYTHON || "python";
-const includeDesktop = process.argv.includes("--desktop");
 
-function run(label, command, args, cwd = root) {
+function run(label, command, args, cwd = root, env = process.env) {
   console.log("\n==> " + label);
   if (process.platform === "win32") {
     args = ["/c", command, ...args];
@@ -15,7 +14,7 @@ function run(label, command, args, cwd = root) {
   }
   const result = spawnSync(command, args, {
     cwd,
-    env: process.env,
+    env,
     stdio: "inherit",
   });
 
@@ -54,58 +53,36 @@ if (!activeEnvironment || process.env.CONDA_DEFAULT_ENV === "base") {
 }
 
 run(
-  "Installing workspace tooling",
-  npm,
-  ["ci", "--no-audit", "--no-fund"],
+  "Installing Node workspace dependencies",
+  pnpm,
+  ["install", "--frozen-lockfile"],
+  root,
+  {
+    ...process.env,
+    CI: process.env.CI || "true",
+  },
 );
-run(
-  "Installing WebUI dependencies",
-  npm,
-  ["ci", "--no-audit", "--no-fund"],
-  resolve(root, "webui"),
-);
-if (includeDesktop) {
-  run(
-    "Installing desktop dependencies",
-    npm,
-    ["ci", "--no-audit", "--no-fund"],
-    resolve(root, "desktop"),
-  );
-}
 run(
   "Installing BumbleHive SDK and development dependencies",
   python,
   ["-m", "pip", "install", "-e", ".[dev]"],
 );
 run(
-  includeDesktop
-    ? "Installing server, test, and packaging dependencies"
-    : "Installing server and test dependencies",
+  "Installing server, test, and packaging dependencies",
   python,
   [
     "-m",
     "pip",
     "install",
     "-e",
-    includeDesktop ? "server[test,build]" : "server[test]",
+    "server[test,build]",
   ],
 );
 run(
-  includeDesktop
-    ? "Verifying the core and desktop environments"
-    : "Verifying the core environment",
+  "Verifying the core environment",
   process.execPath,
-  [
-    resolve(root, "scripts", "doctor.mjs"),
-    ...(includeDesktop ? ["--desktop"] : []),
-  ],
+  [resolve(root, "scripts", "doctor.mjs")],
 );
 console.log("\nSetup complete.");
-if (includeDesktop) {
-  console.log("Run 'npm run dev:desktop' to start the desktop application.");
-} else {
-  console.log("Run 'npm run dev' to start the server and WebUI.");
-  console.log(
-    "Run 'npm run setup:desktop' to add the optional desktop toolchain.",
-  );
-}
+console.log("Run 'pnpm run dev' to start the server and WebUI.");
+console.log("Run 'pnpm run dev:desktop' to start the desktop application.");

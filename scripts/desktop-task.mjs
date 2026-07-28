@@ -53,20 +53,19 @@ run(
 if (mode === "dev") {
   run(
     "Starting the desktop development application",
-    "npm",
-    ["--prefix", "desktop", "run", "tauri", "--", "dev"],
+    "pnpm",
+    ["--filter", "bumblehive-desktop", "run", "tauri", "dev"],
   );
 } else {
   const bundles = process.platform === "darwin" ? "dmg" : "nsis";
   run(
     "Building the desktop application",
-    "npm",
+    "pnpm",
     [
-      "--prefix",
-      "desktop",
+      "--filter",
+      "bumblehive-desktop",
       "run",
       "tauri",
-      "--",
       "build",
       "--bundles",
       bundles,
