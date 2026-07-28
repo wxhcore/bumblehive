@@ -1,0 +1,218 @@
+.composer {
+      position: absolute;
+      z-index: 3;
+      overflow: visible;
+      border: 1px solid rgba(25, 26, 28, 0.16);
+      transition:
+        bottom 220ms ease,
+        border-color 160ms ease,
+        box-shadow 160ms ease;
+  left: 50%;
+  bottom: var(--composer-bottom);
+  width: var(--conversation-width);
+  height: var(--composer-height);
+  border-color: rgba(52, 45, 27, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 12px 32px rgba(52, 45, 27, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+}
+
+.composer:focus-within {
+  border-color: rgba(var(--hive-yellow-rgb), 0.5);
+  box-shadow:
+    0 14px 36px rgba(52, 45, 27, 0.07),
+    0 0 0 3px rgba(var(--hive-yellow-rgb), 0.11);
+}
+
+textarea {
+      width: 100%;
+      resize: none;
+      border: 0;
+      outline: 0;
+      background: transparent;
+  height: 70px;
+  padding: 16px 20px 7px;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: -0.012em;
+}
+
+.composer-toolbar {
+      display: flex;
+      align-items: center;
+  height: 49px;
+  padding: 4px 10px 7px 13px;
+  gap: 4px;
+}
+
+.tool-button,
+.workspace-button,
+.model-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 160ms ease;
+  border-radius: 9px;
+}
+
+.tool-button {
+  width: 31px;
+  height: 34px;
+  margin-right: 2px;
+}
+
+.tool-plus {
+  width: 18px;
+  height: 18px;
+}
+
+.workspace-button {
+      letter-spacing: -0.01em;
+  height: 34px;
+  padding: 0 8px;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.folder-icon {
+      position: relative;
+      border: 1.8px solid currentColor;
+  width: 18px;
+  height: 13px;
+  border-width: 1.5px;
+  border-radius: 3px;
+}
+
+.folder-icon::before {
+      content: "";
+      position: absolute;
+      left: 2px;
+      border: 1.8px solid currentColor;
+  top: -4px;
+  width: 8px;
+  height: 4px;
+  border-width: 1.5px;
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+
+.model-button {
+      letter-spacing: -0.01em;
+  height: 34px;
+  padding: 0 8px;
+  gap: 9px;
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.chevron {
+      border-right: 1.8px solid currentColor;
+      border-bottom: 1.8px solid currentColor;
+      transform: rotate(45deg);
+  width: 7px;
+  height: 7px;
+  margin: 0 3px 4px 0;
+  border-width: 1.4px;
+}
+
+.send-button {
+      position: relative;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      transition: transform 160ms ease, background 160ms ease;
+  width: 36px;
+  height: 36px;
+  margin-left: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  color: #2b2414;
+  background: var(--hive-yellow);
+  box-shadow: 0 2px 8px rgba(var(--hive-yellow-rgb), 0.24);
+}
+
+.send-button:hover,
+.send-button:focus-visible {
+  outline: none;
+  transform: translateY(-1px);
+  background: var(--hive-yellow);
+}
+
+.send-arrow {
+      position: relative;
+  width: 14px;
+  height: 18px;
+}
+
+.send-arrow::before {
+      content: "";
+      position: absolute;
+      top: 1px;
+      border-radius: 2px;
+      background: currentColor;
+  left: 6px;
+  width: 1.5px;
+  height: 17px;
+}
+
+.send-arrow::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      border-left: 2px solid currentColor;
+      border-top: 2px solid currentColor;
+      transform: rotate(45deg);
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-width: 1.5px;
+}
+
+.stop-icon {
+      background: currentColor;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.composer-model-dropdown {
+      position: absolute;
+      right: 0;
+      z-index: 3;
+      width: min(320px, 70vw);
+      min-width: 220px;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(16px);
+  bottom: calc(100% + 8px);
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(52, 45, 27, 0.12);
+}
+
+.connection-state {
+      position: absolute;
+      z-index: 1;
+      top: 50%;
+      width: min(520px, calc(100% - 100px));
+      display: grid;
+      justify-items: center;
+      gap: 12px;
+      text-align: center;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.connection-state h1 {
+  font-size: 25px;
+  font-weight: 560;
+}
+
+.connection-state p {
+      margin: 0 0 12px;
+      color: var(--muted);
+  font-size: 13.5px;
+}

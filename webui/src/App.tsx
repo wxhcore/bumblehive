@@ -5,38 +5,39 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChatSocket } from "./api/chat-socket";
 import {
-  createSession,
   deleteSession,
-  getHealth,
-  getModels,
   getSession,
   getSessions,
-  getSettings,
   updateSettings,
 } from "./api/http";
 import { ChatView } from "./components/ChatView";
 import { Composer } from "./components/Composer";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { DesktopTitlebar } from "./components/DesktopTitlebar";
 import { HomeView } from "./components/HomeView";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
+import { useChatRuntime } from "./hooks/useChatRuntime";
+import { useBlankSessions } from "./hooks/useBlankSessions";
+import { useModels } from "./hooks/useModels";
+import { useServerBootstrap } from "./hooks/useServerBootstrap";
+import { historyMessages } from "./lib/chat-events";
 import {
   MAX_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
   useSidebarWidth,
 } from "./hooks/useSidebarWidth";
+import { useStableCallback } from "./hooks/useStableCallback";
+import { useToast } from "./hooks/useToast";
 import {
   isMacDesktop,
   pickWorkspaceDirectory,
-  startWindowDrag,
 } from "./lib/platform";
 import {
-  detailFromStoredToolResult,
-  normalizeToolActivityOutcome,
-  parseToolActivityDetail,
-  toolResultError,
-} from "./tool-details";
+  sessionBranchIds,
+  type PendingSessionInfo,
+} from "./lib/session-tree";
 import {
   mergeDiscoveredWorkspaces,
   readSelectedWorkspace,
@@ -48,69 +49,10 @@ import {
   writeWorkspaceRegistry,
 } from "./lib/workspaces";
 import type {
-  AgentEventFrame,
-  AssistantIteration,
-  ChatFrame,
-  CreatedSession,
   SessionSummary,
   Settings,
   SettingsUpdate,
-  StoredMessage,
-  ToolActivity,
-  UiMessage,
 } from "./types/api";
-
-type BootstrapStatus = "loading" | "ready" | "error";
-
-interface PendingSessionInfo {
-  workspace: string;
-  title?: string;
-  parentSessionId?: string;
-}
-
-function sessionBranchIds(
-  rootSessionId: string,
-  sessions: readonly SessionSummary[],
-  pendingSessions: ReadonlyMap<string, PendingSessionInfo>,
-): Set<string> {
-  const childrenByParent = new Map<string, string[]>();
-  const addChild = (sessionId: string, parentSessionId?: string | null) => {
-    const parentId = parentSessionId?.trim();
-    if (!parentId) return;
-    const children = childrenByParent.get(parentId);
-    if (children) children.push(sessionId);
-    else childrenByParent.set(parentId, [sessionId]);
-  };
-  sessions.forEach((session) =>
-    addChild(session.session_id, session.parent_session_id),
-  );
-  pendingSessions.forEach((pending, sessionId) =>
-    addChild(sessionId, pending.parentSessionId),
-  );
-
-  const branchIds = new Set([rootSessionId]);
-  const pendingIds = [rootSessionId];
-  for (let index = 0; index < pendingIds.length; index += 1) {
-    for (const childId of childrenByParent.get(pendingIds[index]) ?? []) {
-      if (branchIds.has(childId)) continue;
-      branchIds.add(childId);
-      pendingIds.push(childId);
-    }
-  }
-  return branchIds;
-}
-
-const STREAM_CATCH_UP_MS = 72;
-const MIN_STREAM_CHARACTERS_PER_SECOND = 90;
-const MAX_STREAM_FRAME_ELAPSED_MS = 50;
-const STREAM_TEXT_EVENT_KINDS = new Set([
-  "model.stream.content_delta",
-  "model.stream.reasoning_delta",
-  "model.stream.refusal_delta",
-]);
-
-const wait = (milliseconds: number) =>
-  new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
 function isProviderConfigured(settings: Settings): boolean {
   return (
@@ -119,585 +61,7 @@ function isProviderConfigured(settings: Settings): boolean {
   );
 }
 
-function createMessageId(): string {
-  return crypto.randomUUID();
-}
-
-function frameSessionId(frame: ChatFrame, fallback: string): string {
-  return "session_id" in frame &&
-    typeof frame.session_id === "string" &&
-    frame.session_id
-    ? frame.session_id
-    : fallback;
-}
-
-function messageContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (content === null || content === undefined) return "";
-  try {
-    return JSON.stringify(content, null, 2);
-  } catch {
-    return String(content);
-  }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function parseArguments(value: unknown): unknown {
-  if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return value;
-  }
-}
-
-function storedToolCalls(value: unknown, messageIndex: number): ToolActivity[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((rawCall, toolIndex) => {
-    const call = asRecord(rawCall);
-    if (!call) return [];
-    const fn = asRecord(call.function);
-    if (!fn) return [];
-    const name = fn.name;
-    if (typeof name !== "string" || !name) return [];
-    return [
-      {
-        id:
-          typeof call.id === "string" && call.id
-            ? call.id
-            : `history-tool-${messageIndex}-${toolIndex}`,
-        name,
-        arguments: parseArguments(fn.arguments),
-        status: "running",
-      } satisfies ToolActivity,
-    ];
-  });
-}
-
-function historyMessages(messages: StoredMessage[]): UiMessage[] {
-  const result: UiMessage[] = [];
-  const toolsByCallId = new Map<string, ToolActivity>();
-
-  messages.forEach((message, index) => {
-    if (message.role === "user") {
-      result.push({
-        id: `history-${index}`,
-        role: "user",
-        content: messageContent(message.content),
-      });
-      return;
-    }
-
-    if (message.role === "assistant") {
-      const content = messageContent(message.content);
-      const reasoning = messageContent(message.reasoning_content);
-      const tools = storedToolCalls(message.tool_calls, index);
-      const uiMetadata = asRecord(message._bumblehive_ui);
-      const durationSeconds =
-        typeof uiMetadata?.duration_s === "number" &&
-        Number.isFinite(uiMetadata.duration_s)
-          ? uiMetadata.duration_s
-          : undefined;
-      if (!content && !reasoning && !tools.length) return;
-      tools.forEach((tool) => toolsByCallId.set(tool.id, tool));
-      const modelIteration: AssistantIteration = {
-        id: `history-iteration-${index}`,
-        iteration: null,
-        content,
-        reasoning: reasoning || undefined,
-        tools: tools.length ? tools : undefined,
-      };
-      const previous = result.at(-1);
-      if (previous?.role === "assistant") {
-        previous.iterations = [...(previous.iterations ?? []), modelIteration];
-        if (durationSeconds !== undefined) {
-          previous.durationSeconds = durationSeconds;
-        }
-      } else {
-        result.push({
-          id: `history-${index}`,
-          role: "assistant",
-          content: "",
-          iterations: [modelIteration],
-          durationSeconds,
-        });
-      }
-      return;
-    }
-
-    if (message.role === "tool") {
-      const callId =
-        typeof message.tool_call_id === "string" ? message.tool_call_id : "";
-      const tool = callId ? toolsByCallId.get(callId) : undefined;
-      if (tool) {
-        const errorMessage = toolResultError(message.content);
-        tool.status = errorMessage ? "error" : "completed";
-        tool.errorMessage = errorMessage || undefined;
-        tool.detail = detailFromStoredToolResult(tool.name, message.content);
-        Object.assign(tool, normalizeToolActivityOutcome(tool));
-      }
-    }
-  });
-
-  return result;
-}
-
-function startedTool(payload: Record<string, unknown>): ToolActivity | null {
-  const call = asRecord(payload.tool_call);
-  if (!call) return null;
-  const name = typeof call.name === "string" ? call.name : "工具";
-  return {
-    id:
-      typeof call.call_id === "string" && call.call_id
-        ? call.call_id
-        : createMessageId(),
-    name,
-    arguments: call.arguments,
-    status: "running",
-  };
-}
-
-function finishedTool(payload: Record<string, unknown>): ToolActivity | null {
-  const result = asRecord(payload.tool_result);
-  if (!result) return null;
-  const error = asRecord(payload.error);
-  const name = typeof result.name === "string" ? result.name : "工具";
-  return {
-    id:
-      typeof result.tool_call_id === "string" && result.tool_call_id
-        ? result.tool_call_id
-        : createMessageId(),
-    name,
-    status: payload.ok === true ? "completed" : "error",
-    durationSeconds:
-      typeof payload.duration_s === "number" ? payload.duration_s : undefined,
-    errorMessage:
-      typeof error?.message === "string" ? error.message : undefined,
-    detail: parseToolActivityDetail(result.detail),
-  };
-}
-
-function startTool(
-  tools: ToolActivity[] | undefined,
-  started: ToolActivity,
-): ToolActivity[] {
-  const current = [...(tools ?? [])];
-  const index = current.findIndex(
-    (tool) =>
-      tool.id === started.id ||
-      (tool.status === "preparing" && tool.name === started.name),
-  );
-  if (index === -1) return [...current, started];
-  current[index] = { ...current[index], ...started };
-  return current;
-}
-
-function prepareTool(
-  tools: ToolActivity[] | undefined,
-  payload: Record<string, unknown>,
-  iteration: number | null,
-): ToolActivity[] {
-  const current = [...(tools ?? [])];
-  const streamIndex =
-    typeof payload.index === "number" ? payload.index : 0;
-  const callId =
-    typeof payload.call_id === "string" && payload.call_id
-      ? payload.call_id
-      : "";
-  const index = current.findIndex(
-    (tool) =>
-      tool.streamIndex === streamIndex || Boolean(callId && tool.id === callId),
-  );
-  const existing = index >= 0 ? current[index] : undefined;
-  const streamedArguments =
-    (existing?.streamedArguments ?? "") +
-    (typeof payload.arguments_delta === "string"
-      ? payload.arguments_delta
-      : "");
-  const name =
-    typeof payload.name === "string" && payload.name
-      ? payload.name
-      : existing?.name || "工具";
-  const prepared: ToolActivity = {
-    ...existing,
-    id:
-      callId ||
-      existing?.id ||
-      `stream-tool-${iteration ?? "unknown"}-${streamIndex}`,
-    name,
-    arguments: parseArguments(streamedArguments),
-    streamedArguments,
-    streamIndex,
-    status: "preparing",
-  };
-
-  if (index < 0) return [...current, prepared];
-  current[index] = prepared;
-  return current;
-}
-
-function finishTool(
-  tools: ToolActivity[] | undefined,
-  finished: ToolActivity,
-): ToolActivity[] {
-  const current = [...(tools ?? [])];
-  let index = current.findIndex((tool) => tool.id === finished.id);
-  if (index < 0) {
-    for (let candidate = current.length - 1; candidate >= 0; candidate -= 1) {
-      const tool = current[candidate];
-      if (
-        (tool.status === "running" || tool.status === "preparing") &&
-        tool.name === finished.name
-      ) {
-        index = candidate;
-        break;
-      }
-    }
-  }
-  if (index === -1) {
-    return [...current, normalizeToolActivityOutcome(finished)];
-  }
-  current[index] = normalizeToolActivityOutcome({
-    ...current[index],
-    ...finished,
-  });
-  return current;
-}
-
-type IterationUpdateKind = "model" | "tool";
-
-function updateAssistantIteration(
-  iterations: AssistantIteration[] | undefined,
-  iteration: number | null,
-  kind: IterationUpdateKind,
-  update: (current: AssistantIteration) => AssistantIteration,
-): AssistantIteration[] {
-  const current = [...(iterations ?? [])];
-  let index =
-    iteration === null
-      ? current.length - 1
-      : current.findIndex((item) => item.iteration === iteration);
-
-  if (
-    index < 0 ||
-    (iteration === null &&
-      kind === "model" &&
-      Boolean(current[index]?.tools?.length))
-  ) {
-    current.push({
-      id: createMessageId(),
-      iteration,
-      content: "",
-    });
-    index = current.length - 1;
-  }
-
-  current[index] = update(current[index]);
-  return current;
-}
-
-function finishIterationTool(
-  iterations: AssistantIteration[] | undefined,
-  iteration: number | null,
-  finished: ToolActivity,
-): AssistantIteration[] {
-  const current = [...(iterations ?? [])];
-  let ownerIndex = current.findIndex((item) =>
-    item.tools?.some((tool) => tool.id === finished.id),
-  );
-  if (ownerIndex < 0) {
-    for (
-      let candidate = current.length - 1;
-      candidate >= 0;
-      candidate -= 1
-    ) {
-      if (
-        current[candidate].tools?.some(
-          (tool) =>
-            (tool.status === "running" || tool.status === "preparing") &&
-            tool.name === finished.name,
-        )
-      ) {
-        ownerIndex = candidate;
-        break;
-      }
-    }
-  }
-
-  if (ownerIndex >= 0) {
-    current[ownerIndex] = {
-      ...current[ownerIndex],
-      tools: finishTool(current[ownerIndex].tools, finished),
-    };
-    return current;
-  }
-
-  return updateAssistantIteration(current, iteration, "tool", (item) => ({
-    ...item,
-    tools: finishTool(item.tools, finished),
-  }));
-}
-
-function completeIterationTools(
-  iterations: AssistantIteration[] | undefined,
-  status: ToolActivity["status"],
-  errorMessage?: string,
-): AssistantIteration[] {
-  return (iterations ?? []).map((iteration) => ({
-    ...iteration,
-    tools: iteration.tools?.map((tool) =>
-      tool.status === "running" || tool.status === "preparing"
-        ? { ...tool, status, errorMessage }
-        : tool,
-    ),
-  }));
-}
-
-function streamedDelta(frame: AgentEventFrame): string | null {
-  if (!STREAM_TEXT_EVENT_KINDS.has(frame.kind)) return null;
-  const delta = frame.payload.delta;
-  return typeof delta === "string" ? delta : null;
-}
-
-function appendPendingAgentFrame(
-  frames: AgentEventFrame[],
-  frame: AgentEventFrame,
-): void {
-  const delta = streamedDelta(frame);
-  const previous = frames.at(-1);
-  const previousDelta = previous ? streamedDelta(previous) : null;
-  if (
-    delta !== null &&
-    previous &&
-    previousDelta !== null &&
-    previous.kind === frame.kind &&
-    previous.iteration === frame.iteration
-  ) {
-    frames[frames.length - 1] = {
-      ...previous,
-      payload: {
-        ...previous.payload,
-        delta: previousDelta + delta,
-      },
-      timestamp: frame.timestamp,
-    };
-    return;
-  }
-  frames.push(frame);
-}
-
-function takeCodePointPrefix(
-  value: string,
-  limit: number,
-): { prefix: string; rest: string; count: number } {
-  if (limit <= 0 || !value) {
-    return { prefix: "", rest: value, count: 0 };
-  }
-
-  let end = 0;
-  let count = 0;
-  for (const character of value) {
-    if (count >= limit) break;
-    end += character.length;
-    count += 1;
-  }
-  return {
-    prefix: value.slice(0, end),
-    rest: value.slice(end),
-    count,
-  };
-}
-
-function takeAgentFramesForPaint(
-  frames: AgentEventFrame[],
-  textBudget: number,
-): { painted: AgentEventFrame[]; textCount: number } {
-  const painted: AgentEventFrame[] = [];
-  let remainingBudget = textBudget;
-  let textCount = 0;
-
-  while (frames.length > 0) {
-    const frame = frames[0];
-    const delta = streamedDelta(frame);
-    if (delta === null) {
-      painted.push(frame);
-      frames.shift();
-      continue;
-    }
-    if (remainingBudget <= 0) break;
-
-    const taken = takeCodePointPrefix(delta, remainingBudget);
-    if (taken.count === 0) {
-      frames.shift();
-      continue;
-    }
-    painted.push({
-      ...frame,
-      payload: { ...frame.payload, delta: taken.prefix },
-    });
-    textCount += taken.count;
-    remainingBudget -= taken.count;
-
-    if (taken.rest) {
-      frames[0] = {
-        ...frame,
-        payload: { ...frame.payload, delta: taken.rest },
-      };
-      break;
-    }
-    frames.shift();
-  }
-
-  return { painted, textCount };
-}
-
-function applyAgentEventFrames(
-  messages: UiMessage[],
-  assistantId: string,
-  frames: AgentEventFrame[],
-): UiMessage[] {
-  const assistantIndex = messages.findIndex(
-    (message) => message.id === assistantId,
-  );
-  if (assistantIndex < 0) return messages;
-
-  const original = messages[assistantIndex];
-  let updated = original;
-
-  for (const frame of frames) {
-    if (
-      frame.kind === "model.stream.content_delta" ||
-      frame.kind === "model.stream.refusal_delta"
-    ) {
-      const delta = frame.payload.delta;
-      if (typeof delta !== "string") continue;
-      updated = {
-        ...updated,
-        iterations: updateAssistantIteration(
-          updated.iterations,
-          frame.iteration,
-          "model",
-          (modelIteration) => ({
-            ...modelIteration,
-            content: modelIteration.content + delta,
-          }),
-        ),
-      };
-      continue;
-    }
-
-    if (frame.kind === "model.stream.reasoning_delta") {
-      const delta = frame.payload.delta;
-      if (typeof delta !== "string") continue;
-      updated = {
-        ...updated,
-        iterations: updateAssistantIteration(
-          updated.iterations,
-          frame.iteration,
-          "model",
-          (modelIteration) => ({
-            ...modelIteration,
-            reasoning: (modelIteration.reasoning ?? "") + delta,
-          }),
-        ),
-      };
-      continue;
-    }
-
-    if (frame.kind === "model.stream.tool_call_delta") {
-      updated = {
-        ...updated,
-        iterations: updateAssistantIteration(
-          updated.iterations,
-          frame.iteration,
-          "tool",
-          (modelIteration) => ({
-            ...modelIteration,
-            tools: prepareTool(
-              modelIteration.tools,
-              frame.payload,
-              frame.iteration,
-            ),
-          }),
-        ),
-      };
-      continue;
-    }
-
-    if (frame.kind === "tool.call.started") {
-      const tool = startedTool(frame.payload);
-      if (!tool) continue;
-      updated = {
-        ...updated,
-        iterations: updateAssistantIteration(
-          updated.iterations,
-          frame.iteration,
-          "tool",
-          (modelIteration) => ({
-            ...modelIteration,
-            tools: startTool(modelIteration.tools, tool),
-          }),
-        ),
-      };
-      continue;
-    }
-
-    if (frame.kind === "tool.call.finished") {
-      const tool = finishedTool(frame.payload);
-      if (!tool) continue;
-      updated = {
-        ...updated,
-        iterations: finishIterationTool(
-          updated.iterations,
-          frame.iteration,
-          tool,
-        ),
-      };
-      continue;
-    }
-
-    if (frame.kind === "model.response.finished") {
-      const response = asRecord(frame.payload.message);
-      const reasoning = response?.reasoning_content;
-      if (typeof reasoning !== "string" || !reasoning) continue;
-      updated = {
-        ...updated,
-        iterations: updateAssistantIteration(
-          updated.iterations,
-          frame.iteration,
-          "model",
-          (modelIteration) =>
-            modelIteration.reasoning
-              ? modelIteration
-              : { ...modelIteration, reasoning },
-        ),
-      };
-    }
-  }
-
-  if (updated === original) return messages;
-  const next = [...messages];
-  next[assistantIndex] = updated;
-  return next;
-}
-
-function useStableCallback<Args extends unknown[], Result>(
-  callback: (...args: Args) => Result,
-): (...args: Args) => Result {
-  const callbackRef = useRef(callback);
-  callbackRef.current = callback;
-  return useCallback((...args: Args) => callbackRef.current(...args), []);
-}
-
 export default function App() {
-  const [bootstrapStatus, setBootstrapStatus] =
-    useState<BootstrapStatus>("loading");
-  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [workspaceRegistry, setWorkspaceRegistry] = useState(
     readWorkspaceRegistry,
@@ -705,20 +69,10 @@ export default function App() {
   const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(
     readSelectedWorkspace,
   );
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [modelSwitching, setModelSwitching] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [runningSessionIds, setRunningSessionIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const [stoppingSessionIds, setStoppingSessionIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
   const [pendingSessionInfo, setPendingSessionInfo] = useState<
     ReadonlyMap<string, PendingSessionInfo>
   >(() => new Map());
-  const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [focusSettingsWorkspace, setFocusSettingsWorkspace] =
@@ -727,230 +81,11 @@ export default function App() {
   const [removeWorkspacePath, setRemoveWorkspacePath] = useState<string | null>(
     null,
   );
-  const [toast, setToast] = useState("");
+  const { message: toast, notify } = useToast();
   const sidebar = useSidebarWidth();
 
-  const socketsRef = useRef(new Map<string, ChatSocket>());
-  const activeSessionIdRef = useRef<string | null>(null);
-  const runningSessionIdsRef = useRef(new Set<string>());
-  const messagesBySessionRef = useRef(new Map<string, UiMessage[]>());
-  const assistantIdsRef = useRef(new Map<string, string>());
-  const pendingAgentFramesRef = useRef(
-    new Map<string, AgentEventFrame[]>(),
-  );
-  const streamPaintStateRef = useRef(
-    new Map<string, { credit: number; lastTimestamp: number | null }>(),
-  );
-  const agentFrameFlushAnimationRef = useRef<number | null>(null);
-  const paintPendingAgentFramesRef = useRef<(timestamp: number) => void>(
-    () => undefined,
-  );
   const sessionsLoadVersionRef = useRef(0);
   const sessionSelectionVersionRef = useRef(0);
-  const frameHandlerRef = useRef<
-    (
-      sessionId: string,
-      sourceSessionId: string,
-      frame: ChatFrame,
-    ) => void
-  >(() => undefined);
-  const toastTimerRef = useRef<number | null>(null);
-  const modelListRequestIdRef = useRef(0);
-  const blankSessionIdsRef = useRef(new Map<string, string>());
-  const blankSessionRequestsRef = useRef(
-    new Map<string, Promise<CreatedSession>>(),
-  );
-  const notify = useCallback((message: string) => {
-    setToast(message);
-    if (toastTimerRef.current !== null) {
-      window.clearTimeout(toastTimerRef.current);
-    }
-    toastTimerRef.current = window.setTimeout(() => setToast(""), 2200);
-  }, []);
-
-  const loadAvailableModels = useCallback(async (currentSettings: Settings) => {
-    const requestId = ++modelListRequestIdRef.current;
-    const baseUrl = currentSettings.provider.base_url?.trim();
-    setAvailableModels([]);
-    if (!baseUrl) return;
-    try {
-      const response = await getModels({ base_url: baseUrl });
-      if (requestId !== modelListRequestIdRef.current) return;
-      setAvailableModels(
-        Array.from(
-          new Set(
-            response.models
-              .map((model) => model.trim())
-              .filter((model) => Boolean(model)),
-          ),
-        ),
-      );
-    } catch {
-      if (requestId === modelListRequestIdRef.current) {
-        setAvailableModels([]);
-      }
-    }
-  }, []);
-
-  const displaySession = useCallback(
-    (sessionId: string | null, sessionMessages: UiMessage[]) => {
-      activeSessionIdRef.current = sessionId;
-      if (sessionId) messagesBySessionRef.current.set(sessionId, sessionMessages);
-      setActiveSessionId(sessionId);
-      setMessages(sessionMessages);
-    },
-    [],
-  );
-
-  const updateSessionMessages = useCallback(
-    (sessionId: string, update: (current: UiMessage[]) => UiMessage[]) => {
-      const current = messagesBySessionRef.current.get(sessionId) ?? [];
-      const next = update(current);
-      messagesBySessionRef.current.set(sessionId, next);
-      if (activeSessionIdRef.current === sessionId) {
-        setMessages(next);
-      }
-    },
-    [],
-  );
-
-  const scheduleAgentFramePaint = useCallback(() => {
-    if (agentFrameFlushAnimationRef.current !== null) return;
-    agentFrameFlushAnimationRef.current = window.requestAnimationFrame(
-      (timestamp) => {
-        agentFrameFlushAnimationRef.current = null;
-        paintPendingAgentFramesRef.current(timestamp);
-      },
-    );
-  }, []);
-
-  const flushPendingAgentFrames = useCallback(
-    (sessionId?: string) => {
-      const queued: Array<[string, AgentEventFrame[]]> = [];
-      if (sessionId) {
-        const frames = pendingAgentFramesRef.current.get(sessionId);
-        if (frames?.length) {
-          pendingAgentFramesRef.current.delete(sessionId);
-          queued.push([sessionId, frames]);
-        }
-      } else {
-        queued.push(...pendingAgentFramesRef.current);
-        pendingAgentFramesRef.current.clear();
-      }
-
-      if (
-        pendingAgentFramesRef.current.size === 0 &&
-        agentFrameFlushAnimationRef.current !== null
-      ) {
-        window.cancelAnimationFrame(agentFrameFlushAnimationRef.current);
-        agentFrameFlushAnimationRef.current = null;
-      }
-
-      for (const [queuedSessionId, frames] of queued) {
-        streamPaintStateRef.current.delete(queuedSessionId);
-        const assistantId = assistantIdsRef.current.get(queuedSessionId);
-        if (!assistantId) continue;
-        updateSessionMessages(queuedSessionId, (current) =>
-          applyAgentEventFrames(current, assistantId, frames),
-        );
-      }
-    },
-    [updateSessionMessages],
-  );
-
-  const paintPendingAgentFrames = useCallback(
-    (timestamp: number) => {
-      for (const [sessionId, frames] of pendingAgentFramesRef.current) {
-        const assistantId = assistantIdsRef.current.get(sessionId);
-        if (!assistantId) {
-          pendingAgentFramesRef.current.delete(sessionId);
-          streamPaintStateRef.current.delete(sessionId);
-          continue;
-        }
-
-        const paintState = streamPaintStateRef.current.get(sessionId) ?? {
-          credit: 0,
-          lastTimestamp: null,
-        };
-        const elapsed = Math.min(
-          MAX_STREAM_FRAME_ELAPSED_MS,
-          Math.max(
-            0,
-            timestamp - (paintState.lastTimestamp ?? timestamp),
-          ),
-        );
-        const textBacklog = frames.reduce(
-          (total, frame) => total + (streamedDelta(frame)?.length ?? 0),
-          0,
-        );
-        const charactersPerSecond = Math.max(
-          MIN_STREAM_CHARACTERS_PER_SECOND,
-          (textBacklog * 1000) / STREAM_CATCH_UP_MS,
-        );
-        paintState.credit += charactersPerSecond * (elapsed / 1000);
-        paintState.lastTimestamp = timestamp;
-
-        const textBudget = Math.floor(paintState.credit);
-        const { painted, textCount } = takeAgentFramesForPaint(
-          frames,
-          textBudget,
-        );
-        paintState.credit = Math.max(0, paintState.credit - textCount);
-
-        if (frames.length === 0) {
-          pendingAgentFramesRef.current.delete(sessionId);
-          streamPaintStateRef.current.delete(sessionId);
-        } else {
-          streamPaintStateRef.current.set(sessionId, paintState);
-        }
-        if (painted.length > 0) {
-          updateSessionMessages(sessionId, (current) =>
-            applyAgentEventFrames(current, assistantId, painted),
-          );
-        }
-      }
-
-      if (pendingAgentFramesRef.current.size > 0) {
-        scheduleAgentFramePaint();
-      }
-    },
-    [scheduleAgentFramePaint, updateSessionMessages],
-  );
-  paintPendingAgentFramesRef.current = paintPendingAgentFrames;
-
-  const queueAgentFrame = useCallback(
-    (sessionId: string, frame: AgentEventFrame) => {
-      const pending = pendingAgentFramesRef.current.get(sessionId);
-      if (pending) appendPendingAgentFrame(pending, frame);
-      else pendingAgentFramesRef.current.set(sessionId, [frame]);
-      scheduleAgentFramePaint();
-    },
-    [scheduleAgentFramePaint],
-  );
-
-  const setSessionRunning = useCallback(
-    (sessionId: string, running: boolean) => {
-      const next = new Set(runningSessionIdsRef.current);
-      if (running) next.add(sessionId);
-      else next.delete(sessionId);
-      runningSessionIdsRef.current = next;
-      setRunningSessionIds(next);
-    },
-    [],
-  );
-
-  const setSessionStopping = useCallback(
-    (sessionId: string, stopping: boolean) => {
-      setStoppingSessionIds((current) => {
-        const next = new Set(current);
-        if (stopping) next.add(sessionId);
-        else next.delete(sessionId);
-        return next;
-      });
-    },
-    [],
-  );
-
   const loadSessions = useCallback(async () => {
     const version = ++sessionsLoadVersionRef.current;
     const loaded = await getSessions();
@@ -973,265 +108,43 @@ export default function App() {
     });
   }, []);
 
-  useEffect(() => {
-    writeWorkspaceRegistry(workspaceRegistry);
-  }, [workspaceRegistry]);
-
-  useEffect(() => {
-    writeSelectedWorkspace(selectedWorkspace);
-  }, [selectedWorkspace]);
-
-  const failRun = useCallback(
-    (sessionId: string, message: string) => {
-      if (!runningSessionIdsRef.current.has(sessionId)) return;
-      flushPendingAgentFrames(sessionId);
-      socketsRef.current.get(sessionId)?.close();
-      socketsRef.current.delete(sessionId);
-      setSessionRunning(sessionId, false);
-      setSessionStopping(sessionId, false);
-      const assistantId = assistantIdsRef.current.get(sessionId);
-      assistantIdsRef.current.delete(sessionId);
-      if (assistantId) {
-        updateSessionMessages(sessionId, (current) =>
-          current.map((item) =>
-            item.id === assistantId
-              ? {
-                  ...item,
-                  iterations: (() => {
-                    const completed = completeIterationTools(
-                      item.iterations,
-                      "error",
-                      message,
-                    );
-                    const last = completed.at(-1);
-                    if (!last || last.tools?.length) {
-                      return [
-                        ...completed,
-                        {
-                          id: createMessageId(),
-                          iteration: null,
-                          content: `请求失败：${message}`,
-                        },
-                      ];
-                    }
-                    if (last.content) return completed;
-                    completed[completed.length - 1] = {
-                      ...last,
-                      content: `请求失败：${message}`,
-                    };
-                    return completed;
-                  })(),
-                  durationSeconds:
-                    item.durationSeconds ??
-                    (item.startedAt
-                      ? Math.max(0, (Date.now() - item.startedAt) / 1000)
-                      : undefined),
-                  error: true,
-                }
-              : item,
-          ),
-        );
-      }
-      notify(message);
-    },
-    [
-      flushPendingAgentFrames,
-      notify,
-      setSessionRunning,
-      setSessionStopping,
-      updateSessionMessages,
-    ],
-  );
-
-  frameHandlerRef.current = (sessionId, sourceSessionId, frame) => {
-    if (frame.type === "session_created") {
-      if (runningSessionIdsRef.current.has(sessionId)) return;
-
-      const assistantId = createMessageId();
-      assistantIdsRef.current.set(sessionId, assistantId);
-      messagesBySessionRef.current.set(sessionId, [
-        {
-          id: createMessageId(),
-          role: "user",
-          content: frame.content,
-        },
-        {
-          id: assistantId,
-          role: "assistant",
-          content: "",
-          iterations: [],
-          startedAt: Date.now(),
-        },
-      ]);
+  const {
+    activeSessionId,
+    displaySession,
+    forgetSessions,
+    getSessionMessages,
+    isSessionRunning,
+    messages,
+    runningSessionIds,
+    setCachedSessionMessages,
+    startRun,
+    stopActiveRun,
+    stoppingSessionIds,
+  } = useChatRuntime({
+    onNotify: notify,
+    onSessionCreated: (sessionId, session) => {
       setPendingSessionInfo((current) =>
-        new Map(current).set(sessionId, {
-          workspace: frame.workspace,
-          title: frame.title,
-          parentSessionId:
-            sourceSessionId === sessionId ? undefined : sourceSessionId,
-        }),
+        new Map(current).set(sessionId, session),
       );
-      setSessionRunning(sessionId, true);
-      return;
-    }
-
-    if (frame.type === "event") {
-      queueAgentFrame(sessionId, frame);
-      return;
-    }
-
-    flushPendingAgentFrames(sessionId);
-
-    if (frame.type === "result") {
-      const assistantId = assistantIdsRef.current.get(sessionId);
-      if (assistantId) {
-        updateSessionMessages(sessionId, (current) =>
-          current.map((item) => {
-            if (item.id !== assistantId) return item;
-            const status: ToolActivity["status"] = frame.error
-              ? "error"
-              : "completed";
-            let iterations = completeIterationTools(
-              item.iterations,
-              status,
-              frame.error?.message,
-            );
-
-            const finalContent =
-              frame.final_content ?? frame.error?.message ?? "";
-            if (finalContent) {
-              const last = iterations.at(-1);
-              if (!last) {
-                iterations = [
-                  {
-                    id: createMessageId(),
-                    iteration: null,
-                    content: finalContent,
-                  },
-                ];
-              } else if (!last.content) {
-                if (last.tools?.length) {
-                  iterations.push({
-                    id: createMessageId(),
-                    iteration: null,
-                    content: finalContent,
-                  });
-                } else {
-                  iterations[iterations.length - 1] = {
-                    ...last,
-                    content: finalContent,
-                  };
-                }
-              } else if (
-                last.tools?.length &&
-                last.content.trim() !== finalContent.trim()
-              ) {
-                iterations.push({
-                  id: createMessageId(),
-                  iteration: null,
-                  content: finalContent,
-                });
-              }
-            }
-            return {
-              ...item,
-              iterations:
-                iterations.length > 0
-                  ? iterations
-                  : [
-                      {
-                        id: createMessageId(),
-                        iteration: null,
-                        content: "请求未返回内容",
-                      },
-                    ],
-              error: Boolean(frame.error),
-              durationSeconds:
-                typeof frame.duration_s === "number"
-                  ? frame.duration_s
-                  : item.startedAt
-                    ? Math.max(0, (Date.now() - item.startedAt) / 1000)
-                    : undefined,
-            };
-          }),
-        );
-      }
-      assistantIdsRef.current.delete(sessionId);
-      socketsRef.current.get(sessionId)?.close();
-      socketsRef.current.delete(sessionId);
-      setSessionRunning(sessionId, false);
-      setSessionStopping(sessionId, false);
-      if (frame.error) notify(frame.error.message);
+    },
+    onSessionSettled: () => {
       void loadSessions().catch(() => notify("会话列表刷新失败"));
-      return;
-    }
-
-    if (frame.type === "cancelled") {
-      const assistantId = assistantIdsRef.current.get(sessionId);
-      assistantIdsRef.current.delete(sessionId);
-      socketsRef.current.get(sessionId)?.close();
-      socketsRef.current.delete(sessionId);
-      if (assistantId) {
-        updateSessionMessages(sessionId, (current) =>
-          current.map((item) =>
-            item.id === assistantId
-              ? {
-                  ...item,
-                  iterations: completeIterationTools(
-                    item.iterations,
-                    "cancelled",
-                  ),
-                  durationSeconds:
-                    item.startedAt
-                      ? Math.max(0, (Date.now() - item.startedAt) / 1000)
-                      : item.durationSeconds,
-                  stopped: true,
-                }
-              : item,
-          ),
-        );
-      }
-      setSessionRunning(sessionId, false);
-      setSessionStopping(sessionId, false);
-      void loadSessions().catch(() => notify("会话列表刷新失败"));
-      return;
-    }
-
-    if (frame.type === "error") {
-      failRun(sessionId, frame.message);
-    }
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function bootstrap() {
-      setBootstrapStatus("loading");
-      let connected = false;
-      for (let attempt = 0; attempt < 12 && !cancelled; attempt += 1) {
-        try {
-          const health = await getHealth();
-          if (health.status === "ok" && health.runtime === "ready") {
-            connected = true;
-            break;
-          }
-        } catch {
-          // The Tauri sidecar may still be starting.
-        }
-        await wait(500);
-      }
-
-      if (!connected || cancelled) {
-        if (!cancelled) setBootstrapStatus("error");
-        return;
-      }
-
-      try {
-        const [loadedSettings, loadedSessions] = await Promise.all([
-          getSettings(),
-          getSessions(),
-        ]);
-        if (cancelled) return;
+    },
+  });
+  const {
+    load: loadAvailableModels,
+    select: selectModel,
+    selectable: selectableModels,
+    switching: modelSwitching,
+  } = useModels({
+    settings,
+    setSettings,
+    hasRunningSessions: runningSessionIds.size > 0,
+    notify,
+  });
+  const { retry: retryBootstrap, status: bootstrapStatus } =
+    useServerBootstrap({
+      onReady: (loadedSettings, loadedSessions) => {
         const currentWorkspace = loadedSettings.runtime?.workspace?.trim();
         const discoveredRegistry = mergeDiscoveredWorkspaces(
           readWorkspaceRegistry(),
@@ -1268,33 +181,16 @@ export default function App() {
         void loadAvailableModels(loadedSettings);
         setSessions(loadedSessions);
         setShowSettings(!isProviderConfigured(loadedSettings));
-        setBootstrapStatus("ready");
-      } catch {
-        if (!cancelled) setBootstrapStatus("error");
-      }
-    }
+      },
+    });
 
-    void bootstrap();
-    return () => {
-      cancelled = true;
-    };
-  }, [bootstrapAttempt, loadAvailableModels]);
+  useEffect(() => {
+    writeWorkspaceRegistry(workspaceRegistry);
+  }, [workspaceRegistry]);
 
-  useEffect(
-    () => () => {
-      socketsRef.current.forEach((socket) => socket.close());
-      socketsRef.current.clear();
-      if (toastTimerRef.current !== null) {
-        window.clearTimeout(toastTimerRef.current);
-      }
-      if (agentFrameFlushAnimationRef.current !== null) {
-        window.cancelAnimationFrame(agentFrameFlushAnimationRef.current);
-      }
-      streamPaintStateRef.current.clear();
-      pendingAgentFramesRef.current.clear();
-    },
-    [],
-  );
+  useEffect(() => {
+    writeSelectedWorkspace(selectedWorkspace);
+  }, [selectedWorkspace]);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -1307,38 +203,6 @@ export default function App() {
     return () => document.removeEventListener("keydown", handleShortcut);
   }, []);
 
-  async function connectSocket(sessionId: string): Promise<ChatSocket> {
-    const existing = socketsRef.current.get(sessionId);
-    if (existing?.connected) return existing;
-    existing?.close();
-
-    const socket = new ChatSocket(sessionId, {
-      onFrame: (frame) =>
-        frameHandlerRef.current(
-          frameSessionId(frame, sessionId),
-          sessionId,
-          frame,
-        ),
-      onDisconnect: () => {
-        if (socketsRef.current.get(sessionId) === socket) {
-          socketsRef.current.delete(sessionId);
-        }
-        failRun(sessionId, "聊天连接已中断");
-      },
-    });
-    socketsRef.current.set(sessionId, socket);
-    try {
-      await socket.connect();
-      return socket;
-    } catch (error) {
-      if (socketsRef.current.get(sessionId) === socket) {
-        socketsRef.current.delete(sessionId);
-      }
-      socket.close();
-      throw error;
-    }
-  }
-
   function workspaceForSession(sessionId: string | null): string | null {
     if (!sessionId) return null;
     return (
@@ -1348,6 +212,14 @@ export default function App() {
       null
     );
   }
+
+  const blankSessions = useBlankSessions({
+    sessions,
+    pendingSessions: pendingSessionInfo,
+    workspaceForSession,
+    getSessionMessages,
+    isSessionRunning,
+  });
 
   function rememberWorkspace(
     workspace: string | null | undefined,
@@ -1367,90 +239,10 @@ export default function App() {
 
   function newChatWorkspace(): string | null {
     return (
-      workspaceForSession(activeSessionIdRef.current) ??
+      workspaceForSession(activeSessionId) ??
       selectedWorkspace?.trim() ??
       null
     );
-  }
-
-  function reusableBlankSession(workspace: string | null): string | null {
-    const targetKey = workspaceKey(workspace);
-    const rememberedId = blankSessionIdsRef.current.get(targetKey);
-    const rememberedWorkspace = rememberedId
-      ? workspaceForSession(rememberedId)
-      : null;
-    if (
-      rememberedId &&
-      rememberedWorkspace &&
-      workspaceKey(rememberedWorkspace) === targetKey &&
-      !runningSessionIdsRef.current.has(rememberedId) &&
-      (messagesBySessionRef.current.get(rememberedId)?.length ?? 0) === 0
-    ) {
-      return rememberedId;
-    }
-    if (rememberedId) {
-      blankSessionIdsRef.current.delete(targetKey);
-      blankSessionRequestsRef.current.delete(targetKey);
-    }
-
-    for (const [sessionId, pending] of pendingSessionInfo) {
-      if (
-        workspaceKey(pending.workspace) === targetKey &&
-        !runningSessionIdsRef.current.has(sessionId) &&
-        (messagesBySessionRef.current.get(sessionId)?.length ?? 0) === 0
-      ) {
-        blankSessionIdsRef.current.set(targetKey, sessionId);
-        return sessionId;
-      }
-    }
-
-    const persisted = sessions.find(
-      (session) =>
-        workspaceKey(session.workspace) === targetKey &&
-        session.message_count === 0 &&
-        !runningSessionIdsRef.current.has(session.session_id) &&
-        (messagesBySessionRef.current.get(session.session_id)?.length ?? 0) ===
-          0,
-    );
-    if (!persisted) return null;
-    blankSessionIdsRef.current.set(targetKey, persisted.session_id);
-    return persisted.session_id;
-  }
-
-  function createBlankSession(
-    workspace: string | null,
-  ): Promise<CreatedSession> {
-    const targetKey = workspaceKey(workspace);
-    const existingRequest = blankSessionRequestsRef.current.get(targetKey);
-    if (existingRequest) return existingRequest;
-
-    const request = createSession(workspace)
-      .then(async (created) => {
-        blankSessionRequestsRef.current.delete(targetKey);
-        if (workspaceKey(created.workspace) !== targetKey) {
-          await deleteSession(created.session_id).catch(() => false);
-          throw new Error(
-            "服务端工作空间状态未更新，请重启 BumbleHive 后重试",
-          );
-        }
-        blankSessionIdsRef.current.set(targetKey, created.session_id);
-        return created;
-      })
-      .catch((error: unknown) => {
-        blankSessionRequestsRef.current.delete(targetKey);
-        throw error;
-      });
-    blankSessionRequestsRef.current.set(targetKey, request);
-    return request;
-  }
-
-  function releaseBlankSession(sessionId: string) {
-    for (const [workspace, rememberedId] of blankSessionIdsRef.current) {
-      if (rememberedId !== sessionId) continue;
-      blankSessionIdsRef.current.delete(workspace);
-      blankSessionRequestsRef.current.delete(workspace);
-      return;
-    }
   }
 
   async function newChat(requestedWorkspace?: string | null) {
@@ -1469,7 +261,7 @@ export default function App() {
     setSelectedWorkspace(workspace);
     try {
       const selectionVersion = ++sessionSelectionVersionRef.current;
-      const reusableSessionId = reusableBlankSession(workspace);
+      const reusableSessionId = blankSessions.reusableSession(workspace);
       if (reusableSessionId) {
         if (reusableSessionId !== activeSessionId) {
           displaySession(reusableSessionId, []);
@@ -1479,8 +271,8 @@ export default function App() {
         return;
       }
 
-      const created = await createBlankSession(workspace);
-      messagesBySessionRef.current.set(created.session_id, []);
+      const created = await blankSessions.create(workspace);
+      setCachedSessionMessages(created.session_id, []);
       setPendingSessionInfo((current) =>
         new Map(current).set(created.session_id, {
           workspace: created.workspace,
@@ -1509,12 +301,12 @@ export default function App() {
     }
 
     if (
-      runningSessionIdsRef.current.has(sessionId) ||
+      isSessionRunning(sessionId) ||
       pendingSessionInfo.has(sessionId)
     ) {
       displaySession(
         sessionId,
-        messagesBySessionRef.current.get(sessionId) ?? [],
+        getSessionMessages(sessionId) ?? [],
       );
       setShowSettings(false);
       return;
@@ -1540,7 +332,7 @@ export default function App() {
     );
     if (
       [...branchIds].some((branchId) =>
-        runningSessionIdsRef.current.has(branchId),
+        isSessionRunning(branchId),
       )
     ) {
       notify("请先停止这个会话及其 Bee 子会话中的任务");
@@ -1556,14 +348,9 @@ export default function App() {
     try {
       const deletedSessionIds = new Set(await deleteSession(sessionId));
       for (const deletedId of deletedSessionIds) {
-        releaseBlankSession(deletedId);
-        socketsRef.current.get(deletedId)?.close();
-        socketsRef.current.delete(deletedId);
-        messagesBySessionRef.current.delete(deletedId);
-        assistantIdsRef.current.delete(deletedId);
-        pendingAgentFramesRef.current.delete(deletedId);
-        streamPaintStateRef.current.delete(deletedId);
+        blankSessions.release(deletedId);
       }
+      forgetSessions(deletedSessionIds);
       setSessions((current) =>
         current.filter(
           (session) => !deletedSessionIds.has(session.session_id),
@@ -1594,7 +381,7 @@ export default function App() {
     ];
     if (
       sessionIds.some((sessionId) =>
-        runningSessionIdsRef.current.has(sessionId),
+        isSessionRunning(sessionId),
       )
     ) {
       notify("请先停止这个工作空间中正在运行的任务");
@@ -1663,7 +450,7 @@ export default function App() {
       selectedWorkspace ??
       settings.runtime?.workspace ??
       null;
-    if (sessionId && runningSessionIdsRef.current.has(sessionId)) return;
+    if (sessionId && isSessionRunning(sessionId)) return;
     try {
       if (!sessionId) {
         const workspace = newChatWorkspace();
@@ -1672,7 +459,7 @@ export default function App() {
           notify("请先在设置中添加工作空间");
           return;
         }
-        const created = await createBlankSession(
+        const created = await blankSessions.create(
           workspace,
         );
         sessionId = created.session_id;
@@ -1687,57 +474,16 @@ export default function App() {
         );
       }
 
-      const assistantId = createMessageId();
-      releaseBlankSession(sessionId);
-      const sessionMessages =
-        messagesBySessionRef.current.get(sessionId) ?? messages;
-      const runMessages: UiMessage[] = [
-        ...sessionMessages,
-        { id: createMessageId(), role: "user", content: task },
-        {
-          id: assistantId,
-          role: "assistant",
-          content: "",
-          iterations: [],
-          startedAt: Date.now(),
-        },
-      ];
-      assistantIdsRef.current.set(sessionId, assistantId);
-      messagesBySessionRef.current.set(sessionId, runMessages);
-      setSessionRunning(sessionId, true);
-      setSessionStopping(sessionId, false);
+      blankSessions.release(sessionId);
       setInput("");
-      setMessages(runMessages);
-
-      const socket = await connectSocket(sessionId);
-      socket.send(task, taskWorkspace);
+      await startRun({
+        sessionId,
+        task,
+        workspace: taskWorkspace,
+        fallbackMessages: messages,
+      });
     } catch (error) {
-      if (sessionId) {
-        failRun(
-          sessionId,
-          error instanceof Error ? error.message : "消息发送失败",
-        );
-      }
-    }
-  }
-
-  function stopRun() {
-    const sessionId = activeSessionId;
-    if (
-      !sessionId ||
-      !runningSessionIdsRef.current.has(sessionId) ||
-      stoppingSessionIds.has(sessionId)
-    ) {
-      return;
-    }
-    setSessionStopping(sessionId, true);
-    try {
-      const socket = socketsRef.current.get(sessionId);
-      if (!socket?.connected) throw new Error("聊天连接不可用");
-      socket.cancel();
-    } catch (error) {
-      setSessionStopping(sessionId, false);
-      notify(error instanceof Error ? error.message : "停止运行失败");
+      notify(error instanceof Error ? error.message : "消息发送失败");
     }
   }
 
@@ -1761,31 +507,6 @@ export default function App() {
     notify("设置已保存");
   }
 
-  async function selectModel(selectedModel: string) {
-    if (
-      !settings ||
-      selectedModel === settings.provider.model ||
-      runningSessionIdsRef.current.size > 0 ||
-      modelSwitching
-    ) {
-      return;
-    }
-    setModelSwitching(true);
-    try {
-      const saved = await updateSettings({
-        provider: {
-          model: selectedModel,
-        },
-      });
-      setSettings(saved);
-      notify(`已切换到 ${selectedModel}`);
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "模型切换失败");
-    } finally {
-      setModelSwitching(false);
-    }
-  }
-
   const isViewingRunningSession = Boolean(
     activeSessionId && runningSessionIds.has(activeSessionId),
   );
@@ -1793,19 +514,6 @@ export default function App() {
     activeSessionId && stoppingSessionIds.has(activeSessionId),
   );
   const hasRunningSessions = runningSessionIds.size > 0;
-  const selectableModels = useMemo(
-    () =>
-      settings
-        ? Array.from(
-            new Set(
-              [settings.provider.model, ...availableModels].filter(
-                (model): model is string => Boolean(model),
-              ),
-            ),
-          )
-        : [],
-    [availableModels, settings],
-  );
   const deleteSessionTitle = deleteSessionId
     ? sessions.find((session) => session.session_id === deleteSessionId)?.title
     : null;
@@ -1817,8 +525,7 @@ export default function App() {
   const pendingSessions = useMemo(
     () =>
       [...pendingSessionInfo].map(([sessionId, pending]) => {
-        const firstUserMessage = messagesBySessionRef.current
-          .get(sessionId)
+        const firstUserMessage = getSessionMessages(sessionId)
           ?.find((message) => message.role === "user");
         const messageTitle =
           typeof firstUserMessage?.content === "string"
@@ -1872,7 +579,7 @@ export default function App() {
     }
   });
   const handleComposerSubmit = useStableCallback(() => void sendMessage());
-  const handleComposerStop = useStableCallback(stopRun);
+  const handleComposerStop = useStableCallback(stopActiveRun);
   const handleComposerSelectModel = useStableCallback(selectModel);
   const handleComposerOpenSettings = useStableCallback(() => {
     setFocusSettingsWorkspace(false);
@@ -1887,25 +594,7 @@ export default function App() {
       aria-label="BumbleHive 对话工作台"
       style={sidebar.style}
     >
-      {isMacDesktop ? (
-        <div
-          className="desktop-titlebar"
-          data-tauri-drag-region
-          aria-hidden="true"
-          onPointerDown={(event) => {
-            if (event.button === 0) startWindowDrag();
-          }}
-        >
-          <div className="desktop-titlebar-sidebar" />
-          <div className="desktop-titlebar-divider" />
-          <div className="desktop-titlebar-main">
-            <span className="titlebar-folder-icon" />
-            <span className="desktop-titlebar-title">
-              {activeSessionTitle}
-            </span>
-          </div>
-        </div>
-      ) : null}
+      {isMacDesktop ? <DesktopTitlebar title={activeSessionTitle} /> : null}
 
       <Sidebar
         workspaces={workspaceRegistry.items}
@@ -1957,7 +646,7 @@ export default function App() {
             <button
               className="primary-button"
               type="button"
-              onClick={() => setBootstrapAttempt((attempt) => attempt + 1)}
+              onClick={retryBootstrap}
             >
               重新连接
             </button>
@@ -2008,76 +697,34 @@ export default function App() {
         ) : null}
 
         {deleteSessionId ? (
-          <div className="confirm-backdrop" role="presentation">
-            <section
-              className="confirm-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="deleteSessionTitle"
-            >
-              <h2 id="deleteSessionTitle">删除会话？</h2>
-              <p>
-                {deleteSessionChildCount > 0
-                  ? `${
-                      deleteSessionTitle
-                        ? `“${deleteSessionTitle}”`
-                        : "该会话"
-                    }及其 ${deleteSessionChildCount} 个 Bee 子会话将被永久删除。`
-                  : deleteSessionTitle
-                    ? `“${deleteSessionTitle}”将被永久删除。`
-                    : "该会话将被永久删除。"}
-              </p>
-              <div className="confirm-actions">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => setDeleteSessionId(null)}
-                >
-                  取消
-                </button>
-                <button
-                  className="danger-button"
-                  type="button"
-                  onClick={() => void confirmDeleteSession()}
-                >
-                  删除
-                </button>
-              </div>
-            </section>
-          </div>
+          <ConfirmDialog
+            title="删除会话？"
+            titleId="deleteSessionTitle"
+            confirmLabel="删除"
+            onCancel={() => setDeleteSessionId(null)}
+            onConfirm={() => void confirmDeleteSession()}
+          >
+            {deleteSessionChildCount > 0
+              ? `${
+                  deleteSessionTitle ? `“${deleteSessionTitle}”` : "该会话"
+                }及其 ${deleteSessionChildCount} 个 Bee 子会话将被永久删除。`
+              : deleteSessionTitle
+                ? `“${deleteSessionTitle}”将被永久删除。`
+                : "该会话将被永久删除。"}
+          </ConfirmDialog>
         ) : null}
 
         {removeWorkspacePath ? (
-          <div className="confirm-backdrop" role="presentation">
-            <section
-              className="confirm-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="removeWorkspaceTitle"
-            >
-              <h2 id="removeWorkspaceTitle">移除工作空间？</h2>
-              <p>
-                “{workspaceLabel(removeWorkspacePath)}”将从侧栏移除。本地文件夹和
-                历史会话不会被删除；重新选择同一文件夹即可恢复。
-              </p>
-              <div className="confirm-actions">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => setRemoveWorkspacePath(null)}
-                >
-                  取消
-                </button>
-                <button
-                  className="danger-button"
-                  type="button"
-                  onClick={confirmRemoveWorkspace}
-                >
-                  移除
-                </button>
-              </div>
-            </section>
-          </div>
+          <ConfirmDialog
+            title="移除工作空间？"
+            titleId="removeWorkspaceTitle"
+            confirmLabel="移除"
+            onCancel={() => setRemoveWorkspacePath(null)}
+            onConfirm={confirmRemoveWorkspace}
+          >
+            “{workspaceLabel(removeWorkspacePath)}”将从侧栏移除。本地文件夹和
+            历史会话不会被删除；重新选择同一文件夹即可恢复。
+          </ConfirmDialog>
         ) : null}
 
         <div

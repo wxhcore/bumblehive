@@ -1,0 +1,222 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+button,
+textarea {
+  color: inherit;
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.brand,
+.nav,
+.recent,
+.sidebar-footer {
+  position: relative;
+  z-index: 1;
+}
+
+.nav-button,
+.conversation,
+.settings-button,
+.suggestion,
+.tool-button,
+.workspace-button,
+.model-button,
+.send-button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.nav-button:hover,
+.nav-button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.plus-icon {
+  position: relative;
+  display: block;
+}
+
+.plus-icon::after {
+  transform: rotate(90deg);
+}
+
+.conversation.active::before {
+  display: none;
+}
+
+@keyframes running-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
+}
+
+.settings-button:hover,
+.settings-button:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(36px, 2.62vw, 48px);
+  line-height: 1.2;
+  font-weight: 620;
+  letter-spacing: -0.035em;
+}
+
+.suggestion {
+  position: relative;
+  height: 43px;
+  padding: 0 27px 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  border-radius: 20px;
+  font-size: 18px;
+  font-weight: 520;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.suggestion + .suggestion {
+  padding-left: 34px;
+}
+
+.suggestion:last-child {
+  padding-right: 20px;
+}
+
+.analysis-icon {
+  border: 1.8px solid currentColor;
+  border-radius: 7px;
+}
+
+.code-icon {
+  border: 1.8px solid currentColor;
+  border-radius: 7px;
+}
+
+textarea::placeholder {
+  color: #929396;
+  opacity: 1;
+}
+
+.composer-model-field {
+  position: relative;
+  display: flex;
+}
+
+.tool-button:hover,
+.tool-button:focus-visible,
+.workspace-button:hover,
+.workspace-button:focus-visible,
+.model-button:hover,
+.model-button:focus-visible {
+  outline: none;
+  background: rgba(23, 24, 26, 0.055);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.confirm-backdrop {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(31, 29, 25, 0.2);
+  backdrop-filter: blur(8px);
+}
+
+.confirm-dialog p {
+  margin: 12px 0 24px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.danger-button {
+  min-width: 106px;
+  height: 43px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 13px;
+  color: #fff;
+  background: #b23b30;
+  font: 650 14px/1 inherit;
+  cursor: pointer;
+}
+
+.danger-button:not(:disabled):hover,
+.danger-button:not(:disabled):focus-visible {
+  outline: none;
+  background: #982f27;
+  box-shadow: 0 5px 14px rgba(152, 47, 39, 0.2);
+}
+
+button:disabled {
+  cursor: default;
+}
+
+.nav-button:disabled,
+.settings-button:disabled,
+.conversation:disabled {
+  opacity: 0.56;
+}
+
+.session-search:focus {
+  border-color: rgba(23, 24, 26, 0.28);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.conversation-row:hover .session-delete,
+.conversation-row:focus-within .session-delete,
+.session-delete:focus-visible {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+.connection-spinner {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 8px;
+  border: 3px solid rgba(23, 24, 26, 0.12);
+  border-top-color: var(--hive-yellow);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

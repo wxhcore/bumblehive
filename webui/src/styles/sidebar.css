@@ -1,0 +1,532 @@
+.nav-icon {
+      position: relative;
+      flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
+.plus-icon::before,
+.plus-icon::after {
+  content: "";
+  position: absolute;
+  border-radius: 2px;
+  background: currentColor;
+  left: 1px;
+  top: 8px;
+  width: 16px;
+  height: 1.5px;
+}
+
+.search-icon {
+      border: 2px solid currentColor;
+      border-radius: 50%;
+  width: 15px;
+  height: 15px;
+  margin: 0 2px 2px 1px;
+  border-width: 1.5px;
+}
+
+.search-icon::after {
+      content: "";
+      position: absolute;
+      border-radius: 2px;
+      background: currentColor;
+      transform: rotate(47deg);
+      transform-origin: left center;
+  right: -5px;
+  bottom: -3px;
+  width: 7px;
+  height: 1.5px;
+}
+
+.session-search {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      border: 1px solid rgba(23, 24, 26, 0.12);
+      outline: none;
+      color: var(--ink);
+      font: inherit;
+  height: 34px;
+  margin-top: 10px;
+  padding: 0 10px;
+  border-color: rgba(72, 57, 18, 0.13);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.33);
+  font-size: 13px;
+}
+
+.recent {
+      min-height: 0;
+      overflow: hidden;
+  flex: 1;
+  margin-top: 26px;
+  display: flex;
+  flex-direction: column;
+}
+
+.project-heading-row {
+  min-height: 36px;
+  padding: 0 4px 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 8px;
+  transition: background 160ms ease;
+}
+
+.project-heading-row:hover,
+.project-heading-row:focus-within {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.project-heading-label {
+  min-width: 0;
+  flex: 1;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 520;
+  letter-spacing: -0.01em;
+}
+
+.conversations {
+      grid-template-columns: minmax(0, 1fr);
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(23, 24, 26, 0.18) transparent;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  margin-top: 9px;
+  padding: 0 2px 8px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.workspace-group {
+  flex: 0 0 auto;
+}
+
+.workspace-heading-row {
+  width: 100%;
+  height: 34px;
+  padding: 0 4px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 8px;
+  transition: background 140ms ease;
+}
+
+.workspace-heading {
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  color: rgba(45, 37, 17, 0.78);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 590;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-heading-row:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.workspace-heading:focus-visible {
+  outline: none;
+}
+
+.workspace-heading-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-chevron {
+  display: block;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  overflow: visible;
+  transform: rotate(0deg);
+  transform-origin: 50% 50%;
+  transition: transform 150ms ease;
+}
+
+.sidebar-chevron path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.sidebar-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.workspace-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1px;
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(2px);
+  transition:
+    visibility 0s linear 140ms,
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.workspace-heading-row:hover .workspace-actions,
+.workspace-heading-row:focus-within .workspace-actions {
+  visibility: visible;
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+.project-add-workspace {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(2px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.project-heading-row:hover .project-add-workspace,
+.project-heading-row:focus-within .project-add-workspace {
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+.workspace-action {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: rgba(45, 37, 17, 0.72);
+  background: transparent;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 24px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.workspace-action:hover,
+.workspace-action:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.workspace-remove:hover,
+.workspace-remove:focus-visible {
+  color: rgba(133, 39, 24, 0.86);
+}
+
+.workspace-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.32;
+}
+
+.sidebar-folder-icon {
+  position: relative;
+  width: 16px;
+  height: 12px;
+  flex: 0 0 auto;
+  border: 1.4px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.72;
+}
+
+.sidebar-folder-icon::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 1px;
+  width: 7px;
+  height: 4px;
+  border: 1.4px solid currentColor;
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+
+.workspace-sessions {
+  min-width: 0;
+  margin-left: 16px;
+  padding-left: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  border-left: 1px solid rgba(74, 58, 18, 0.16);
+}
+
+.session-branch {
+  width: 100%;
+  min-width: 0;
+}
+
+.session-children {
+  min-width: 0;
+  margin-left: 18px;
+  padding-left: 2px;
+  border-left: 1px solid rgba(74, 58, 18, 0.16);
+}
+
+.conversation-row {
+      position: relative;
+      width: 100%;
+      min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  flex: 0 0 32px;
+}
+
+.conversation {
+      position: relative;
+      width: 100%;
+      margin-left: 0;
+      overflow: hidden;
+      text-align: left;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      transition: background 160ms ease;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px 0 33px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 450;
+  letter-spacing: -0.006em;
+}
+
+.conversation-row .conversation {
+  padding-right: 34px;
+}
+
+.conversation-row.has-children .conversation {
+  padding-right: 82px;
+}
+
+.conversation-row.child-session .conversation {
+  padding-left: 28px;
+}
+
+.conversation:hover,
+.conversation:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.conversation.active {
+  padding-left: 33px;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(89, 68, 12, 0.06);
+}
+
+.conversation.running {
+  padding-left: 33px;
+}
+
+.conversation.running::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  display: block;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  animation: running-spin 760ms linear infinite;
+  left: 17px;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(32, 29, 21, 0.2);
+  border-top-color: rgba(32, 29, 21, 0.82);
+  background: transparent;
+  box-shadow: none;
+}
+
+.conversation-row.child-session .conversation.running::before {
+  left: 11px;
+}
+
+.workspace-sessions
+  > .session-branch
+  > .conversation-row
+  > .conversation {
+  padding-left: 12px;
+}
+
+.workspace-sessions
+  > .session-branch
+  > .conversation-row
+  > .conversation.running {
+  padding-left: 33px;
+}
+
+.session-toggle {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: 32px;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 7px;
+  color: rgba(45, 37, 17, 0.48);
+  background: transparent;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.session-toggle > img {
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
+  opacity: 0.72;
+}
+
+.session-toggle:hover,
+.session-toggle:focus-visible {
+  outline: none;
+  color: rgba(45, 37, 17, 0.82);
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.session-bee-mark {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 13px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  opacity: 0.68;
+  transform: translate(-50%, -50%);
+}
+
+.session-bee-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.session-bee-mark.running img {
+  opacity: 0;
+}
+
+.session-delete {
+      position: absolute;
+      z-index: 2;
+      top: 50%;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      line-height: 1;
+      cursor: pointer;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(-50%);
+      transition: opacity 140ms ease, background 140ms ease;
+  right: 4px;
+  width: 27px;
+  height: 27px;
+  color: rgba(45, 37, 17, 0.5);
+  font-size: 18px;
+}
+
+.session-delete:hover,
+.session-delete:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.empty-sessions {
+  padding: 15px 9px;
+  color: rgba(45, 37, 17, 0.46);
+  font-size: 12.5px;
+}
+
+.empty-workspace {
+  height: 30px;
+  padding: 7px 10px 7px 12px;
+  color: rgba(45, 37, 17, 0.43);
+  font-size: 12px;
+}
+
+.sidebar-footer {
+      margin-top: auto;
+      border-top: 1px solid rgba(23, 24, 26, 0.09);
+  padding-top: 9px;
+  border-top-color: rgba(72, 57, 18, 0.11);
+}
+
+.settings-button {
+      position: relative;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      text-align: left;
+  height: 36px;
+  padding: 0 9px;
+  gap: 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 520;
+}
+
+.gear {
+      position: relative;
+      flex: 0 0 auto;
+      border: 2px solid currentColor;
+      border-radius: 50%;
+  width: 17px;
+  height: 17px;
+  border-width: 1.5px;
+  box-shadow:
+    0 -6px 0 -4.5px currentColor,
+    0 6px 0 -4.5px currentColor,
+    6px 0 0 -4.5px currentColor,
+    -6px 0 0 -4.5px currentColor,
+    4px 4px 0 -4.5px currentColor,
+    -4px -4px 0 -4.5px currentColor,
+    4px -4px 0 -4.5px currentColor,
+    -4px 4px 0 -4.5px currentColor;
+}
+
+.gear::after {
+      content: "";
+      position: absolute;
+      border: 2px solid currentColor;
+      border-radius: 50%;
+  inset: 4px;
+  border-width: 1.5px;
+}

@@ -1,0 +1,77 @@
+@media (max-width: 1040px) {
+  :root {
+    --conversation-width: calc(90cqw - 47px);
+  }
+
+  .hero {
+    width: calc(100% - 52px);
+  }
+
+  .settings-view {
+    padding-inline: 26px;
+  }
+}
+
+@media (max-width: 820px) {
+  .suggestions {
+    gap: 7px;
+  }
+
+  .suggestion,
+  .suggestion + .suggestion,
+  .suggestion:last-child {
+    padding-inline: 10px;
+    gap: 8px;
+    font-size: 12.5px;
+  }
+}
+
+@media (max-height: 720px) {
+  :root {
+    --composer-bottom: 18px;
+    --composer-height: 106px;
+  }
+
+  .sidebar {
+    padding-top: 14px;
+    padding-bottom: 10px;
+  }
+
+  .nav {
+        gap: 12px;
+    margin-top: 10px;
+  }
+
+  .recent {
+    margin-top: 18px;
+  }
+
+  .hero {
+    top: 21vh;
+  }
+
+  .suggestions {
+    margin-top: 26px;
+  }
+
+  textarea {
+    height: 61px;
+    padding-top: 13px;
+  }
+
+  .composer-toolbar {
+    height: 45px;
+    padding-block: 3px 5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

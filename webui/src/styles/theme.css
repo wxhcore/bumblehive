@@ -1,0 +1,277 @@
+:root {
+  color-scheme: light;
+  --ink: #201d15;
+  --muted: #746f63;
+  --soft-line: rgba(52, 45, 27, 0.11);
+  --sidebar-width: 276px;
+  --content-shift: 0px;
+  --composer-bottom: 26px;
+  --composer-height: 119px;
+  --conversation-width: min(738px, calc(90cqw - 65px));
+  --hive-yellow: #EABB23;
+  --hive-yellow-rgb: 234, 187, 35;
+  /* 60% fixed yellow over the native layer leaves 40% background response. */
+  --sidebar-surface: rgba(var(--hive-yellow-rgb), 0.6);
+  --main-surface: #fbfaf7;
+  --control-surface: rgba(255, 255, 255, 0.72);
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+body {
+      overflow: hidden;
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+  min-width: 760px;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: -0.008em;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+.app-shell {
+      position: relative;
+      display: grid;
+      overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  margin: 0;
+  grid-template-columns: var(--sidebar-width) 1px minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.platform-macos {
+  grid-template-rows: 50px minmax(0, 1fr);
+}
+
+.sidebar {
+      position: relative;
+      z-index: 2;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+  grid-column: 1;
+  padding: 20px 14px 14px 16px;
+  border: 0;
+  background: var(--sidebar-surface);
+}
+
+.app-shell:not(.platform-macos) .sidebar {
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.platform-macos .sidebar,
+.platform-macos .main-panel {
+  grid-row: 2;
+}
+
+.sidebar-resizer {
+  position: relative;
+  z-index: 8;
+  grid-column: 2;
+  width: 9px;
+  height: 100%;
+  margin-left: -4px;
+  touch-action: none;
+  cursor: col-resize;
+  outline: none;
+}
+
+.desktop-titlebar {
+  position: relative;
+  z-index: 7;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1px minmax(0, 1fr);
+  user-select: none;
+  cursor: default;
+}
+
+.desktop-titlebar > * {
+  pointer-events: none;
+}
+
+.platform-macos .sidebar {
+  padding-top: 8px;
+}
+
+.platform-macos .sidebar-resizer {
+  grid-row: 2;
+}
+
+.desktop-titlebar-sidebar {
+  background: var(--sidebar-surface);
+}
+
+.desktop-titlebar-divider {
+  background: rgba(72, 57, 18, 0.18);
+}
+
+.desktop-titlebar-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 18px;
+  border-bottom: 1px solid rgba(52, 45, 27, 0.12);
+  background: var(--main-surface);
+}
+
+.desktop-titlebar-title {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(32, 29, 21, 0.78);
+  font-size: 13px;
+  font-weight: 530;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titlebar-folder-icon {
+  position: relative;
+  width: 15px;
+  height: 11px;
+  flex: 0 0 auto;
+  border: 1.3px solid currentColor;
+  border-radius: 3px;
+  color: rgba(32, 29, 21, 0.56);
+}
+
+.titlebar-folder-icon::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 1px;
+  width: 7px;
+  height: 4px;
+  border: 1.3px solid currentColor;
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+
+.platform-macos.blank-chat {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.platform-macos.blank-chat .sidebar,
+.platform-macos.blank-chat .sidebar-resizer,
+.platform-macos.blank-chat .main-panel {
+  grid-row: 1;
+}
+
+.platform-macos.blank-chat .sidebar {
+  padding-top: 58px;
+}
+
+.platform-macos.blank-chat .desktop-titlebar {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 50px;
+}
+
+.platform-macos.blank-chat .desktop-titlebar-sidebar,
+.platform-macos.blank-chat .desktop-titlebar-divider,
+.platform-macos.blank-chat .desktop-titlebar-main {
+  border: 0;
+  background: transparent;
+}
+
+.platform-macos.blank-chat .titlebar-folder-icon,
+.platform-macos.blank-chat .desktop-titlebar-title {
+  display: none;
+}
+
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: rgba(72, 57, 18, 0.18);
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+.sidebar-is-resizing .sidebar-resizer::after {
+  background: rgba(var(--hive-yellow-rgb), 0.72);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.sidebar-is-resizing,
+.sidebar-is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+.brand {
+      display: flex;
+      align-items: center;
+      user-select: none;
+  height: 60px;
+  padding: 0 9px 0 13px;
+}
+
+.brand-lockup {
+  width: 120px;
+  height: auto;
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+  pointer-events: none;
+  transform: translateY(-4px);
+}
+
+.nav {
+      display: grid;
+  margin-top: 17px;
+  gap: 3px;
+}
+
+.nav-button {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      text-align: left;
+      transition: background 160ms ease;
+  min-height: 36px;
+  padding: 0 9px;
+  gap: 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 520;
+  letter-spacing: -0.01em;
+}
+
+.nav-button:hover,
+.nav-button:focus-visible,
+.settings-button:hover,
+.settings-button:focus-visible {
+  background: rgba(255, 255, 255, 0.3);
+}
