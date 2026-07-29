@@ -1,0 +1,15 @@
+.markdown-body .katex {
+  font-size: 1.02em;
+}
+
+.markdown-body .katex-display {
+  max-width: 100%;
+  margin: 0.72em 0;
+  padding: 0.08em 0 0.18em;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.markdown-body .katex-display > .katex {
+  min-width: max-content;
+}

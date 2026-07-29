@@ -1,8 +1,24 @@
-import { memo, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 
-const MARKDOWN_PLUGINS = [remarkGfm];
+type ReactMarkdownProps = ComponentProps<typeof ReactMarkdown>;
+
+const REMARK_PLUGINS: NonNullable<ReactMarkdownProps["remarkPlugins"]> = [
+  remarkGfm,
+  remarkMath,
+];
+const REHYPE_PLUGINS: NonNullable<ReactMarkdownProps["rehypePlugins"]> = [
+  [rehypeKatex, { throwOnError: false, trust: false }],
+];
 
 interface ReasoningBlockProps {
   content: string;
@@ -17,7 +33,10 @@ export const StreamedMarkdown = memo(function StreamedMarkdown({
   content: string;
 }) {
   return (
-    <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>
+    <ReactMarkdown
+      rehypePlugins={REHYPE_PLUGINS}
+      remarkPlugins={REMARK_PLUGINS}
+    >
       {content}
     </ReactMarkdown>
   );

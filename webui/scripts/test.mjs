@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
 let server;
 let assistantMessage;
 let chatEvents;
+let markdownContent;
 let sessionTree;
 let sidebarTree;
 
@@ -14,12 +17,14 @@ before(async () => {
     logLevel: "silent",
     server: { middlewareMode: true },
   });
-  [assistantMessage, chatEvents, sessionTree, sidebarTree] = await Promise.all([
-    server.ssrLoadModule("/src/components/chat/AssistantMessage.tsx"),
-    server.ssrLoadModule("/src/lib/chat-events.ts"),
-    server.ssrLoadModule("/src/lib/session-tree.ts"),
-    server.ssrLoadModule("/src/components/sidebar/session-tree.ts"),
-  ]);
+  [assistantMessage, chatEvents, markdownContent, sessionTree, sidebarTree] =
+    await Promise.all([
+      server.ssrLoadModule("/src/components/chat/AssistantMessage.tsx"),
+      server.ssrLoadModule("/src/lib/chat-events.ts"),
+      server.ssrLoadModule("/src/components/chat/MarkdownContent.tsx"),
+      server.ssrLoadModule("/src/lib/session-tree.ts"),
+      server.ssrLoadModule("/src/components/sidebar/session-tree.ts"),
+    ]);
 });
 
 after(async () => {
@@ -149,6 +154,54 @@ test("a completed run keeps its final answer outside the execution process", () 
     ),
     [finalAnswerIteration],
   );
+});
+
+test("markdown renders inline math, display math, GFM, and literal code", () => {
+  const content = [
+    "Inline: $E = mc^2$",
+    "",
+    "$$",
+    "\\sum_{i=1}^n i = \\frac{n(n+1)}{2}",
+    "$$",
+    "",
+    "| Name | Formula |",
+    "| --- | --- |",
+    "| Energy | $E = mc^2$ |",
+    "",
+    "`$not_math$`",
+  ].join("\n");
+  const html = renderToStaticMarkup(
+    createElement(markdownContent.StreamedMarkdown, { content }),
+  );
+
+  assert.match(html, /class="katex"/);
+  assert.match(html, /class="katex-display"/);
+  assert.match(html, /<table>/);
+  assert.match(html, /<code>\$not_math\$<\/code>/);
+});
+
+test("invalid and unfinished math never break streamed markdown", () => {
+  const invalidHtml = renderToStaticMarkup(
+    createElement(markdownContent.StreamedMarkdown, {
+      content: "Invalid: $\\notARealCommand{x}$",
+    }),
+  );
+  const unfinishedHtml = renderToStaticMarkup(
+    createElement(markdownContent.StreamedMarkdown, {
+      content: "正在生成 $E = mc",
+    }),
+  );
+  const untrustedHtml = renderToStaticMarkup(
+    createElement(markdownContent.StreamedMarkdown, {
+      content: "$\\includegraphics{https://example.com/test.png}$",
+    }),
+  );
+
+  assert.match(invalidHtml, /notARealCommand/);
+  assert.match(invalidHtml, /color:#cc0000/);
+  assert.match(unfinishedHtml, /正在生成/);
+  assert.match(unfinishedHtml, /\$E = mc/);
+  assert.doesNotMatch(untrustedHtml, /<img/);
 });
 
 test("sessionBranchIds includes every descendant exactly once", () => {
