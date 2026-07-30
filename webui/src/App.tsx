@@ -583,10 +583,6 @@ export default function App() {
   const handleComposerSubmit = useStableCallback(() => void sendMessage());
   const handleComposerStop = useStableCallback(stopActiveRun);
   const handleComposerSelectModel = useStableCallback(selectModel);
-  const handleComposerOpenSettings = useStableCallback(() => {
-    setFocusSettingsWorkspace(false);
-    setShowSettings(true);
-  });
   const settingsMode =
     bootstrapStatus === "ready" && settings !== null && showSettings;
   const initialSetupMode =
@@ -709,7 +705,7 @@ export default function App() {
                   onSubmit={handleComposerSubmit}
                   onStop={handleComposerStop}
                   onSelectModel={handleComposerSelectModel}
-                  onOpenSettings={handleComposerOpenSettings}
+                  onAddWorkspace={handleSidebarAddWorkspace}
                 />
               </>
             ) : null}

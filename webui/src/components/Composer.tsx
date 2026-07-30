@@ -18,7 +18,7 @@ interface ComposerProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   onStop: () => void;
-  onOpenSettings: () => void;
+  onAddWorkspace: () => void;
   onSelectModel: (model: string) => Promise<void>;
 }
 
@@ -34,7 +34,7 @@ export const Composer = memo(function Composer({
   onChange,
   onSubmit,
   onStop,
-  onOpenSettings,
+  onAddWorkspace,
   onSelectModel,
 }: ComposerProps) {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -76,9 +76,10 @@ export const Composer = memo(function Composer({
         <button
           className="workspace-button"
           type="button"
-          aria-label={`当前工作区 ${workspace}`}
+          aria-label={`新建工作空间，当前工作区 ${workspace}`}
+          title="新建工作空间"
           disabled={disabled || isStreaming}
-          onClick={onOpenSettings}
+          onClick={onAddWorkspace}
         >
           <span className="folder-icon" aria-hidden="true" />
           <span>{workspace}</span>
