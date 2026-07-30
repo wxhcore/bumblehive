@@ -63,33 +63,3 @@ export function buildToolSourceGroups(
 
   return groups;
 }
-
-export function toolIsEnabled(
-  selected: string[] | null,
-  name: string,
-): boolean {
-  return selected === null || selected.includes(name);
-}
-
-export function setToolsEnabled(
-  selected: string[] | null,
-  targetNames: string[],
-  enabled: boolean,
-  availableNames: string[],
-): string[] | null {
-  if (!targetNames.length) return selected;
-
-  const targets = new Set(targetNames);
-  const next =
-    selected === null ? new Set(availableNames) : new Set(selected);
-
-  for (const name of targets) {
-    if (enabled) next.add(name);
-    else next.delete(name);
-  }
-
-  if (enabled && availableNames.every((name) => next.has(name))) {
-    return null;
-  }
-  return Array.from(next);
-}

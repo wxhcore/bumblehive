@@ -8,9 +8,9 @@ let server;
 let assistantMessage;
 let chatEvents;
 let markdownContent;
+let optionSelection;
 let sessionTree;
 let sidebarTree;
-let skillSelection;
 let settingsDraft;
 let settingsView;
 let toolSelection;
@@ -25,9 +25,9 @@ before(async () => {
     assistantMessage,
     chatEvents,
     markdownContent,
+    optionSelection,
     sessionTree,
     sidebarTree,
-    skillSelection,
     settingsDraft,
     settingsView,
     toolSelection,
@@ -36,9 +36,9 @@ before(async () => {
       server.ssrLoadModule("/src/components/chat/AssistantMessage.tsx"),
       server.ssrLoadModule("/src/lib/chat-events.ts"),
       server.ssrLoadModule("/src/components/chat/MarkdownContent.tsx"),
+      server.ssrLoadModule("/src/components/settings/selection.ts"),
       server.ssrLoadModule("/src/lib/session-tree.ts"),
       server.ssrLoadModule("/src/components/sidebar/session-tree.ts"),
-      server.ssrLoadModule("/src/components/settings/skill-selection.ts"),
       server.ssrLoadModule("/src/components/settings/draft.ts"),
       server.ssrLoadModule("/src/components/SettingsView.tsx"),
       server.ssrLoadModule("/src/components/settings/tool-selection.ts"),
@@ -376,9 +376,9 @@ test("tool sources group MCP tools by their configured server", () => {
   );
 });
 
-test("tool switches preserve the automatic all-tools mode", () => {
+test("option switches preserve the automatic all-enabled mode", () => {
   const available = ["apply_patch", "github_search", "filesystem_read"];
-  const afterDisable = toolSelection.setToolsEnabled(
+  const afterDisable = optionSelection.setOptionsEnabled(
     null,
     ["github_search"],
     false,
@@ -386,7 +386,7 @@ test("tool switches preserve the automatic all-tools mode", () => {
   );
   assert.deepEqual(afterDisable, ["apply_patch", "filesystem_read"]);
   assert.equal(
-    toolSelection.setToolsEnabled(
+    optionSelection.setOptionsEnabled(
       afterDisable,
       ["github_search"],
       true,
@@ -394,27 +394,7 @@ test("tool switches preserve the automatic all-tools mode", () => {
     ),
     null,
   );
-});
-
-test("skill switches preserve the automatic all-skills mode", () => {
-  const available = ["review", "github", "pdf"];
-  const afterDisable = skillSelection.setSkillsEnabled(
-    null,
-    ["github"],
-    false,
-    available,
-  );
-  assert.deepEqual(afterDisable, ["review", "pdf"]);
-  assert.equal(
-    skillSelection.setSkillsEnabled(
-      afterDisable,
-      ["github"],
-      true,
-      available,
-    ),
-    null,
-  );
-  assert.equal(skillSelection.skillIsEnabled(null, "new-skill"), true);
+  assert.equal(optionSelection.optionIsEnabled(null, "new-option"), true);
 });
 
 test("settings draft maps UI fields back to the complete config shape", () => {
@@ -454,7 +434,6 @@ test("settings draft maps UI fields back to the complete config shape", () => {
   assert.equal(draft.runtime.maxIterations, 300);
   draft.generation.thinkingEnabled = false;
   draft.generation.reasoningEffort = "vendor-ultra";
-  draft.generation.extraBody = { top_k: 20 };
 
   const update = settingsDraft.draftToUpdate(draft, "temporary-secret");
 
@@ -465,7 +444,6 @@ test("settings draft maps UI fields back to the complete config shape", () => {
   assert.deepEqual(update.agent.skill_names, ["review"]);
   assert.deepEqual(update.agent.tool_names, []);
   assert.deepEqual(update.generation.extra_body, {
-    top_k: 20,
     thinking: { type: "disabled" },
   });
   assert.equal(update.generation.reasoning_effort, null);
@@ -539,7 +517,6 @@ test("settings draft switches disabled thinking to a custom reasoning effort", (
 
   assert.equal(draft.generation.thinkingEnabled, false);
   assert.equal(draft.generation.reasoningEffort, "");
-  assert.deepEqual(draft.generation.extraBody, { top_k: 20 });
 
   draft.generation.thinkingEnabled = true;
   draft.generation.reasoningEffort = "vendor-ultra";
@@ -547,7 +524,7 @@ test("settings draft switches disabled thinking to a custom reasoning effort", (
 
   assert.equal(Object.hasOwn(update.provider, "api_key"), false);
   assert.equal(update.generation.reasoning_effort, "vendor-ultra");
-  assert.deepEqual(update.generation.extra_body, { top_k: 20 });
+  assert.equal(update.generation.extra_body, null);
 });
 
 test("sessionBranchIds includes every descendant exactly once", () => {

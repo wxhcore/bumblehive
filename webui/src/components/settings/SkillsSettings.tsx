@@ -18,9 +18,9 @@ import type {
   SettingsSkillOption,
 } from "../../types/api";
 import {
-  setSkillsEnabled,
-  skillIsEnabled,
-} from "./skill-selection";
+  optionIsEnabled,
+  setOptionsEnabled,
+} from "./selection";
 
 interface SkillsSettingsProps {
   skills: SettingsSkillOption[];
@@ -66,7 +66,7 @@ export function SkillsSettings({
       .includes(normalizedQuery),
   );
   const enabledCount = availableNames.filter((name) =>
-    skillIsEnabled(selectedNames, name),
+    optionIsEnabled(selectedNames, name),
   ).length;
   const allEnabled =
     availableNames.length > 0 && enabledCount === availableNames.length;
@@ -77,7 +77,7 @@ export function SkillsSettings({
 
   function setEnabled(targetNames: string[], enabled: boolean) {
     onSelectedNamesChange(
-      setSkillsEnabled(
+      setOptionsEnabled(
         selectedNames,
         targetNames,
         enabled,
@@ -106,10 +106,6 @@ export function SkillsSettings({
     }
   }
 
-  async function uploadArchives(files: File[], replace = false) {
-    return importSkillArchives(files, replace);
-  }
-
   async function importArchives(files: File[]) {
     if (!files.length) return;
     const invalidFiles = files.filter(
@@ -128,14 +124,14 @@ export function SkillsSettings({
     try {
       let options: SettingsOptions;
       try {
-        options = await uploadArchives(files);
+        options = await importSkillArchives(files);
       } catch (reason) {
         if (
           reason instanceof ApiError &&
           reason.status === 409 &&
           window.confirm("存在同名技能。要使用导入的版本覆盖吗？")
         ) {
-          options = await uploadArchives(files, true);
+          options = await importSkillArchives(files, true);
         } else {
           throw reason;
         }
@@ -147,7 +143,7 @@ export function SkillsSettings({
       onOptionsChange(options);
       if (imported.length) {
         onSelectedNamesChange(
-          setSkillsEnabled(
+          setOptionsEnabled(
             selectedNames,
             imported.map((skill) => skill.name),
             true,
@@ -155,10 +151,6 @@ export function SkillsSettings({
           ),
         );
       }
-      setMessage({
-        tone: "success",
-        text: `${files.length} 个 ZIP 包已导入，当前共 ${options.skills.length} 个技能`,
-      });
     } catch (reason) {
       setMessage({
         tone: "error",
@@ -336,7 +328,7 @@ export function SkillsSettings({
         {visibleSkills.length ? (
           <div className="skill-list">
             {visibleSkills.map((skill) => {
-              const enabled = skillIsEnabled(selectedNames, skill.name);
+              const enabled = optionIsEnabled(selectedNames, skill.name);
               return (
                 <div className="skill-row" key={skill.name}>
                   <button
@@ -450,7 +442,7 @@ export function SkillsSettings({
                       <input
                         type="checkbox"
                         role="switch"
-                        checked={skillIsEnabled(
+                        checked={optionIsEnabled(
                           selectedNames,
                           selectedSkill.name,
                         )}

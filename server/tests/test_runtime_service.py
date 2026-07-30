@@ -400,12 +400,16 @@ async def test_runtime_service_masks_and_preserves_mcp_header_secrets(
     await service.startup()
 
     public = service.public_config()
-    assert public["mcp_servers"][0]["headers"] == {
-        "Authorization": "",
-        "X-Tenant": "",
-    }
-    assert "tool_timeout" not in public["mcp_servers"][0]
-    assert "enabled_tools" not in public["mcp_servers"][0]
+    assert public["mcp_servers"] == [
+        {
+            "name": "private-server",
+            "url": "https://mcp.example.test",
+            "headers": {
+                "Authorization": "",
+                "X-Tenant": "",
+            },
+        }
+    ]
 
     await service.update_config(
         {
@@ -424,19 +428,14 @@ async def test_runtime_service_masks_and_preserves_mcp_header_secrets(
     )
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
-    assert saved["mcp_servers"] == [
-        {
-            "name": "renamed-server",
-            "url": "https://mcp.example.test/v2",
-            "headers": {
-                "Authorization": "Bearer secret-token",
-                "X-Tenant": "secret-tenant",
-                "X-New": "new-secret",
-            },
-            "tool_timeout": 30,
-            "enabled_tools": ["*"],
-        }
-    ]
+    saved_server = saved["mcp_servers"][0]
+    assert saved_server["name"] == "renamed-server"
+    assert saved_server["url"] == "https://mcp.example.test/v2"
+    assert saved_server["headers"] == {
+        "Authorization": "Bearer secret-token",
+        "X-Tenant": "secret-tenant",
+        "X-New": "new-secret",
+    }
     assert service.public_config()["mcp_servers"][0]["headers"] == {
         "Authorization": "",
         "X-Tenant": "",
@@ -507,6 +506,8 @@ async def test_runtime_service_tests_mcp_in_an_isolated_manager_and_restores_sec
         "Authorization": "Bearer saved-secret"
     }
     assert managers[0].servers[0].url == "https://new.example.test/mcp"
+    assert managers[0].servers[0].tool_timeout is None
+    assert managers[0].servers[0].enabled_tools == ["*"]
     assert managers[0].closed is True
     assert service.config.mcp_servers[0].name == "private-server"
 

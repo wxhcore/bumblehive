@@ -16,7 +16,6 @@ export interface SettingsDraft {
     temperature: number | null;
     thinkingEnabled: boolean;
     reasoningEffort: string;
-    extraBody: Record<string, unknown> | null;
   };
   context: {
     instructions: string;
@@ -40,8 +39,7 @@ export function settingsToDraft(
   settings: Settings,
   fallbackTimezone = "",
 ): SettingsDraft {
-  const extraBody = { ...(settings.generation.extra_body ?? {}) };
-  const thinking = extraBody.thinking;
+  const thinking = settings.generation.extra_body?.thinking;
   const thinkingDisabled = Boolean(
     thinking &&
     !Array.isArray(thinking) &&
@@ -49,7 +47,6 @@ export function settingsToDraft(
     (thinking as Record<string, unknown>).type === "disabled",
   );
 
-  delete extraBody.thinking;
   return {
     provider: {
       type: settings.provider.type || DEFAULT_CONFIG_VALUES.provider.type,
@@ -65,7 +62,6 @@ export function settingsToDraft(
       reasoningEffort: thinkingDisabled
         ? ""
         : (settings.generation.reasoning_effort ?? ""),
-      extraBody: Object.keys(extraBody).length ? extraBody : null,
     },
     context: {
       instructions: settings.agent.instructions ?? "",
@@ -179,12 +175,6 @@ export function draftToUpdate(
     throw new Error("MCP 服务名称不能重复");
   }
 
-  const extraBody = { ...(draft.generation.extraBody ?? {}) };
-  delete extraBody.thinking;
-  if (!draft.generation.thinkingEnabled) {
-    extraBody.thinking = { type: "disabled" };
-  }
-
   return {
     provider,
     generation: {
@@ -193,7 +183,9 @@ export function draftToUpdate(
       reasoning_effort: draft.generation.thinkingEnabled
         ? draft.generation.reasoningEffort.trim() || null
         : null,
-      extra_body: Object.keys(extraBody).length ? extraBody : null,
+      extra_body: draft.generation.thinkingEnabled
+        ? null
+        : { thinking: { type: "disabled" } },
     },
     agent: {
       instructions: draft.context.instructions.trim() || null,

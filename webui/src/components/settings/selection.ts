@@ -1,11 +1,11 @@
-export function skillIsEnabled(
+export function optionIsEnabled(
   selected: string[] | null,
   name: string,
 ): boolean {
   return selected === null || selected.includes(name);
 }
 
-export function setSkillsEnabled(
+export function setOptionsEnabled(
   selected: string[] | null,
   targetNames: string[],
   enabled: boolean,
@@ -20,8 +20,7 @@ export function setSkillsEnabled(
     else next.delete(name);
   }
 
-  if (enabled && availableNames.every((name) => next.has(name))) {
-    return null;
-  }
-  return Array.from(next);
+  return enabled && availableNames.every((name) => next.has(name))
+    ? null
+    : Array.from(next);
 }

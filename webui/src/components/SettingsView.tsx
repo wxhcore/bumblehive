@@ -39,10 +39,12 @@ import {
 } from "./settings/draft";
 import {
   buildToolSourceGroups,
-  setToolsEnabled,
-  toolIsEnabled,
   type ToolSourceGroup,
 } from "./settings/tool-selection";
+import {
+  optionIsEnabled,
+  setOptionsEnabled,
+} from "./settings/selection";
 
 type SettingsPage =
   | "provider"
@@ -511,7 +513,7 @@ export function SettingsView({
   }
 
   function resetDraft() {
-    const nextDraft = settingsToDraft(settings);
+    const nextDraft = settingsToDraft(settings, systemTimeZone);
     setDraft(nextDraft);
     setApiKey("");
     setMcpEditor(null);
@@ -554,7 +556,7 @@ export function SettingsView({
       const nextDraft = settingsToDraft(saved, systemTimeZone);
       setDraft(nextDraft);
       setApiKey("");
-      baselineRef.current = draftSignature(settingsToDraft(saved), "");
+      baselineRef.current = draftSignature(nextDraft, "");
       setSavedMessage("设置已保存");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "设置保存失败");
@@ -572,7 +574,7 @@ export function SettingsView({
       ...current,
       context: {
         ...current.context,
-        toolNames: setToolsEnabled(
+        toolNames: setOptionsEnabled(
           current.context.toolNames,
           targetNames,
           enabled,
@@ -951,7 +953,7 @@ export function SettingsView({
   }
 
   function renderToolRow(tool: SettingsToolOption) {
-    const enabled = toolIsEnabled(draft.context.toolNames, tool.name);
+    const enabled = optionIsEnabled(draft.context.toolNames, tool.name);
     return (
       <label className="tool-browser-row" key={tool.name}>
         <span className="tool-browser-row-copy">
@@ -1013,10 +1015,10 @@ export function SettingsView({
     const allTargetToolsEnabled =
       targetNames.length > 0 &&
       targetNames.every((name) =>
-        toolIsEnabled(draft.context.toolNames, name),
+        optionIsEnabled(draft.context.toolNames, name),
       );
     const enabledCount = targetNames.filter((name) =>
-      toolIsEnabled(draft.context.toolNames, name),
+      optionIsEnabled(draft.context.toolNames, name),
     ).length;
     const normalizedSearch = toolSearch.trim().toLowerCase();
     const hasVisibleTools = selectedGroups.some((group) =>

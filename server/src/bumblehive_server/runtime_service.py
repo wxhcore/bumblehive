@@ -359,17 +359,15 @@ class RuntimeService:
         provider = data["provider"]
         api_key = provider.pop("api_key", None)
         provider["api_key_configured"] = bool(api_key)
-        for server in data.get("mcp_servers", []):
-            server.pop("tool_timeout", None)
-            server.pop("enabled_tools", None)
-            headers = server.get("headers")
-            if isinstance(headers, Mapping):
-                server["headers"] = {
-                    str(name): ""
-                    for name in headers
-                }
+        data["mcp_servers"] = [
+            {
+                "name": server.name,
+                "url": server.url,
+                "headers": {str(name): "" for name in server.headers},
+            }
+            for server in self.config.mcp_servers
+        ]
         data.setdefault("agent", {})
-        data.setdefault("mcp_servers", [])
         runtime = data.setdefault("runtime", {})
         runtime["workspace"] = str(self.workspace)
         return data
@@ -586,24 +584,10 @@ def _mcp_test_config(
                 raise ValueError(f"Header“{header_name}”缺少值")
         resolved_headers[header_name] = value
 
-    tool_timeout = (
-        saved_server.get("tool_timeout")
-        if isinstance(saved_server, Mapping)
-        else None
-    )
-    enabled_tools = (
-        saved_server.get("enabled_tools", ["*"])
-        if isinstance(saved_server, Mapping)
-        else ["*"]
-    )
-    if not isinstance(enabled_tools, list):
-        enabled_tools = ["*"]
     return MCPServerConfig(
         name=name,
         url=url,
         headers=resolved_headers,
-        tool_timeout=tool_timeout if isinstance(tool_timeout, int) else None,
-        enabled_tools=[str(item) for item in enabled_tools],
     )
 
 

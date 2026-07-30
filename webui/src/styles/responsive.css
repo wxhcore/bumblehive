@@ -6,10 +6,6 @@
   .hero {
     width: calc(100% - 52px);
   }
-
-  .settings-view {
-    padding-inline: 26px;
-  }
 }
 
 @media (max-width: 820px) {
