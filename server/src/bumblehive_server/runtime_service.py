@@ -15,6 +15,7 @@ from bumblehive import BumblehiveConfig, BumblehiveRuntime
 from bumblehive.paths import get_workspace_path
 from openai import AsyncOpenAI
 
+from .config_defaults import apply_config_defaults
 from .logging_utils import elapsed_since, safe_log_value
 from .session_reader import SessionReader
 from .subagents import register_subagent_tool
@@ -227,14 +228,28 @@ class RuntimeService:
         provider = data["provider"]
         api_key = provider.pop("api_key", None)
         provider["api_key_configured"] = bool(api_key)
+        for server in data.get("mcp_servers", []):
+            server.pop("tool_timeout", None)
+            server.pop("enabled_tools", None)
+            headers = server.get("headers")
+            if isinstance(headers, Mapping):
+                server["headers"] = {
+                    str(name): ""
+                    for name in headers
+                }
+        data.setdefault("agent", {})
+        data.setdefault("mcp_servers", [])
         runtime = data.setdefault("runtime", {})
         runtime["workspace"] = str(self.workspace)
         return data
 
     def _load_config(self) -> BumblehiveConfig:
         if not self.config_path.exists():
-            return BumblehiveConfig()
-        return BumblehiveConfig.from_json_file(self.config_path)
+            return BumblehiveConfig.from_mapping(apply_config_defaults({}))
+        loaded = BumblehiveConfig.from_json_file(self.config_path)
+        return BumblehiveConfig.from_mapping(
+            apply_config_defaults(loaded.to_dict())
+        )
 
     async def _create_ready_runtime(
         self,

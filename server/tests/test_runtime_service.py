@@ -274,6 +274,17 @@ async def test_runtime_service_starts_without_a_config_file(
         "type": "openai_chat_completions",
         "api_key_configured": False,
     }
+    assert service.public_config()["generation"] == {
+        "max_completion_tokens": 16_384,
+    }
+    assert service.public_config()["runtime"] == {
+        "workspace": str(service.workspace),
+        "context_window_tokens": 200_000,
+        "max_tool_result_chars": 20_000,
+        "max_iterations": 300,
+    }
+    assert service.public_config()["agent"] == {}
+    assert service.public_config()["mcp_servers"] == []
     assert "[config] loaded | source=defaults | duration=" in caplog.text
     assert (
         "[session] delete completed | session_id=session-1 | deleted=true"
@@ -318,7 +329,7 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
             "base_url": None,
         },
         "generation": {
-            "max_completion_tokens": None,
+            "max_completion_tokens": 16_384,
             "temperature": None,
             "reasoning_effort": None,
             "extra_body": None,
@@ -332,9 +343,9 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
         "runtime": {
             "workspace": None,
             "timezone": None,
-            "context_window_tokens": None,
-            "max_tool_result_chars": None,
-            "max_iterations": None,
+            "context_window_tokens": 200_000,
+            "max_tool_result_chars": 20_000,
+            "max_iterations": 300,
             "extra_read_roots": [],
             "extra_write_roots": [],
         },

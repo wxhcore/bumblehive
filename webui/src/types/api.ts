@@ -3,28 +3,28 @@ export interface HealthResponse {
   runtime: "ready" | "unavailable";
 }
 
-interface ProviderSettings {
+export interface ProviderSettings {
   type: string;
   model?: string | null;
   base_url?: string | null;
   api_key_configured: boolean;
 }
 
-interface GenerationSettings {
+export interface GenerationSettings {
   max_completion_tokens?: number | null;
   temperature?: number | null;
   reasoning_effort?: string | null;
   extra_body?: Record<string, unknown> | null;
 }
 
-interface AgentSettings {
+export interface ContextSettings {
   instructions?: string | null;
   dynamic_context?: Record<string, unknown>;
   skill_names?: string[] | null;
   tool_names?: string[] | null;
 }
 
-interface RuntimeSettings {
+export interface RuntimeSettings {
   workspace?: string | null;
   timezone?: string | null;
   context_window_tokens?: number | null;
@@ -34,15 +34,64 @@ interface RuntimeSettings {
   extra_write_roots?: string[];
 }
 
+export interface McpServerSettings {
+  name: string;
+  url: string;
+  headers: Record<string, string>;
+}
+
+export interface McpServerTestRequest {
+  server: McpServerSettings;
+  original_name?: string;
+}
+
+export interface McpServerTestResponse {
+  name: string;
+  registered_tools: string[];
+}
+
 export interface Settings {
   provider: ProviderSettings;
   generation: GenerationSettings;
-  agent?: AgentSettings;
-  runtime?: RuntimeSettings;
-  mcp_servers?: Array<Record<string, unknown>>;
+  agent: ContextSettings;
+  runtime: RuntimeSettings;
+  mcp_servers: McpServerSettings[];
 }
 
-export type SettingsUpdate = Record<string, unknown>;
+export interface SettingsUpdate {
+  provider?: Partial<Omit<ProviderSettings, "api_key_configured">> & {
+    api_key?: string | null;
+  };
+  generation?: GenerationSettings;
+  agent?: ContextSettings;
+  runtime?: RuntimeSettings;
+  mcp_servers?: McpServerSettings[];
+}
+
+export interface SettingsSkillOption {
+  name: string;
+  description: string;
+}
+
+export interface SettingsToolOption {
+  name: string;
+  description: string;
+  source: "local" | "mcp";
+  parallel_safe: boolean;
+}
+
+export interface McpServerStatus {
+  name: string;
+  connected: boolean;
+  registered_tools: string[];
+}
+
+export interface SettingsOptions {
+  skills: SettingsSkillOption[];
+  skill_errors: Array<{ path: string; message: string }>;
+  tools: SettingsToolOption[];
+  mcp_statuses: McpServerStatus[];
+}
 
 export interface ModelListRequest {
   base_url: string;
