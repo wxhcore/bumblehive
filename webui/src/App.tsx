@@ -57,6 +57,7 @@ import type {
 function isProviderConfigured(settings: Settings): boolean {
   return (
     settings.provider.api_key_configured &&
+    Boolean(settings.provider.base_url?.trim()) &&
     Boolean(settings.provider.model?.trim())
   );
 }
@@ -248,7 +249,7 @@ export default function App() {
   async function newChat(requestedWorkspace?: string | null) {
     if (!settings || !isProviderConfigured(settings)) {
       setShowSettings(true);
-      notify("请先完成 API Key 和模型设置");
+      notify("请先完成 Base URL、API Key 和模型设置");
       return;
     }
     const workspace = requestedWorkspace?.trim() || newChatWorkspace();
@@ -440,7 +441,7 @@ export default function App() {
     if (!task) return;
     if (!settings || !isProviderConfigured(settings)) {
       setShowSettings(true);
-      notify("请先完成 API Key 和模型设置");
+      notify("请先完成 Base URL、API Key 和模型设置");
       return;
     }
 
@@ -488,6 +489,8 @@ export default function App() {
   }
 
   async function saveSettings(update: SettingsUpdate): Promise<Settings> {
+    const completingInitialSetup =
+      !settings || !isProviderConfigured(settings);
     const saved = await updateSettings(update);
     const savedWorkspace = saved.runtime.workspace?.trim() ?? null;
     const workspaceChanged =
@@ -503,7 +506,9 @@ export default function App() {
     }
     void loadAvailableModels(saved);
     setFocusSettingsWorkspace(false);
-    setShowSettings(false);
+    if (completingInitialSetup && isProviderConfigured(saved)) {
+      setShowSettings(false);
+    }
     notify("设置已保存");
     return saved;
   }
@@ -584,25 +589,35 @@ export default function App() {
   });
   const settingsMode =
     bootstrapStatus === "ready" && settings !== null && showSettings;
+  const initialSetupMode =
+    settingsMode && settings !== null && !isProviderConfigured(settings);
 
   return (
     <main
       className={`app-shell${isMacDesktop ? " platform-macos" : ""}${
         isBlankChat ? " blank-chat" : ""
-      }${settingsMode ? " settings-mode" : ""}`}
+      }${settingsMode ? " settings-mode" : ""}${
+        initialSetupMode ? " initial-setup-mode" : ""
+      }`}
       aria-label="BumbleHive 对话工作台"
       style={sidebar.style}
     >
       {isMacDesktop ? (
         <DesktopTitlebar
-          title={settingsMode ? "设置" : activeSessionTitle}
+          title={
+            settingsMode
+              ? initialSetupMode
+                ? "连接模型"
+                : "设置"
+              : activeSessionTitle
+          }
         />
       ) : null}
 
       {settingsMode && settings ? (
         <SettingsView
           settings={settings}
-          mode="settings"
+          mode={initialSetupMode ? "setup" : "settings"}
           focusWorkspace={focusSettingsWorkspace}
           hasRunningSessions={hasRunningSessions}
           onCancel={() => {
