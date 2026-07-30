@@ -21,7 +21,8 @@
         "minHeight": 620,
         "center": true,
         "resizable": true,
-        "transparent": true,
+        "dragDropEnabled": false,
+        "transparent": false,
         "fullscreen": false
       }
     ],

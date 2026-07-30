@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "app": {
-    "macOSPrivateApi": true,
     "withGlobalTauri": true,
     "windows": [
       {
@@ -13,11 +12,8 @@
         "minHeight": 620,
         "center": true,
         "resizable": true,
-        "transparent": true,
-        "windowEffects": {
-          "effects": ["dark"],
-          "state": "active"
-        },
+        "dragDropEnabled": false,
+        "transparent": false,
         "fullscreen": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,

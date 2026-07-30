@@ -10,8 +10,7 @@
   --conversation-width: min(738px, calc(90cqw - 65px));
   --hive-yellow: #EABB23;
   --hive-yellow-rgb: 234, 187, 35;
-  /* 60% fixed yellow over the native layer leaves 40% background response. */
-  --sidebar-surface: rgba(var(--hive-yellow-rgb), 0.6);
+  --sidebar-surface: #E3BD4C;
   --main-surface: #fbfaf7;
   --control-surface: rgba(255, 255, 255, 0.72);
 }
@@ -25,11 +24,11 @@ body,
 }
 
 body {
-      overflow: hidden;
-      color: var(--ink);
-      -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
   min-width: 760px;
-  background: transparent;
+  background: var(--main-surface);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   font-size: 14px;
@@ -75,11 +74,6 @@ textarea {
   padding: 20px 14px 14px 16px;
   border: 0;
   background: var(--sidebar-surface);
-}
-
-.app-shell:not(.platform-macos) .sidebar {
-  -webkit-backdrop-filter: blur(18px) saturate(1.08);
-  backdrop-filter: blur(18px) saturate(1.08);
 }
 
 .platform-macos .sidebar,
