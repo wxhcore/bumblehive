@@ -184,13 +184,28 @@ textarea {
       position: absolute;
       right: 0;
       z-index: 3;
-      width: min(320px, 70vw);
-      min-width: 220px;
+      width: max-content;
+      min-width: 100%;
+      max-width: min(320px, 70vw);
       background: rgba(255, 255, 255, 0.96);
       backdrop-filter: blur(16px);
   bottom: calc(100% + 8px);
   border-radius: 12px;
   box-shadow: 0 14px 34px rgba(52, 45, 27, 0.12);
+}
+
+.composer-model-dropdown .model-option-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-model-dropdown .model-option {
+  min-width: 0;
+  max-width: 100%;
+  padding-inline: 8px;
+  font-size: 12.5px;
+  line-height: 1.35;
 }
 
 .connection-state {

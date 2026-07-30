@@ -145,7 +145,7 @@ export default function App() {
   const { retry: retryBootstrap, status: bootstrapStatus } =
     useServerBootstrap({
       onReady: (loadedSettings, loadedSessions) => {
-        const currentWorkspace = loadedSettings.runtime?.workspace?.trim();
+        const currentWorkspace = loadedSettings.runtime.workspace?.trim();
         const discoveredRegistry = mergeDiscoveredWorkspaces(
           readWorkspaceRegistry(),
           [
@@ -448,7 +448,7 @@ export default function App() {
     let taskWorkspace =
       workspaceForSession(sessionId) ??
       selectedWorkspace ??
-      settings.runtime?.workspace ??
+      settings.runtime.workspace ??
       null;
     if (sessionId && isSessionRunning(sessionId)) return;
     try {
@@ -487,9 +487,9 @@ export default function App() {
     }
   }
 
-  async function saveSettings(update: SettingsUpdate) {
+  async function saveSettings(update: SettingsUpdate): Promise<Settings> {
     const saved = await updateSettings(update);
-    const savedWorkspace = saved.runtime?.workspace?.trim() ?? null;
+    const savedWorkspace = saved.runtime.workspace?.trim() ?? null;
     const workspaceChanged =
       workspaceKey(savedWorkspace) !== workspaceKey(selectedWorkspace);
     setSettings(saved);
@@ -505,6 +505,7 @@ export default function App() {
     setFocusSettingsWorkspace(false);
     setShowSettings(false);
     notify("设置已保存");
+    return saved;
   }
 
   const isViewingRunningSession = Boolean(
@@ -571,12 +572,8 @@ export default function App() {
   );
   const handleSidebarDeleteSession = useStableCallback(requestDeleteSession);
   const handleSidebarOpenSettings = useStableCallback(() => {
-    if (hasRunningSessions) {
-      notify("请等待所有会话任务完成");
-    } else {
-      setFocusSettingsWorkspace(false);
-      setShowSettings(true);
-    }
+    setFocusSettingsWorkspace(false);
+    setShowSettings(true);
   });
   const handleComposerSubmit = useStableCallback(() => void sendMessage());
   const handleComposerStop = useStableCallback(stopActiveRun);
@@ -585,156 +582,164 @@ export default function App() {
     setFocusSettingsWorkspace(false);
     setShowSettings(true);
   });
+  const settingsMode =
+    bootstrapStatus === "ready" && settings !== null && showSettings;
 
   return (
     <main
       className={`app-shell${isMacDesktop ? " platform-macos" : ""}${
         isBlankChat ? " blank-chat" : ""
-      }`}
+      }${settingsMode ? " settings-mode" : ""}`}
       aria-label="BumbleHive 对话工作台"
       style={sidebar.style}
     >
-      {isMacDesktop ? <DesktopTitlebar title={activeSessionTitle} /> : null}
+      {isMacDesktop ? (
+        <DesktopTitlebar
+          title={settingsMode ? "设置" : activeSessionTitle}
+        />
+      ) : null}
 
-      <Sidebar
-        workspaces={workspaceRegistry.items}
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        currentWorkspace={activeWorkspace}
-        pendingSessions={pendingSessions}
-        runningSessionIds={runningSessionIds}
-        disabled={bootstrapStatus !== "ready"}
-        settingsDisabled={bootstrapStatus !== "ready" || hasRunningSessions}
-        sessionSelectionDisabled={bootstrapStatus !== "ready"}
-        onNewChat={handleSidebarNewChat}
-        onAddWorkspace={handleSidebarAddWorkspace}
-        onNewChatInWorkspace={handleSidebarNewChatInWorkspace}
-        onRemoveWorkspace={handleSidebarRemoveWorkspace}
-        onSelectSession={handleSidebarSelectSession}
-        onDeleteSession={handleSidebarDeleteSession}
-        onOpenSettings={handleSidebarOpenSettings}
-      />
+      {settingsMode && settings ? (
+        <SettingsView
+          settings={settings}
+          mode="settings"
+          focusWorkspace={focusSettingsWorkspace}
+          hasRunningSessions={hasRunningSessions}
+          onCancel={() => {
+            setFocusSettingsWorkspace(false);
+            setShowSettings(false);
+          }}
+          onSave={saveSettings}
+        />
+      ) : (
+        <>
+          <Sidebar
+            workspaces={workspaceRegistry.items}
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            currentWorkspace={activeWorkspace}
+            pendingSessions={pendingSessions}
+            runningSessionIds={runningSessionIds}
+            disabled={bootstrapStatus !== "ready"}
+            settingsDisabled={bootstrapStatus !== "ready"}
+            sessionSelectionDisabled={bootstrapStatus !== "ready"}
+            onNewChat={handleSidebarNewChat}
+            onAddWorkspace={handleSidebarAddWorkspace}
+            onNewChatInWorkspace={handleSidebarNewChatInWorkspace}
+            onRemoveWorkspace={handleSidebarRemoveWorkspace}
+            onSelectSession={handleSidebarSelectSession}
+            onDeleteSession={handleSidebarDeleteSession}
+            onOpenSettings={handleSidebarOpenSettings}
+          />
+
+          <div
+            className="sidebar-resizer"
+            role="separator"
+            aria-label="调整侧栏宽度"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_SIDEBAR_WIDTH}
+            aria-valuemax={MAX_SIDEBAR_WIDTH}
+            aria-valuenow={Math.round(sidebar.width)}
+            tabIndex={0}
+            onDoubleClick={sidebar.reset}
+            {...sidebar.resizerProps}
+          />
+
+          <section
+            className={`main-panel${messages.length ? " chat-active" : ""}`}
+          >
+            {bootstrapStatus === "loading" ? (
+              <div className="connection-state">
+                <span className="connection-spinner" aria-hidden="true" />
+                <h1>正在连接 BumbleHive</h1>
+                <p>桌面服务启动后会自动进入工作台</p>
+              </div>
+            ) : null}
+
+            {bootstrapStatus === "error" ? (
+              <div className="connection-state">
+                <h1>无法连接桌面服务</h1>
+                <p>请确认 BumbleHive Server 已经启动</p>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={retryBootstrap}
+                >
+                  重新连接
+                </button>
+              </div>
+            ) : null}
+
+            {bootstrapStatus === "ready" && settings ? (
+              <>
+                {messages.length ? (
+                  <ChatView
+                    key={activeSessionId ?? "active-chat"}
+                    messages={messages}
+                    isStreaming={isViewingRunningSession}
+                  />
+                ) : (
+                  <HomeView onSelectPrompt={setInput} />
+                )}
+                <Composer
+                  value={input}
+                  model={settings.provider.model ?? ""}
+                  models={selectableModels}
+                  workspace={workspaceLabel(activeWorkspace)}
+                  disabled={bootstrapStatus !== "ready"}
+                  isStreaming={isViewingRunningSession}
+                  isStopping={isViewingStoppingSession}
+                  modelSwitchDisabled={hasRunningSessions || modelSwitching}
+                  onChange={setInput}
+                  onSubmit={handleComposerSubmit}
+                  onStop={handleComposerStop}
+                  onSelectModel={handleComposerSelectModel}
+                  onOpenSettings={handleComposerOpenSettings}
+                />
+              </>
+            ) : null}
+          </section>
+        </>
+      )}
+
+      {deleteSessionId ? (
+        <ConfirmDialog
+          title="删除会话？"
+          titleId="deleteSessionTitle"
+          confirmLabel="删除"
+          onCancel={() => setDeleteSessionId(null)}
+          onConfirm={() => void confirmDeleteSession()}
+        >
+          {deleteSessionChildCount > 0
+            ? `${
+                deleteSessionTitle ? `“${deleteSessionTitle}”` : "该会话"
+              }及其 ${deleteSessionChildCount} 个 Bee 子会话将被永久删除。`
+            : deleteSessionTitle
+              ? `“${deleteSessionTitle}”将被永久删除。`
+              : "该会话将被永久删除。"}
+        </ConfirmDialog>
+      ) : null}
+
+      {removeWorkspacePath ? (
+        <ConfirmDialog
+          title="移除工作空间？"
+          titleId="removeWorkspaceTitle"
+          confirmLabel="移除"
+          onCancel={() => setRemoveWorkspacePath(null)}
+          onConfirm={confirmRemoveWorkspace}
+        >
+          “{workspaceLabel(removeWorkspacePath)}”将从侧栏移除。本地文件夹和
+          历史会话不会被删除；重新选择同一文件夹即可恢复。
+        </ConfirmDialog>
+      ) : null}
 
       <div
-        className="sidebar-resizer"
-        role="separator"
-        aria-label="调整侧栏宽度"
-        aria-orientation="vertical"
-        aria-valuemin={MIN_SIDEBAR_WIDTH}
-        aria-valuemax={MAX_SIDEBAR_WIDTH}
-        aria-valuenow={Math.round(sidebar.width)}
-        tabIndex={0}
-        onDoubleClick={sidebar.reset}
-        {...sidebar.resizerProps}
-      />
-
-      <section
-        className={`main-panel${messages.length ? " chat-active" : ""}`}
+        className={`toast${toast ? " show" : ""}`}
+        role="status"
+        aria-live="polite"
       >
-        {bootstrapStatus === "loading" ? (
-          <div className="connection-state">
-            <span className="connection-spinner" aria-hidden="true" />
-            <h1>正在连接 BumbleHive</h1>
-            <p>桌面服务启动后会自动进入工作台</p>
-          </div>
-        ) : null}
-
-        {bootstrapStatus === "error" ? (
-          <div className="connection-state">
-            <h1>无法连接桌面服务</h1>
-            <p>请确认 BumbleHive Server 已经启动</p>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={retryBootstrap}
-            >
-              重新连接
-            </button>
-          </div>
-        ) : null}
-
-        {bootstrapStatus === "ready" && settings ? (
-          showSettings ? (
-            <SettingsView
-              settings={settings}
-              currentWorkspace={activeWorkspace}
-              canCancel={isProviderConfigured(settings)}
-              focusWorkspace={focusSettingsWorkspace}
-              onCancel={() => {
-                setFocusSettingsWorkspace(false);
-                setShowSettings(false);
-              }}
-              onSave={saveSettings}
-            />
-          ) : (
-            <>
-              {messages.length ? (
-                <ChatView
-                  key={activeSessionId ?? "active-chat"}
-                  messages={messages}
-                  isStreaming={isViewingRunningSession}
-                />
-              ) : (
-                <HomeView onSelectPrompt={setInput} />
-              )}
-              <Composer
-                value={input}
-                model={settings.provider.model ?? ""}
-                models={selectableModels}
-                workspace={workspaceLabel(activeWorkspace)}
-                disabled={bootstrapStatus !== "ready"}
-                isStreaming={isViewingRunningSession}
-                isStopping={isViewingStoppingSession}
-                modelSwitchDisabled={hasRunningSessions || modelSwitching}
-                onChange={setInput}
-                onSubmit={handleComposerSubmit}
-                onStop={handleComposerStop}
-                onSelectModel={handleComposerSelectModel}
-                onOpenSettings={handleComposerOpenSettings}
-              />
-            </>
-          )
-        ) : null}
-
-        {deleteSessionId ? (
-          <ConfirmDialog
-            title="删除会话？"
-            titleId="deleteSessionTitle"
-            confirmLabel="删除"
-            onCancel={() => setDeleteSessionId(null)}
-            onConfirm={() => void confirmDeleteSession()}
-          >
-            {deleteSessionChildCount > 0
-              ? `${
-                  deleteSessionTitle ? `“${deleteSessionTitle}”` : "该会话"
-                }及其 ${deleteSessionChildCount} 个 Bee 子会话将被永久删除。`
-              : deleteSessionTitle
-                ? `“${deleteSessionTitle}”将被永久删除。`
-                : "该会话将被永久删除。"}
-          </ConfirmDialog>
-        ) : null}
-
-        {removeWorkspacePath ? (
-          <ConfirmDialog
-            title="移除工作空间？"
-            titleId="removeWorkspaceTitle"
-            confirmLabel="移除"
-            onCancel={() => setRemoveWorkspacePath(null)}
-            onConfirm={confirmRemoveWorkspace}
-          >
-            “{workspaceLabel(removeWorkspacePath)}”将从侧栏移除。本地文件夹和
-            历史会话不会被删除；重新选择同一文件夹即可恢复。
-          </ConfirmDialog>
-        ) : null}
-
-        <div
-          className={`toast${toast ? " show" : ""}`}
-          role="status"
-          aria-live="polite"
-        >
-          {toast}
-        </div>
-      </section>
+        {toast}
+      </div>
     </main>
   );
 }
