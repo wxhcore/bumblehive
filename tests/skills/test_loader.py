@@ -53,3 +53,33 @@ def test_loader_reports_each_invalid_skill_without_hiding_valid_skills(tmp_path)
     assert {error.path for error in result.errors} == {missing, resource}
     assert any("description" in error.message for error in result.errors)
     assert any("scripts" in error.message for error in result.errors)
+
+
+def test_loader_rejects_a_name_that_does_not_match_its_directory(tmp_path) -> None:
+    skill = _write_skill(
+        tmp_path,
+        "legacy-directory",
+        ["name: audit", "description: Audit the project."],
+    )
+
+    result = load_skills(tmp_path)
+
+    assert result.skills == []
+    assert len(result.errors) == 1
+    assert result.errors[0].path == skill
+    assert "must match directory name" in result.errors[0].message
+
+
+def test_loader_rejects_a_name_that_is_not_lowercase_hyphen_case(tmp_path) -> None:
+    skill = _write_skill(
+        tmp_path,
+        "audit_skill",
+        ["name: audit_skill", "description: Audit the project."],
+    )
+
+    result = load_skills(tmp_path)
+
+    assert result.skills == []
+    assert len(result.errors) == 1
+    assert result.errors[0].path == skill
+    assert "lowercase letters, digits, and hyphens" in result.errors[0].message

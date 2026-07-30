@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,7 @@ def _parse_skill_file(path: Path) -> Skill:
         raise ValueError("frontmatter must be a YAML object")
 
     name = _required_string(metadata, "name")
+    _validate_skill_name(name, path.parent.name)
     description = _required_string(metadata, "description")
     root = path.parent.resolve()
     return Skill(
@@ -63,6 +65,18 @@ def _required_string(metadata: dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"missing required frontmatter field: {key}")
     return value.strip()
+
+
+def _validate_skill_name(name: str, directory_name: str) -> None:
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+        raise ValueError(
+            "skill name must use lowercase letters, digits, and hyphens"
+        )
+    if name != directory_name:
+        raise ValueError(
+            "skill name must match directory name: "
+            f"{name!r} != {directory_name!r}"
+        )
 
 
 def _optional_resource_dir(root: Path, name: str) -> Path | None:
