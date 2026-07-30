@@ -39,6 +39,17 @@ class ModelListRequest(BaseModel):
     api_key: str | None = None
 
 
+class McpServerInput(BaseModel):
+    name: str
+    url: str
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
+class McpServerTestRequest(BaseModel):
+    server: McpServerInput
+    original_name: str | None = None
+
+
 class SessionSummary(BaseModel):
     session_id: str
     parent_session_id: str | None = None

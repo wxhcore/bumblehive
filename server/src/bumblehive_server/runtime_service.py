@@ -11,8 +11,14 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
-from bumblehive import BumblehiveConfig, BumblehiveRuntime
+from bumblehive import (
+    BumblehiveConfig,
+    BumblehiveRuntime,
+    ToolManager,
+)
 from bumblehive.paths import get_workspace_path
+from bumblehive.protocols import MCPServerConfig
+from bumblehive.skills import SkillLoadResult
 from openai import AsyncOpenAI
 
 from .config_defaults import apply_config_defaults
@@ -23,6 +29,7 @@ from .subagents import register_subagent_tool
 
 RuntimeFactory = Callable[[BumblehiveConfig], BumblehiveRuntime]
 OpenAIClientFactory = Callable[..., AsyncOpenAI]
+ToolManagerFactory = Callable[..., ToolManager]
 logger = logging.getLogger("uvicorn.error.bumblehive")
 
 
@@ -32,6 +39,10 @@ class RuntimeBusyError(RuntimeError):
 
 class ModelListError(RuntimeError):
     """Raised when the provider cannot return a model list."""
+
+
+class MCPConnectionError(RuntimeError):
+    """Raised when an MCP server cannot connect or list its tools."""
 
 
 class RuntimeNotStartedError(RuntimeError):
@@ -46,11 +57,13 @@ class RuntimeService:
         session_reader: SessionReader | None = None,
         runtime_factory: RuntimeFactory = BumblehiveRuntime.from_config,
         openai_client_factory: OpenAIClientFactory | None = None,
+        tool_manager_factory: ToolManagerFactory = ToolManager,
     ) -> None:
         self.config_path = Path(config_path).expanduser()
         self._session_reader = session_reader
         self._runtime_factory = runtime_factory
         self._openai_client_factory = openai_client_factory or AsyncOpenAI
+        self._tool_manager_factory = tool_manager_factory
         self._runtime: BumblehiveRuntime | None = None
         self._active_runs = 0
         self._lock = asyncio.Lock()
@@ -194,8 +207,14 @@ class RuntimeService:
                 if self._active_runs:
                     raise RuntimeBusyError("runtime has active runs")
 
-                merged = _deep_merge(current.config.to_dict(), patch)
-                config = BumblehiveConfig.from_mapping(merged)
+                resolved_patch = _restore_masked_mcp_headers(
+                    current.config.to_dict(),
+                    patch,
+                )
+                merged = _deep_merge(current.config.to_dict(), resolved_patch)
+                config = BumblehiveConfig.from_mapping(
+                    apply_config_defaults(merged)
+                )
                 replacement = await self._create_ready_runtime(config)
                 try:
                     self._write_config(config)
@@ -223,6 +242,118 @@ class RuntimeService:
         )
         return config
 
+    async def test_mcp_server(
+        self,
+        server: Mapping[str, Any],
+        *,
+        original_name: str | None = None,
+    ) -> list[str]:
+        """Test one draft MCP config without changing the active runtime."""
+        async with self._lock:
+            runtime = self._runtime
+            if runtime is None:
+                raise RuntimeNotStartedError("runtime is not started")
+            current_config = runtime.config.to_dict()
+
+        resolved = _mcp_test_config(
+            current_config,
+            server,
+            original_name=original_name,
+        )
+        manager = self._tool_manager_factory(mcp_servers=[resolved])
+        try:
+            return await manager.connect_mcp_server(resolved.name)
+        except Exception as exc:
+            logger.warning(
+                "[mcp] test failed | server=%s | error_type=%s",
+                safe_log_value(resolved.name),
+                type(exc).__name__,
+            )
+            raise MCPConnectionError(
+                "无法连接 MCP 服务或读取工具，请检查 URL、鉴权信息和服务状态"
+            ) from exc
+        finally:
+            await manager.close()
+
+    async def reload_mcp_servers(
+        self,
+        server_name: str | None = None,
+    ) -> list[str]:
+        """Reload one or all configured MCP servers in the active runtime."""
+        started_at = perf_counter()
+        target = server_name or "all"
+        try:
+            async with self._lock:
+                runtime = self._runtime
+                if runtime is None:
+                    raise RuntimeNotStartedError("runtime is not started")
+                if self._active_runs:
+                    raise RuntimeBusyError("runtime has active runs")
+                if server_name is None:
+                    registered = await runtime.tools.reload_mcp()
+                else:
+                    registered = await runtime.tools.reload_mcp_server(
+                        server_name
+                    )
+        except (RuntimeBusyError, ValueError):
+            raise
+        except Exception as exc:
+            logger.warning(
+                "[mcp] reload failed | server=%s | error_type=%s | duration=%s",
+                safe_log_value(target),
+                type(exc).__name__,
+                elapsed_since(started_at),
+            )
+            raise MCPConnectionError(
+                "刷新 MCP 服务失败，请检查服务状态后重试"
+            ) from exc
+        logger.info(
+            "[mcp] reload completed | server=%s | tools=%d | duration=%s",
+            safe_log_value(target),
+            len(registered),
+            elapsed_since(started_at),
+        )
+        return registered
+
+    async def install_skills(
+        self,
+        sources: list[Path],
+        *,
+        replace: bool = False,
+    ) -> SkillLoadResult:
+        """Install uploaded skills when the runtime is idle."""
+        async with self._lock:
+            runtime = self._runtime
+            if runtime is None:
+                raise RuntimeNotStartedError("runtime is not started")
+            if self._active_runs:
+                raise RuntimeBusyError("runtime has active runs")
+            return await asyncio.to_thread(
+                runtime.skills.install_skills,
+                sources,
+                replace=replace,
+            )
+
+    async def remove_skill(self, name: str) -> SkillLoadResult:
+        """Remove one installed skill when the runtime is idle."""
+        async with self._lock:
+            runtime = self._runtime
+            if runtime is None:
+                raise RuntimeNotStartedError("runtime is not started")
+            if self._active_runs:
+                raise RuntimeBusyError("runtime has active runs")
+            return await asyncio.to_thread(runtime.skills.remove_skill, name)
+
+    async def reload_skills(self) -> SkillLoadResult:
+        """Rescan installed skills when the runtime is idle."""
+        async with self._lock:
+            runtime = self._runtime
+            if runtime is None:
+                raise RuntimeNotStartedError("runtime is not started")
+            if self._active_runs:
+                raise RuntimeBusyError("runtime has active runs")
+            return await asyncio.to_thread(runtime.skills.reload)
+
     def public_config(self) -> dict[str, Any]:
         data = self.config.to_dict()
         provider = data["provider"]
@@ -242,6 +373,52 @@ class RuntimeService:
         runtime = data.setdefault("runtime", {})
         runtime["workspace"] = str(self.workspace)
         return data
+
+    def settings_options(self) -> dict[str, Any]:
+        """Return runtime-discovered choices used by the settings UI."""
+        runtime = self._runtime
+        if runtime is None:
+            raise RuntimeNotStartedError("runtime is not started")
+
+        result = runtime.skills.list_skills()
+        skills = [
+            {
+                "name": skill.name,
+                "description": skill.description,
+            }
+            for skill in result.skills
+        ]
+        skill_errors = [
+            {
+                "path": str(error.path),
+                "message": error.message,
+            }
+            for error in result.errors
+        ]
+        tools = [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "source": tool.source,
+                "parallel_safe": tool.parallel_safe,
+            }
+            for tool in runtime.tools.list_tools()
+        ]
+        mcp_statuses = [
+            {
+                "name": status.name,
+                "connected": status.connected,
+                "registered_tools": status.registered_tools,
+            }
+            for status in runtime.tools.list_mcp_server_statuses()
+        ]
+
+        return {
+            "skills": skills,
+            "skill_errors": skill_errors,
+            "tools": tools,
+            "mcp_statuses": mcp_statuses,
+        }
 
     def _load_config(self) -> BumblehiveConfig:
         if not self.config_path.exists():
@@ -295,6 +472,139 @@ def _deep_merge(
         else:
             merged[key] = value
     return merged
+
+
+def _restore_masked_mcp_headers(
+    current: Mapping[str, Any],
+    patch: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Preserve unchanged MCP header secrets represented by empty UI values."""
+    incoming_servers = patch.get("mcp_servers")
+    if not isinstance(incoming_servers, list):
+        return dict(patch)
+
+    current_servers = current.get("mcp_servers")
+    current_by_name = {
+        str(server.get("name")): server
+        for server in (
+            current_servers
+            if isinstance(current_servers, list)
+            else []
+        )
+        if isinstance(server, Mapping) and server.get("name")
+    }
+
+    current_server_list = (
+        current_servers
+        if isinstance(current_servers, list)
+        else []
+    )
+    resolved_servers: list[Any] = []
+    for index, incoming in enumerate(incoming_servers):
+        if not isinstance(incoming, Mapping):
+            resolved_servers.append(incoming)
+            continue
+
+        server = dict(incoming)
+        headers = server.get("headers")
+        current_server = current_by_name.get(str(server.get("name")))
+        if (
+            current_server is None
+            and index < len(current_server_list)
+            and isinstance(current_server_list[index], Mapping)
+        ):
+            current_server = current_server_list[index]
+        current_headers = (
+            current_server.get("headers", {})
+            if isinstance(current_server, Mapping)
+            else {}
+        )
+        if isinstance(headers, Mapping) and isinstance(current_headers, Mapping):
+            server["headers"] = {
+                str(name): (
+                    current_headers[name]
+                    if value == "" and name in current_headers
+                    else value
+                )
+                for name, value in headers.items()
+            }
+        resolved_servers.append(server)
+
+    resolved = dict(patch)
+    resolved["mcp_servers"] = resolved_servers
+    return resolved
+
+
+def _mcp_test_config(
+    current: Mapping[str, Any],
+    incoming: Mapping[str, Any],
+    *,
+    original_name: str | None,
+) -> MCPServerConfig:
+    name = _text_or_none(incoming.get("name"))
+    if name is None:
+        raise ValueError("MCP 服务名称不能为空")
+    url = _text_or_none(incoming.get("url"))
+    if url is None:
+        raise ValueError("MCP 服务 URL 不能为空")
+
+    raw_headers = incoming.get("headers") or {}
+    if not isinstance(raw_headers, Mapping):
+        raise TypeError("MCP Headers 必须是对象")
+
+    current_servers = current.get("mcp_servers")
+    saved_servers = (
+        current_servers
+        if isinstance(current_servers, list)
+        else []
+    )
+    saved_name = _text_or_none(original_name) or name
+    saved_server = next(
+        (
+            item
+            for item in saved_servers
+            if isinstance(item, Mapping)
+            and str(item.get("name")) == saved_name
+        ),
+        None,
+    )
+    saved_headers = (
+        saved_server.get("headers", {})
+        if isinstance(saved_server, Mapping)
+        else {}
+    )
+    resolved_headers: dict[str, str] = {}
+    for raw_name, raw_value in raw_headers.items():
+        header_name = str(raw_name).strip()
+        if not header_name:
+            raise ValueError("Header 名称不能为空")
+        value = str(raw_value)
+        if value == "" and isinstance(saved_headers, Mapping):
+            if header_name in saved_headers:
+                value = str(saved_headers[header_name])
+            else:
+                raise ValueError(f"Header“{header_name}”缺少值")
+        resolved_headers[header_name] = value
+
+    tool_timeout = (
+        saved_server.get("tool_timeout")
+        if isinstance(saved_server, Mapping)
+        else None
+    )
+    enabled_tools = (
+        saved_server.get("enabled_tools", ["*"])
+        if isinstance(saved_server, Mapping)
+        else ["*"]
+    )
+    if not isinstance(enabled_tools, list):
+        enabled_tools = ["*"]
+    return MCPServerConfig(
+        name=name,
+        url=url,
+        headers=resolved_headers,
+        tool_timeout=tool_timeout if isinstance(tool_timeout, int) else None,
+        enabled_tools=[str(item) for item in enabled_tools],
+    )
 
 
 def _text_or_none(value: Any) -> str | None:

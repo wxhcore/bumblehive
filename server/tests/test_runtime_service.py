@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from bumblehive import BumblehiveConfig
+from bumblehive import BumblehiveConfig, SkillsManager
 from bumblehive.config import ProviderConfig
 from bumblehive.observability.events import make_event
 from bumblehive.protocols import ToolCall
@@ -367,6 +367,305 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
 
     await service.shutdown()
     assert runtimes[-1].closed is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_masks_and_preserves_mcp_header_secrets(
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    BumblehiveConfig.from_mapping(
+        {
+            "provider": {"model": "test-model"},
+            "mcp_servers": [
+                {
+                    "name": "private-server",
+                    "url": "https://mcp.example.test",
+                    "headers": {
+                        "Authorization": "Bearer secret-token",
+                        "X-Tenant": "secret-tenant",
+                    },
+                }
+            ],
+        }
+    ).to_json_file(config_path)
+    runtimes: list[FakeRuntime] = []
+
+    def factory(config: BumblehiveConfig) -> Any:
+        runtime = FakeRuntime(config)
+        runtimes.append(runtime)
+        return runtime
+
+    service = RuntimeService(config_path, runtime_factory=factory)
+    await service.startup()
+
+    public = service.public_config()
+    assert public["mcp_servers"][0]["headers"] == {
+        "Authorization": "",
+        "X-Tenant": "",
+    }
+    assert "tool_timeout" not in public["mcp_servers"][0]
+    assert "enabled_tools" not in public["mcp_servers"][0]
+
+    await service.update_config(
+        {
+            "mcp_servers": [
+                {
+                    "name": "renamed-server",
+                    "url": "https://mcp.example.test/v2",
+                    "headers": {
+                        "Authorization": "",
+                        "X-Tenant": "",
+                        "X-New": "new-secret",
+                    },
+                }
+            ]
+        }
+    )
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["mcp_servers"] == [
+        {
+            "name": "renamed-server",
+            "url": "https://mcp.example.test/v2",
+            "headers": {
+                "Authorization": "Bearer secret-token",
+                "X-Tenant": "secret-tenant",
+                "X-New": "new-secret",
+            },
+            "tool_timeout": 30,
+            "enabled_tools": ["*"],
+        }
+    ]
+    assert service.public_config()["mcp_servers"][0]["headers"] == {
+        "Authorization": "",
+        "X-Tenant": "",
+        "X-New": "",
+    }
+
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_tests_mcp_in_an_isolated_manager_and_restores_secrets(
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    BumblehiveConfig.from_mapping(
+        {
+            "mcp_servers": [
+                {
+                    "name": "private-server",
+                    "url": "https://old.example.test/mcp",
+                    "headers": {
+                        "Authorization": "Bearer saved-secret",
+                    },
+                }
+            ],
+        }
+    ).to_json_file(config_path)
+    runtimes: list[FakeRuntime] = []
+    managers: list[Any] = []
+
+    def runtime_factory(config: BumblehiveConfig) -> Any:
+        runtime = FakeRuntime(config)
+        runtimes.append(runtime)
+        return runtime
+
+    class IsolatedManager:
+        def __init__(self, *, mcp_servers: list[Any]) -> None:
+            self.servers = mcp_servers
+            self.closed = False
+            managers.append(self)
+
+        async def connect_mcp_server(self, server_name: str) -> list[str]:
+            assert server_name == "renamed-server"
+            return ["mcp_renamed-server_search"]
+
+        async def close(self) -> None:
+            self.closed = True
+
+    service = RuntimeService(
+        config_path,
+        runtime_factory=runtime_factory,
+        tool_manager_factory=IsolatedManager,  # type: ignore[arg-type]
+    )
+    await service.startup()
+
+    registered = await service.test_mcp_server(
+        {
+            "name": "renamed-server",
+            "url": "https://new.example.test/mcp",
+            "headers": {"Authorization": ""},
+        },
+        original_name="private-server",
+    )
+
+    assert registered == ["mcp_renamed-server_search"]
+    assert len(managers) == 1
+    assert managers[0].servers[0].headers == {
+        "Authorization": "Bearer saved-secret"
+    }
+    assert managers[0].servers[0].url == "https://new.example.test/mcp"
+    assert managers[0].closed is True
+    assert service.config.mcp_servers[0].name == "private-server"
+
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_reloads_one_or_all_mcp_servers(tmp_path) -> None:
+    runtimes: list[FakeRuntime] = []
+
+    def factory(config: BumblehiveConfig) -> Any:
+        runtime = FakeRuntime(config)
+        runtimes.append(runtime)
+        return runtime
+
+    service = RuntimeService(tmp_path / "config.json", runtime_factory=factory)
+    await service.startup()
+    calls: list[str] = []
+
+    async def reload_one(server_name: str) -> list[str]:
+        calls.append(server_name)
+        return [f"mcp_{server_name}_search"]
+
+    async def reload_all() -> list[str]:
+        calls.append("*")
+        return ["mcp_docs_search", "mcp_github_search"]
+
+    runtimes[0].tools = SimpleNamespace(
+        reload_mcp_server=reload_one,
+        reload_mcp=reload_all,
+    )
+
+    assert await service.reload_mcp_servers("docs") == ["mcp_docs_search"]
+    assert await service.reload_mcp_servers() == [
+        "mcp_docs_search",
+        "mcp_github_search",
+    ]
+    assert calls == ["docs", "*"]
+
+    async with service.lease():
+        with pytest.raises(RuntimeBusyError):
+            await service.reload_mcp_servers("docs")
+
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_exposes_settings_choices(tmp_path) -> None:
+    runtimes: list[FakeRuntime] = []
+
+    def factory(config: BumblehiveConfig) -> Any:
+        runtime = FakeRuntime(config)
+        runtimes.append(runtime)
+        return runtime
+
+    service = RuntimeService(tmp_path / "config.json", runtime_factory=factory)
+    await service.startup()
+    runtime = runtimes[0]
+    runtime.skills = SimpleNamespace(
+        list_skills=lambda: SimpleNamespace(
+            skills=[
+                SimpleNamespace(
+                    name="review",
+                    description="Review project changes",
+                )
+            ],
+            errors=[
+                SimpleNamespace(
+                    path=tmp_path / "broken" / "SKILL.md",
+                    message="invalid frontmatter",
+                )
+            ],
+        )
+    )
+    runtime.tools = SimpleNamespace(
+        list_tools=lambda: [
+            SimpleNamespace(
+                name="read_file",
+                description="Read a file",
+                source="local",
+                parallel_safe=True,
+            )
+        ],
+        list_mcp_server_statuses=lambda: [
+            SimpleNamespace(
+                name="github",
+                connected=True,
+                registered_tools=["mcp_github_search"],
+            )
+        ],
+    )
+
+    assert service.settings_options() == {
+        "skills": [
+            {
+                "name": "review",
+                "description": "Review project changes",
+            }
+        ],
+        "skill_errors": [
+            {
+                "path": str(tmp_path / "broken" / "SKILL.md"),
+                "message": "invalid frontmatter",
+            }
+        ],
+        "tools": [
+            {
+                "name": "read_file",
+                "description": "Read a file",
+                "source": "local",
+                "parallel_safe": True,
+            }
+        ],
+        "mcp_statuses": [
+            {
+                "name": "github",
+                "connected": True,
+                "registered_tools": ["mcp_github_search"],
+            }
+        ],
+    }
+
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_service_manages_skills_only_while_idle(tmp_path) -> None:
+    runtimes: list[FakeRuntime] = []
+
+    def factory(config: BumblehiveConfig) -> Any:
+        runtime = FakeRuntime(config)
+        runtimes.append(runtime)
+        return runtime
+
+    service = RuntimeService(tmp_path / "config.json", runtime_factory=factory)
+    await service.startup()
+    runtime = runtimes[0]
+    runtime.skills = SkillsManager(tmp_path / "skills")
+    source = tmp_path / "review"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        "---\nname: review\ndescription: Review changes.\n---\n",
+        encoding="utf-8",
+    )
+
+    installed = await service.install_skills([source])
+    refreshed = await service.reload_skills()
+
+    assert [skill.name for skill in installed.skills] == ["review"]
+    assert [skill.name for skill in refreshed.skills] == ["review"]
+
+    async with service.lease():
+        with pytest.raises(RuntimeBusyError):
+            await service.remove_skill("review")
+
+    removed = await service.remove_skill("review")
+    assert removed.skills == []
+
+    await service.shutdown()
 
 
 @pytest.mark.asyncio

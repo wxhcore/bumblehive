@@ -4,9 +4,11 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -538,6 +540,11 @@ class FakeService:
         self.runtime = FakeRuntime()
         self.workspace = Path("/tmp/workspace")
         self.model_requests: list[Any] = []
+        self.mcp_test_requests: list[Any] = []
+        self.mcp_refresh_requests: list[str | None] = []
+        self.skill_import_requests: list[Any] = []
+        self.skill_remove_requests: list[str] = []
+        self.skill_refresh_requests = 0
         self.deleted_sessions: list[str] = []
         self.settings = {
             "provider": {
@@ -556,6 +563,23 @@ class FakeService:
     def public_config(self) -> dict[str, Any]:
         return self.settings
 
+    def settings_options(self) -> dict[str, Any]:
+        return {
+            "skills": [
+                {"name": "review", "description": "Review project changes"}
+            ],
+            "skill_errors": [],
+            "tools": [
+                {
+                    "name": "read_file",
+                    "description": "Read a file",
+                    "source": "local",
+                    "parallel_safe": True,
+                }
+            ],
+            "mcp_statuses": [],
+        }
+
     async def update_config(self, update: dict[str, Any]) -> None:
         self.settings.update(update)
 
@@ -567,6 +591,44 @@ class FakeService:
     ) -> list[str]:
         self.model_requests.append({"base_url": base_url, "api_key": api_key})
         return ["test-model", "other-model"]
+
+    async def test_mcp_server(
+        self,
+        server: dict[str, Any],
+        *,
+        original_name: str | None = None,
+    ) -> list[str]:
+        self.mcp_test_requests.append(
+            {"server": server, "original_name": original_name}
+        )
+        return ["mcp_docs_search", "mcp_docs_open"]
+
+    async def reload_mcp_servers(
+        self,
+        server_name: str | None = None,
+    ) -> list[str]:
+        self.mcp_refresh_requests.append(server_name)
+        return ["mcp_docs_search"]
+
+    async def install_skills(
+        self,
+        sources: list[Path],
+        *,
+        replace: bool = False,
+    ) -> None:
+        self.skill_import_requests.append({
+            "replace": replace,
+            "skills": [
+                (source / "SKILL.md").read_text(encoding="utf-8")
+                for source in sources
+            ],
+        })
+
+    async def remove_skill(self, name: str) -> None:
+        self.skill_remove_requests.append(name)
+
+    async def reload_skills(self) -> None:
+        self.skill_refresh_requests += 1
 
     async def delete_session(self, session_id: str) -> bool:
         self.deleted_sessions.append(session_id)
@@ -773,6 +835,130 @@ def test_model_list_endpoint_accepts_flat_request() -> None:
             "base_url": "https://draft.example/v1",
         }
     ]
+
+
+def test_settings_options_endpoint_returns_runtime_choices() -> None:
+    service = FakeService()
+    app = create_app(
+        runtime_service=service,  # type: ignore[arg-type]
+        session_reader=FakeSessionReader(),  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/settings/options")
+
+    assert response.status_code == 200
+    assert response.json() == service.settings_options()
+
+
+def test_mcp_test_and_refresh_endpoints() -> None:
+    service = FakeService()
+    app = create_app(
+        runtime_service=service,  # type: ignore[arg-type]
+        session_reader=FakeSessionReader(),  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        tested = client.post(
+            "/api/v1/mcp/test",
+            json={
+                "server": {
+                    "name": "docs",
+                    "url": "https://docs.example.test/mcp",
+                    "headers": {"Authorization": ""},
+                },
+                "original_name": "old-docs",
+            },
+        )
+        refreshed_one = client.post("/api/v1/mcp/docs/refresh")
+        refreshed_all = client.post("/api/v1/mcp/refresh")
+
+    assert tested.status_code == 200
+    assert tested.json() == {
+        "name": "docs",
+        "registered_tools": ["mcp_docs_search", "mcp_docs_open"],
+    }
+    assert service.mcp_test_requests == [
+        {
+            "server": {
+                "name": "docs",
+                "url": "https://docs.example.test/mcp",
+                "headers": {"Authorization": ""},
+            },
+            "original_name": "old-docs",
+        }
+    ]
+    assert refreshed_one.status_code == 200
+    assert refreshed_all.status_code == 200
+    assert refreshed_one.json() == service.settings_options()
+    assert service.mcp_refresh_requests == ["docs", None]
+
+
+def test_skill_import_remove_and_refresh_endpoints() -> None:
+    service = FakeService()
+    app = create_app(
+        runtime_service=service,  # type: ignore[arg-type]
+        session_reader=FakeSessionReader(),  # type: ignore[arg-type]
+    )
+    archive = BytesIO()
+    with ZipFile(archive, "w") as output:
+        output.writestr(
+            "review/SKILL.md",
+            "---\nname: review\ndescription: Review changes.\n---\n",
+        )
+
+    with TestClient(app) as client:
+        imported = client.post(
+            "/api/v1/skills/import?replace=true",
+            files={
+                "files": (
+                    "review.zip",
+                    archive.getvalue(),
+                    "application/zip",
+                )
+            },
+        )
+        refreshed = client.post("/api/v1/skills/refresh")
+        removed = client.delete("/api/v1/skills/review")
+
+    assert imported.status_code == 200
+    assert refreshed.status_code == 200
+    assert removed.status_code == 200
+    assert service.skill_import_requests == [{
+        "replace": True,
+        "skills": [
+            "---\nname: review\ndescription: Review changes.\n---\n"
+        ],
+    }]
+    assert service.skill_refresh_requests == 1
+    assert service.skill_remove_requests == ["review"]
+
+
+def test_skill_import_rejects_unsafe_archives() -> None:
+    service = FakeService()
+    app = create_app(
+        runtime_service=service,  # type: ignore[arg-type]
+        session_reader=FakeSessionReader(),  # type: ignore[arg-type]
+    )
+    archive = BytesIO()
+    with ZipFile(archive, "w") as output:
+        output.writestr("../SKILL.md", "unsafe")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/skills/import",
+            files={
+                "files": (
+                    "unsafe.zip",
+                    archive.getvalue(),
+                    "application/zip",
+                )
+            },
+        )
+
+    assert response.status_code == 422
+    assert "不安全路径" in response.json()["detail"]
+    assert service.skill_import_requests == []
 
 
 def test_model_list_endpoint_maps_validation_and_provider_errors() -> None:

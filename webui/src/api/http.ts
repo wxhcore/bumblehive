@@ -2,13 +2,26 @@ import { API_URL } from "./config";
 import type {
   CreatedSession,
   HealthResponse,
+  McpServerTestRequest,
+  McpServerTestResponse,
   ModelListRequest,
   ModelListResponse,
   SessionDetail,
   SessionSummary,
   Settings,
+  SettingsOptions,
   SettingsUpdate,
 } from "../types/api";
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, init);
@@ -20,7 +33,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep the status-based message when the response is not JSON.
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
   return (await response.json()) as T;
 }
@@ -41,12 +54,59 @@ export function getSettings(): Promise<Settings> {
   return request("/api/v1/settings");
 }
 
+export function getSettingsOptions(): Promise<SettingsOptions> {
+  return request("/api/v1/settings/options");
+}
+
 export function updateSettings(update: SettingsUpdate): Promise<Settings> {
   return request("/api/v1/settings", jsonInit("PUT", update));
 }
 
 export function getModels(requestBody: ModelListRequest): Promise<ModelListResponse> {
   return request("/api/v1/models", jsonInit("POST", requestBody));
+}
+
+export function testMcpServer(
+  requestBody: McpServerTestRequest,
+): Promise<McpServerTestResponse> {
+  return request("/api/v1/mcp/test", jsonInit("POST", requestBody));
+}
+
+export function refreshMcpServers(): Promise<SettingsOptions> {
+  return request("/api/v1/mcp/refresh", { method: "POST" });
+}
+
+export function refreshMcpServer(name: string): Promise<SettingsOptions> {
+  return request(
+    `/api/v1/mcp/${encodeURIComponent(name)}/refresh`,
+    { method: "POST" },
+  );
+}
+
+export function refreshSkills(): Promise<SettingsOptions> {
+  return request("/api/v1/skills/refresh", { method: "POST" });
+}
+
+export function importSkillArchives(
+  files: File[],
+  replace = false,
+): Promise<SettingsOptions> {
+  const body = new FormData();
+  files.forEach((file) => body.append("files", file, file.name));
+  return request(
+    `/api/v1/skills/import?replace=${replace ? "true" : "false"}`,
+    {
+      method: "POST",
+      body,
+    },
+  );
+}
+
+export function deleteSkill(name: string): Promise<SettingsOptions> {
+  return request(
+    `/api/v1/skills/${encodeURIComponent(name)}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function createSession(
