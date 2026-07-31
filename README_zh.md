@@ -1,8 +1,23 @@
-# BumbleHive
+<div align="center">
 
-一个面向工具驱动 Loop 工程设计的 Agent Runtime。
+![BumbleHive](./assets/bumblehive.png)
 
-BumbleHive 是一个轻量的 Python 库，用清晰的执行循环来构建 AI Agent：构建上下文、调用模型、执行工具、观察事件，并持续推进直到得到最终结果。
+**小核心，大轰鸣 | Small Core, Big Buzz**
+
+一个用几行 Python 代码即可搭建完整 Agent Loop 的轻量 SDK。
+
+[![PyPI](https://img.shields.io/pypi/v/bumblehive?label=PyPI)](https://pypi.org/project/bumblehive/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
+[![Python SDK CI](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml/badge.svg?branch=main)](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml)
+[![Platforms](https://img.shields.io/badge/SDK-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](#本地开发)
+[![MCP](https://img.shields.io/badge/MCP-Supported-green)](https://modelcontextprotocol.io/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
+
+[English](./README.md) | 简体中文
+
+</div>
+
+---
 
 ## 特性
 

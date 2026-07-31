@@ -1,8 +1,23 @@
-# BumbleHive
+<div align="center">
 
-An agent runtime designed for tool-driven loop engineering.
+![BumbleHive](./assets/bumblehive.png)
 
-BumbleHive is a lightweight Python library for building AI agents around a clear execution loop: build context, call the model, execute tools, observe events, and continue until a final result is produced.
+**小核心，大轰鸣 | Small Core, Big Buzz**
+
+A lightweight Python SDK for building a complete Agent Loop in just a few lines of code.
+
+[![PyPI](https://img.shields.io/pypi/v/bumblehive?label=PyPI)](https://pypi.org/project/bumblehive/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
+[![Python SDK CI](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml/badge.svg?branch=main)](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml)
+[![Platforms](https://img.shields.io/badge/SDK-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](#local-development)
+[![MCP](https://img.shields.io/badge/MCP-Supported-green)](https://modelcontextprotocol.io/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
+
+English | [简体中文](./README_zh.md)
+
+</div>
+
+---
 
 ## Highlights
 
