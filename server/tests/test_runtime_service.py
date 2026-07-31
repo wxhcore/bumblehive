@@ -370,6 +370,31 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
 
 
 @pytest.mark.asyncio
+async def test_runtime_service_can_clear_dynamic_context(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    BumblehiveConfig.from_mapping(
+        {
+            "provider": {"model": "test-model"},
+            "agent": {
+                "instructions": "Keep this instruction.",
+                "dynamic_context": {"project": "bumblehive"},
+            },
+        }
+    ).to_json_file(config_path)
+    service = RuntimeService(config_path, runtime_factory=FakeRuntime)
+    await service.startup()
+
+    await service.update_config({"agent": {"dynamic_context": {}}})
+
+    assert service.config.agent.instructions == "Keep this instruction."
+    assert service.config.agent.dynamic_context == {}
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["agent"]["dynamic_context"] == {}
+
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_runtime_service_masks_and_preserves_mcp_header_secrets(
     tmp_path,
 ) -> None:

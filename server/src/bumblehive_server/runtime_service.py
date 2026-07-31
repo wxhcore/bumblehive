@@ -211,7 +211,10 @@ class RuntimeService:
                     current.config.to_dict(),
                     patch,
                 )
-                merged = _deep_merge(current.config.to_dict(), resolved_patch)
+                merged = _merge_config_patch(
+                    current.config.to_dict(),
+                    resolved_patch,
+                )
                 config = BumblehiveConfig.from_mapping(
                     apply_config_defaults(merged)
                 )
@@ -458,15 +461,21 @@ class RuntimeService:
             raise
 
 
-def _deep_merge(
+def _merge_config_patch(
     base: Mapping[str, Any],
-    overlay: Mapping[str, Any],
+    patch: Mapping[str, Any],
 ) -> dict[str, Any]:
     merged = dict(base)
-    for key, value in overlay.items():
+    for key, value in patch.items():
         current = merged.get(key)
-        if isinstance(current, Mapping) and isinstance(value, Mapping):
-            merged[key] = _deep_merge(current, value)
+        if (
+            key in {"provider", "generation", "agent", "runtime"}
+            and isinstance(current, Mapping)
+            and isinstance(value, Mapping)
+        ):
+            section = dict(current)
+            section.update(value)
+            merged[key] = section
         else:
             merged[key] = value
     return merged
