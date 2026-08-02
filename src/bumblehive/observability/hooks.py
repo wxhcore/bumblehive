@@ -90,6 +90,8 @@ def normalize_hooks(hooks: HookInput = None) -> AgentHook:
 
     if hooks is None:
         return NoopHook()
+    if isinstance(hooks, CompositeHook):
+        return hooks
     if isinstance(hooks, AgentHook) or callable(hooks):
-        return as_hook(hooks)
+        return CompositeHook([hooks])
     return CompositeHook(hooks)

@@ -222,3 +222,27 @@ async def test_runner_emits_a_terminal_error_before_reraising(tmp_path) -> None:
         "error_type": "RuntimeError",
         "error_message": "provider broke",
     }
+
+
+@pytest.mark.asyncio
+async def test_runner_preserves_provider_error_when_single_error_hook_fails(
+    tmp_path,
+) -> None:
+    class BrokenProvider(ModelProvider):
+        async def generate(self, request: ModelRequest) -> ModelResponse:
+            raise RuntimeError("provider broke")
+
+    async def failing_on_run_error(event):
+        if event.kind == RUN_ERROR:
+            raise ValueError("hook broke")
+
+    with pytest.raises(RuntimeError, match="provider broke"):
+        await ToolCallingRunner().run(
+            provider=BrokenProvider(),
+            tools=_tools(),
+            messages=[{"role": "user", "content": "hello"}],
+            model="test-model",
+            tool_names=[],
+            workspace=tmp_path,
+            emitter=EventEmitter.from_hooks(failing_on_run_error),
+        )

@@ -1,6 +1,6 @@
 import pytest
 
-from bumblehive.observability import CallbackHook, EventRecorder
+from bumblehive.observability import CallbackHook, CompositeHook, EventRecorder
 from bumblehive.observability.emitter import EventEmitter
 
 
@@ -37,3 +37,41 @@ async def test_reraising_hook_stops_event_delivery() -> None:
         await emitter.emit("demo")
 
     assert recorder.events == []
+
+
+@pytest.mark.asyncio
+async def test_single_hook_failure_is_isolated() -> None:
+    async def failing(event):
+        raise RuntimeError("hook failed")
+
+    emitter = EventEmitter.from_hooks(failing, run_id="run")
+
+    await emitter.emit("demo")
+
+
+@pytest.mark.asyncio
+async def test_single_reraising_hook_propagates() -> None:
+    def failing(event):
+        raise RuntimeError("stop")
+
+    emitter = EventEmitter.from_hooks(
+        CallbackHook(failing, reraise=True),
+        run_id="run",
+    )
+
+    with pytest.raises(RuntimeError, match="stop"):
+        await emitter.emit("demo")
+
+
+@pytest.mark.asyncio
+async def test_existing_composite_preserves_reraise_semantics() -> None:
+    def failing(event):
+        raise RuntimeError("stop")
+
+    composite = CompositeHook([
+        CallbackHook(failing, reraise=True),
+    ])
+    emitter = EventEmitter.from_hooks(composite, run_id="run")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        await emitter.emit("demo")
