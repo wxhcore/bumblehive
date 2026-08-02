@@ -27,7 +27,6 @@ from .events import (
 from .hooks import (
     AgentHook,
     CallbackHook,
-    CompositeHook,
     EventCallback,
     HookInput,
 )
@@ -42,7 +41,6 @@ __all__ = [
     "AgentHook",
     "AsyncEventStream",
     "CallbackHook",
-    "CompositeHook",
     "DEFAULT_STREAM_QUEUE_SIZE",
     "EventCallback",
     "EventRecorder",

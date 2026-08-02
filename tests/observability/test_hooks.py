@@ -1,7 +1,8 @@
 import pytest
 
-from bumblehive.observability import CallbackHook, CompositeHook, EventRecorder
+from bumblehive.observability import CallbackHook, EventRecorder
 from bumblehive.observability.emitter import EventEmitter
+from bumblehive.observability.hooks import CompositeHook
 
 
 @pytest.mark.asyncio

@@ -51,7 +51,6 @@ PUBLIC_API = {
         "AgentHook",
         "AsyncEventStream",
         "CallbackHook",
-        "CompositeHook",
         "DEFAULT_STREAM_QUEUE_SIZE",
         "EventCallback",
         "EventRecorder",
@@ -154,6 +153,7 @@ NON_PUBLIC_REEXPORTS = {
     },
     bumblehive.observability: {
         "AsyncEventStreamHook",
+        "CompositeHook",
         "EventEmitter",
         "ModelEvents",
         "RunEvents",
