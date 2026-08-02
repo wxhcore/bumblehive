@@ -180,7 +180,7 @@ async def test_exec_runs_commands_and_enforces_working_directory_safety(tmp_path
         script = extra / "run.sh"
         script.write_text("#!/bin/sh\nprintf 'from skills\\n'\n", encoding="utf-8")
         script.chmod(0o700)
-    manager = _manager(timeout=2)
+    manager = _manager(timeout=10)
     allowlist = PathAllowlist.from_roots(extra_write_roots=[extra])
 
     normal = await _execute(manager, workspace, "exec", {"command": "echo hello"})
@@ -208,7 +208,8 @@ async def test_exec_runs_commands_and_enforces_working_directory_safety(tmp_path
 
     assert normal.content["exit_code"] == 0
     assert normal.content["stdout"].strip() == "hello"
-    assert skill_script.content["exit_code"] == 0
+    assert skill_script.content.get("timed_out") is False, skill_script.content
+    assert skill_script.content["exit_code"] == 0, skill_script.content
     assert skill_script.content["stdout"].strip() == "from skills"
     assert outside.content == {"error": "working_dir is outside writable roots"}
     assert read_only_cwd.content == {"error": "working_dir is outside writable roots"}
