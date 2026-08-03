@@ -40,8 +40,6 @@ async def main() -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        skill_names=[],
-        tool_names=[],
     )
 
     async with bumblehive.from_config(config) as runtime:
@@ -60,13 +58,6 @@ asyncio.run(main())
 | `run_console()` | Trying or debugging an Agent in the terminal |
 | `run()` | Getting a structured result for a Python application |
 | `stream()` | Consuming runtime events in a custom interface |
-
-To integrate the result into an application, replace the call in the example with:
-
-```python
-result = await runtime.run("Explain Agent Loop in one sentence.")
-print(result.final_content)
-```
 
 ## Core Capabilities
 
