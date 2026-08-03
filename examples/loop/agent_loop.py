@@ -15,7 +15,7 @@ async def main() -> None:
     providers = ProviderManager()
     provider = await providers.get(
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
-        base_url=os.getenv("BUMBLEHIVE_BASE_URL"),
+        base_url=os.environ["BUMBLEHIVE_BASE_URL"],
     )
 
     loop = AgentLoop(

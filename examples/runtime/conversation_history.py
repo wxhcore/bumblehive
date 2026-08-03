@@ -8,21 +8,20 @@ async def main() -> None:
     config = bumblehive.RuntimeArguments(
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
-        base_url=os.getenv("BUMBLEHIVE_BASE_URL"),
+        base_url=os.environ["BUMBLEHIVE_BASE_URL"],
         workspace=".",
     )
     history = bumblehive.MessageHistory()
-    runtime = bumblehive.from_config(config)
 
-    first = await runtime.run(
-        "Remember that my project is named Bumblehive.",
-        history=history,
-    )
-    second = await runtime.run(
-        "What is my project named?",
-        history=history,
-    )
-    await runtime.close()
+    async with bumblehive.from_config(config) as runtime:
+        first = await runtime.run(
+            "Remember that my project is named Bumblehive.",
+            history=history,
+        )
+        second = await runtime.run(
+            "What is my project named?",
+            history=history,
+        )
 
     print("First:", first.final_content)
     print("Second:", second.final_content)

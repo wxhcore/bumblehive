@@ -8,17 +8,18 @@ async def main() -> None:
     config = bumblehive.RuntimeArguments(
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
-        base_url=os.getenv("BUMBLEHIVE_BASE_URL"),
-        workspace=".",
-        tool_names=[],  # Expose no tools, including built-ins.
+        base_url=os.environ["BUMBLEHIVE_BASE_URL"],
+        skill_names=[],
+        tool_names=[],
     )
+    async with bumblehive.from_config(config) as runtime:
+        result = await runtime.run("请用一句话解释什么是 Agent Runtime。")
 
-    runtime = bumblehive.from_config(config)
-    result = await runtime.run("Explain the purpose of an agent runtime in one sentence.")
-    await runtime.close()
+    if result.error is not None:
+        print(f"运行失败 [{result.error.code}]：{result.error.message}")
+        return
 
-    print("Answer:", result.final_content)
-    print("Usage:", result.usage)
+    print(f"回答：{result.final_content}")
 
 
 if __name__ == "__main__":

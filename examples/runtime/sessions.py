@@ -9,7 +9,7 @@ async def main() -> None:
     config = bumblehive.RuntimeArguments(
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
-        base_url=os.getenv("BUMBLEHIVE_BASE_URL"),
+        base_url=os.environ["BUMBLEHIVE_BASE_URL"],
     )
     session_id = f"example:{uuid4()}"
 

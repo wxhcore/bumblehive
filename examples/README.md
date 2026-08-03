@@ -1,5 +1,12 @@
 # Bumblehive examples
 
+## Recommended learning path
+
+If you are new to Bumblehive, run these examples in order:
+
+1. `runtime/basic.py` — make one model call.
+2. `runtime/custom_tool.py` — register a Python tool.
+
 These examples are organized by the SDK layer they use:
 
 - `runtime/` — high-level application API.
