@@ -9,7 +9,6 @@
 [![PyPI](https://img.shields.io/pypi/v/bumblehive?label=PyPI)](https://pypi.org/project/bumblehive/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
 [![Python SDK CI](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml/badge.svg?branch=main)](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml)
-[![Platforms](https://img.shields.io/badge/SDK-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](#本地开发)
 [![MCP](https://img.shields.io/badge/MCP-Supported-green)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
 
@@ -19,14 +18,7 @@
 
 ---
 
-## 特性
-
-- 工具驱动的 Agent Loop，支持内置工具和 MCP 工具。
-- 流式生命周期事件，覆盖模型 delta、工具调用、错误和最终结果。
-- 支持 session 的 runtime，隔离历史并控制并发。
-- 模块化 Python API，覆盖配置、provider、工具、skills 和可观测能力。
-
-## 快速开始
+## 30 秒体验
 
 安装 Python SDK：
 
@@ -34,7 +26,7 @@
 python -m pip install bumblehive
 ```
 
-设置 `BUMBLEHIVE_MODEL`、`BUMBLEHIVE_API_KEY`、`BUMBLEHIVE_BASE_URL`。然后运行：
+准备好 `BUMBLEHIVE_MODEL`、`BUMBLEHIVE_API_KEY` 和 `BUMBLEHIVE_BASE_URL`，然后运行：
 
 ```python
 import asyncio
@@ -49,29 +41,52 @@ async def main() -> None:
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
     )
-    async with bumblehive.from_config(config) as runtime:
-        result = await runtime.run("请用一句话解释 Agent Loop。")
 
-    print(result.final_content)
+    async with bumblehive.from_config(config) as runtime:
+        await runtime.run_console("请用一句话解释 Agent Loop。")
 
 
 asyncio.run(main())
 ```
 
-## 中文文档
+`run_console()` 会在终端直接展示运行过程和最终回答。
 
-从 [Bumblehive Python SDK 中文文档](docs/zh/index.md) 开始：
+## 选择运行方式
 
-- [安装与第一次调用](docs/zh/getting-started/installation.md)
-- [注册第一个 Python 工具](docs/zh/getting-started/first-tool.md)
-- [理解 Agent 的基本结构](docs/zh/concepts/mental-model.md)
-- [选择合适的抽象层](docs/zh/concepts/choose-your-layer.md)
-- [API Reference](docs/zh/reference/runtime.md)
+| 接口 | 适用场景 |
+| --- | --- |
+| `run_console()` | 在终端快速体验或调试 |
+| `run()` | 一次性获得结构化结果 |
+| `stream()` | 流式输出并监听运行事件 |
 
-## 示例
+## 核心能力
 
-参见 [examples](examples/README.md)，其中包含可独立运行的 Runtime、Loop、
-Provider、Tools、Skills 和 Observability 示例。
+- 使用 Runtime 管理模型调用、Agent Loop 和资源生命周期。
+- 将 Python 函数、内置工具或 MCP 服务提供给 Agent。
+- 按需使用流式事件、对话历史、持久化 Session、Skills 和可观测 Hooks。
+
+## 桌面端
+
+Bumblehive Desktop 是使用 Bumblehive Python SDK 构建的可选参考应用，展示了如何把 Runtime、工具和会话能力组合成完整产品。
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/wxhcore/bumblehive/main/assets/readme/desktop-demo.gif" alt="Bumblehive Desktop 演示" width="900">
+</p>
+
+桌面安装包将通过 [GitHub Releases](https://github.com/wxhcore/bumblehive/releases) 发布。
+
+## 下一步
+
+完整内容请访问 [Bumblehive Python SDK 中文文档](https://wxhcore.github.io/bumblehive/)。
+
+| 目标 | 从这里开始 |
+| --- | --- |
+| 运行第一个 Agent | [第一次调用](https://wxhcore.github.io/bumblehive/getting-started/first-call/) |
+| 添加 Python 工具 | [注册第一个工具](https://wxhcore.github.io/bumblehive/getting-started/first-tool/) |
+| 保存对话 | [消息历史与 Session](https://wxhcore.github.io/bumblehive/how-to/memory-and-sessions/) |
+| 使用 Skills 或 MCP | [Skills 与 MCP](https://wxhcore.github.io/bumblehive/how-to/skills-and-mcp/) |
+| 查询公开接口 | [API Reference](https://wxhcore.github.io/bumblehive/reference/runtime/) |
+| 查看可运行代码 | [Examples](examples/README.md) |
 
 ## 本地开发
 

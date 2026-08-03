@@ -9,7 +9,6 @@ A lightweight Python SDK for building a complete Agent Loop in just a few lines 
 [![PyPI](https://img.shields.io/pypi/v/bumblehive?label=PyPI)](https://pypi.org/project/bumblehive/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
 [![Python SDK CI](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml/badge.svg?branch=main)](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml)
-[![Platforms](https://img.shields.io/badge/SDK-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](#local-development)
 [![MCP](https://img.shields.io/badge/MCP-Supported-green)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
 
@@ -19,14 +18,7 @@ English | [简体中文](./README_zh.md)
 
 ---
 
-## Highlights
-
-- Tool-driven agent loop with built-in and MCP-backed tools.
-- Streaming lifecycle events for model deltas, tool calls, errors, and final results.
-- Session-aware runtime with isolated history and concurrency control.
-- Modular Python APIs for configuration, providers, tools, skills, and observability.
-
-## Quick Start
+## Try It in 30 Seconds
 
 Install the Python SDK:
 
@@ -34,7 +26,7 @@ Install the Python SDK:
 python -m pip install bumblehive
 ```
 
-Set `BUMBLEHIVE_MODEL`, `BUMBLEHIVE_API_KEY`, and `BUMBLEHIVE_BASE_URL`. Then run:
+Set `BUMBLEHIVE_MODEL`, `BUMBLEHIVE_API_KEY`, and `BUMBLEHIVE_BASE_URL`, then run:
 
 ```python
 import asyncio
@@ -48,30 +40,62 @@ async def main() -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
+        skill_names=[],
+        tool_names=[],
     )
-    async with bumblehive.from_config(config) as runtime:
-        result = await runtime.run("Explain Agent Loop in one sentence.")
 
-    print(result.final_content)
+    async with bumblehive.from_config(config) as runtime:
+        await runtime.run_console("Explain Agent Loop in one sentence.")
 
 
 asyncio.run(main())
 ```
 
-## Documentation
+`run_console()` displays the runtime process and final answer directly in your terminal.
 
-Start with the [Bumblehive Python SDK documentation](docs/en/index.md). The complete guide is currently available in Chinese:
+## Choose a Run Method
 
-- [Installation and first call](docs/zh/getting-started/installation.md)
-- [Register your first Python tool](docs/zh/getting-started/first-tool.md)
-- [Understand the basic Agent structure](docs/zh/concepts/mental-model.md)
-- [Choose the right abstraction layer](docs/zh/concepts/choose-your-layer.md)
-- [API Reference](docs/zh/reference/runtime.md)
+| API | Best for |
+| --- | --- |
+| `run_console()` | Trying or debugging an Agent in the terminal |
+| `run()` | Getting a structured result for a Python application |
+| `stream()` | Consuming runtime events in a custom interface |
 
-## Examples
+To integrate the result into an application, replace the call in the example with:
 
-See [examples](examples/README.md) for independently runnable Runtime, Loop,
-Provider, Tools, Skills, and Observability examples.
+```python
+result = await runtime.run("Explain Agent Loop in one sentence.")
+print(result.final_content)
+```
+
+## Core Capabilities
+
+- Manage model calls, the Agent Loop, and resource lifecycles through Runtime.
+- Give an Agent Python functions, built-in tools, or MCP servers.
+- Add streaming events, conversation history, persisted sessions, Skills, and observability hooks when needed.
+
+## Desktop
+
+Bumblehive Desktop is an optional reference application built with the Bumblehive Python SDK. It shows how Runtime, tools, and sessions can be combined into a complete product.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/wxhcore/bumblehive/main/assets/readme/desktop-demo.gif" alt="Bumblehive Desktop demo" width="900">
+</p>
+
+Desktop installers will be published through [GitHub Releases](https://github.com/wxhcore/bumblehive/releases).
+
+## Next Steps
+
+The English documentation is in progress. See the [English overview](https://wxhcore.github.io/bumblehive/en/), the [complete Chinese documentation](https://wxhcore.github.io/bumblehive/), or the runnable [examples](examples/README.md).
+
+| Goal | Start here |
+| --- | --- |
+| Make the first Agent call | [First call (Chinese)](https://wxhcore.github.io/bumblehive/getting-started/first-call/) |
+| Add a Python tool | [Register a tool (Chinese)](https://wxhcore.github.io/bumblehive/getting-started/first-tool/) |
+| Save a conversation | [History and sessions (Chinese)](https://wxhcore.github.io/bumblehive/how-to/memory-and-sessions/) |
+| Use Skills or MCP | [Skills and MCP (Chinese)](https://wxhcore.github.io/bumblehive/how-to/skills-and-mcp/) |
+| Look up a public API | [API Reference (Chinese)](https://wxhcore.github.io/bumblehive/reference/runtime/) |
+| Browse runnable code | [Examples](examples/README.md) |
 
 ## Local Development
 
