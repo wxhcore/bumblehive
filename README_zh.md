@@ -28,6 +28,14 @@
 
 ## 快速开始
 
+安装 Python SDK：
+
+```bash
+python -m pip install bumblehive
+```
+
+设置 `BUMBLEHIVE_MODEL`、`BUMBLEHIVE_API_KEY`、`BUMBLEHIVE_BASE_URL`。然后运行：
+
 ```python
 import asyncio
 import os
@@ -39,15 +47,26 @@ async def main() -> None:
     config = bumblehive.RuntimeArguments(
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
-        base_url=os.getenv("BUMBLEHIVE_BASE_URL"),
-        workspace="./demo",
+        base_url=os.environ["BUMBLEHIVE_BASE_URL"],
     )
-    runtime = bumblehive.from_config(config)
-    result = await runtime.run("简述 Agent Loop，保存为 agent-loop.md。")
+    async with bumblehive.from_config(config) as runtime:
+        result = await runtime.run("请用一句话解释 Agent Loop。")
+
+    print(result.final_content)
 
 
 asyncio.run(main())
 ```
+
+## 中文文档
+
+从 [Bumblehive Python SDK 中文文档](docs/zh/index.md) 开始：
+
+- [安装与第一次调用](docs/zh/getting-started/installation.md)
+- [注册第一个 Python 工具](docs/zh/getting-started/first-tool.md)
+- [理解 Agent 的基本结构](docs/zh/concepts/mental-model.md)
+- [选择合适的抽象层](docs/zh/concepts/choose-your-layer.md)
+- [API Reference](docs/zh/reference/runtime.md)
 
 ## 示例
 
@@ -59,8 +78,6 @@ Provider、Tools、Skills 和 Observability 示例。
 Python SDK、Server 和 WebUI 的开发流程支持 macOS、Windows 和 Ubuntu Linux。环境要求为 Python 3.11+、Node.js 22.12+ 和 pnpm 10.33.0。推荐使用独立的 Conda 环境：
 
 ```bash
-conda create -n bumblehive_env python=3.11 -y
-conda activate bumblehive_env
 pnpm run setup
 ```
 
@@ -69,7 +86,6 @@ pnpm run setup
 日常开发只需：
 
 ```bash
-conda activate bumblehive_env
 pnpm run dev
 ```
 

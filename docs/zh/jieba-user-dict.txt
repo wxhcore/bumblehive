@@ -1,0 +1,13 @@
+Bumblehive 100000 nz
+Agent 100000 nz
+AgentLoop 100000 nz
+AgentRunResult 100000 nz
+BumblehiveRuntime 100000 nz
+MessageHistory 100000 nz
+ModelProvider 100000 nz
+PathAllowlist 100000 nz
+RuntimeArguments 100000 nz
+Skill 100000 nz
+Tool 100000 nz
+ToolCallingRunner 100000 nz
+ToolManager 100000 nz

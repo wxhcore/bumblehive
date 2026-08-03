@@ -1,0 +1,47 @@
+site_name: Bumblehive Python SDK
+site_description: Bumblehive Python SDK 使用与开发文档
+repo_name: wxhcore/bumblehive
+repo_url: https://github.com/wxhcore/bumblehive
+use_directory_urls: true
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+
+plugins:
+  search: {}
+  mkdocstrings:
+    handlers:
+      python:
+        paths:
+          - src
+        options:
+          filters: public
+          inherited_members: false
+          members_order:
+            - __all__
+            - source
+          separate_signature: true
+          show_signature_annotations: true
+          show_source: false
+
+markdown_extensions:
+  admonition: {}
+  attr_list: {}
+  md_in_html: {}
+  toc:
+    permalink: true
+  pymdownx.details: {}
+  pymdownx.superfences: {}
+  pymdownx.tabbed:
+    alternate_style: true
+  pymdownx.snippets:
+    base_path:
+      - .

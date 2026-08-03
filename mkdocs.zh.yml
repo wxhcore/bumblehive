@@ -1,0 +1,55 @@
+INHERIT: mkdocs.base.yml
+
+docs_dir: docs/zh
+site_dir: site
+site_url: https://wxhcore.github.io/bumblehive/
+edit_uri: edit/main/docs/zh/
+
+theme:
+  language: zh
+  logo: assets/brand/bumblehive-wordmark.png
+  favicon: assets/brand/bumblehive-bee.png
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  search:
+    lang: zh
+    jieba_dict_user: docs/zh/jieba-user-dict.txt
+
+nav:
+  - 快速开始:
+      - 概览: index.md
+      - 安装: getting-started/installation.md
+      - 第一次调用: getting-started/first-call.md
+      - 注册第一个工具: getting-started/first-tool.md
+      - 下一步: getting-started/next-steps.md
+  - 核心概念:
+      - Agent 的基本结构: concepts/mental-model.md
+      - 选择合适的抽象层: concepts/choose-your-layer.md
+      - Runtime 生命周期: concepts/runtime-lifecycle.md
+      - 状态与并发: concepts/state-and-concurrency.md
+      - 工具安全: concepts/tool-safety.md
+  - 使用指南:
+      - 配置模型和 Runtime: how-to/configuration.md
+      - 流式输出: how-to/streaming.md
+      - 消息历史与会话: how-to/memory-and-sessions.md
+      - Skills 与 MCP: how-to/skills-and-mcp.md
+      - 错误处理: how-to/error-handling.md
+      - 测试 Agent: how-to/testing-an-agent.md
+  - API 参考:
+      - Runtime: reference/runtime.md
+      - 配置: reference/config.md
+      - Agent: reference/agent.md
+      - 工具: reference/tools.md
+      - 模型 Provider: reference/providers.md
+      - 协议对象: reference/protocols.md
+      - Skills: reference/skills.md
+      - 可观测性: reference/observability.md
+  - SDK 开发:
+      - 架构: development/sdk-architecture.md
+      - 添加工具: development/adding-a-tool.md
+      - 添加 Provider: development/adding-a-provider.md
+      - 测试与发布: development/testing-and-release.md
+  - 常见问题: troubleshooting.md

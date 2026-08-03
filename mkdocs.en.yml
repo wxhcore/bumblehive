@@ -1,0 +1,13 @@
+INHERIT: mkdocs.base.yml
+
+docs_dir: docs/en
+site_dir: site/en
+site_url: https://wxhcore.github.io/bumblehive/en/
+edit_uri: edit/main/docs/en/
+
+theme:
+  language: en
+
+plugins:
+  search:
+    lang: en

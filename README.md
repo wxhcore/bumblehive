@@ -28,6 +28,14 @@ English | [简体中文](./README_zh.md)
 
 ## Quick Start
 
+Install the Python SDK:
+
+```bash
+python -m pip install bumblehive
+```
+
+Set `BUMBLEHIVE_MODEL`, `BUMBLEHIVE_API_KEY`, and `BUMBLEHIVE_BASE_URL`. Then run:
+
 ```python
 import asyncio
 import os
@@ -39,15 +47,26 @@ async def main() -> None:
     config = bumblehive.RuntimeArguments(
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
-        base_url=os.getenv("BUMBLEHIVE_BASE_URL"),
-        workspace="./demo",
+        base_url=os.environ["BUMBLEHIVE_BASE_URL"],
     )
-    runtime = bumblehive.from_config(config)
-    result = await runtime.run("Summarize Agent Loop in agent-loop.md.")
+    async with bumblehive.from_config(config) as runtime:
+        result = await runtime.run("Explain Agent Loop in one sentence.")
+
+    print(result.final_content)
 
 
 asyncio.run(main())
 ```
+
+## Documentation
+
+Start with the [Bumblehive Python SDK documentation](docs/en/index.md). The complete guide is currently available in Chinese:
+
+- [Installation and first call](docs/zh/getting-started/installation.md)
+- [Register your first Python tool](docs/zh/getting-started/first-tool.md)
+- [Understand the basic Agent structure](docs/zh/concepts/mental-model.md)
+- [Choose the right abstraction layer](docs/zh/concepts/choose-your-layer.md)
+- [API Reference](docs/zh/reference/runtime.md)
 
 ## Examples
 
@@ -59,8 +78,6 @@ Provider, Tools, Skills, and Observability examples.
 The Python SDK, Server, and WebUI development workflow supports macOS, Windows, and Ubuntu Linux. It requires Python 3.11+, Node.js 22.12+, and pnpm 10.33.0. A dedicated Conda environment is recommended:
 
 ```bash
-conda create -n bumblehive_env python=3.11 -y
-conda activate bumblehive_env
 pnpm run setup
 ```
 
@@ -69,7 +86,6 @@ pnpm run setup
 For daily development:
 
 ```bash
-conda activate bumblehive_env
 pnpm run dev
 ```
 

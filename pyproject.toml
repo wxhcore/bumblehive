@@ -48,6 +48,12 @@ dev = [
     "pytest>=8,<10",
     "pytest-asyncio>=0.24,<2.0",
 ]
+docs = [
+    "jieba>=0.42,<1",
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.7.7,<10",
+    "mkdocstrings[python]>=1,<2",
+]
 
 [project.urls]
 Homepage = "https://github.com/wxhcore/bumblehive"
