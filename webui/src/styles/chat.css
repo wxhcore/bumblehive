@@ -148,6 +148,11 @@
   white-space: normal;
 }
 
+.message-assistant .execution-process-content .markdown-body p,
+.message-assistant .execution-process-content .markdown-body li {
+  white-space: pre-wrap;
+}
+
 .message-assistant .markdown-body p {
   margin: 0 0 0.38em;
 }
