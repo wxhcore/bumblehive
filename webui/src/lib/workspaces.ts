@@ -24,6 +24,13 @@ export function workspaceLabel(path: string | null | undefined): string {
   return parts.at(-1) || path;
 }
 
+export function workspaceSettingChanged(
+  previous: string | null | undefined,
+  next: string | null | undefined,
+): boolean {
+  return workspaceKey(previous) !== workspaceKey(next);
+}
+
 export function readWorkspaceRegistry(): WorkspaceRegistry {
   try {
     const raw = window.localStorage.getItem(WORKSPACE_REGISTRY_STORAGE_KEY);

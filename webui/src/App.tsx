@@ -45,6 +45,7 @@ import {
   removeKnownWorkspace,
   workspaceKey,
   workspaceLabel,
+  workspaceSettingChanged,
   writeSelectedWorkspace,
   writeWorkspaceRegistry,
 } from "./lib/workspaces";
@@ -491,12 +492,15 @@ export default function App() {
   async function saveSettings(update: SettingsUpdate): Promise<Settings> {
     const completingInitialSetup =
       !settings || !isProviderConfigured(settings);
+    const previousWorkspace = settings?.runtime.workspace?.trim() ?? null;
     const saved = await updateSettings(update);
     const savedWorkspace = saved.runtime.workspace?.trim() ?? null;
-    const workspaceChanged =
-      workspaceKey(savedWorkspace) !== workspaceKey(selectedWorkspace);
+    const workspaceChanged = workspaceSettingChanged(
+      previousWorkspace,
+      savedWorkspace,
+    );
     setSettings(saved);
-    if (savedWorkspace) {
+    if (workspaceChanged && savedWorkspace) {
       rememberWorkspace(savedWorkspace, Date.now() / 1000, true);
       setSelectedWorkspace(savedWorkspace);
     }

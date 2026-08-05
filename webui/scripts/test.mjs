@@ -14,6 +14,7 @@ let sidebarTree;
 let settingsDraft;
 let settingsView;
 let toolSelection;
+let workspaces;
 
 before(async () => {
   server = await createServer({
@@ -31,6 +32,7 @@ before(async () => {
     settingsDraft,
     settingsView,
     toolSelection,
+    workspaces,
   ] =
     await Promise.all([
       server.ssrLoadModule("/src/components/chat/AssistantMessage.tsx"),
@@ -42,6 +44,7 @@ before(async () => {
       server.ssrLoadModule("/src/components/settings/draft.ts"),
       server.ssrLoadModule("/src/components/SettingsView.tsx"),
       server.ssrLoadModule("/src/components/settings/tool-selection.ts"),
+      server.ssrLoadModule("/src/lib/workspaces.ts"),
     ]);
 });
 
@@ -77,6 +80,17 @@ test("historyMessages restores assistant iterations and tool results", () => {
   assert.equal(messages[1].iterations[0].reasoning, "先读取目录");
   assert.equal(messages[1].iterations[0].tools[0].status, "completed");
   assert.equal(messages[1].iterations[1].content, "项目检查完成");
+});
+
+test("saving unrelated settings does not switch to another workspace", () => {
+  assert.equal(
+    workspaces.workspaceSettingChanged("/workspace/default", "/workspace/default"),
+    false,
+  );
+  assert.equal(
+    workspaces.workspaceSettingChanged("/workspace/default", "/workspace/next"),
+    true,
+  );
 });
 
 test("stream frames are merged, budgeted, and applied in order", () => {
