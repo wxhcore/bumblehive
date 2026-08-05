@@ -46,6 +46,8 @@ config = bumblehive.RuntimeArguments(
 
 相对路径从 `workspace` 解析。额外目录应尽量小，不要直接开放用户主目录或磁盘根目录。
 
+`exec` 的 `working_dir` 可以位于任意可读目录中。子进程的 `PATH` 优先包含当前 Python 解释器所在目录，然后继承父进程中有效的绝对路径，因此当前 Python 环境可以直接使用；如果父进程的 `PATH` 包含 Conda，子进程也可以直接调用 `conda`。
+
 ```python
 config = bumblehive.RuntimeArguments(
     workspace="./project",
@@ -65,7 +67,7 @@ config = bumblehive.RuntimeArguments(
 - MCP Server；
 - `exec` 启动的子进程对文件系统的访问。
 
-例如，限制 `exec` 的工作目录，不代表子进程无法读取其他系统路径。
+`exec` 不会静态解析命令中的绝对路径或 `../`。限制它的工作目录，只是在调用前校验进程的起始目录，不代表子进程无法读取或修改其他系统路径。
 
 ## 最小权限建议
 

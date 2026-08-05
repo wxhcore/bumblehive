@@ -161,7 +161,7 @@ async def test_runtime_does_not_update_caller_history_when_run_fails(
 
 
 @pytest.mark.asyncio
-async def test_runtime_applies_run_roots_and_always_allows_its_skills_directory(
+async def test_runtime_applies_run_roots_and_exposes_skills_as_read_only(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -181,6 +181,11 @@ async def test_runtime_applies_run_roots_and_always_allows_its_skills_directory(
                     tool_calls=[
                         ToolCall("read", "read_file", {"path": str(source)}),
                         ToolCall(
+                            "read-skill",
+                            "read_file",
+                            {"path": str(skill_source)},
+                        ),
+                        ToolCall(
                             "write",
                             "write_file",
                             {"path": str(skill_target), "content": "generated"},
@@ -197,6 +202,8 @@ async def test_runtime_applies_run_roots_and_always_allows_its_skills_directory(
 
     _install_provider(monkeypatch, PathProvider)
     runtime = _runtime(tmp_path, agent={"tool_names": ["read_file", "write_file"]})
+    skill_source = runtime.skills.skills_dir / "reference.txt"
+    skill_source.write_text("skill content", encoding="utf-8")
     skill_target = runtime.skills.skills_dir / "generated.txt"
 
     allowed = await runtime.run(
@@ -212,18 +219,22 @@ async def test_runtime_applies_run_roots_and_always_allows_its_skills_directory(
     second_tool_messages = [
         message for message in provider.requests[3].messages if message["role"] == "tool"
     ]
-    assert allowed.tools_used == ["read_file", "write_file"]
+    assert allowed.tools_used == ["read_file", "read_file", "write_file"]
     assert [message["tool_call_id"] for message in first_tool_messages] == [
         "read",
+        "read-skill",
         "write",
     ]
-    assert [message["role"] for message in provider.requests[1].messages[-3:]] == [
+    assert [message["role"] for message in provider.requests[1].messages[-4:]] == [
         "assistant",
+        "tool",
         "tool",
         "tool",
     ]
     assert any("allowlisted content" in message["content"] for message in first_tool_messages)
-    assert skill_target.read_text(encoding="utf-8") == "generated"
+    assert any("skill content" in message["content"] for message in first_tool_messages)
+    assert any("outside writable roots" in message["content"] for message in first_tool_messages)
+    assert not skill_target.exists()
     assert blocked.tools_used == ["read_file"]
     assert "outside readable roots" in second_tool_messages[0]["content"]
 

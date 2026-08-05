@@ -1,5 +1,7 @@
 import asyncio
+import ntpath
 import os
+import posixpath
 import re
 import signal
 import shutil
@@ -8,7 +10,7 @@ import time
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from ..adapters.function import CallableTool
@@ -28,19 +30,6 @@ _MAX_OUTPUT_CHARS = 50_000
 _OUTPUT_DRAIN_GRACE_S = 0.1
 _SESSION_BUFFER_CHAR_LIMIT = 200_000
 _EXEC_MANAGER_METADATA_KEY = "_bumblehive_builtin_exec_session_manager"
-_BENIGN_DEVICE_PATHS = frozenset(
-    {
-        "/dev/null",
-        "/dev/zero",
-        "/dev/full",
-        "/dev/random",
-        "/dev/urandom",
-        "/dev/stdin",
-        "/dev/stdout",
-        "/dev/stderr",
-        "/dev/tty",
-    }
-)
 
 _EXEC_DESCRIPTION = (
     "Execute a shell command for tests, builds, package operations, git, and other "
@@ -60,7 +49,7 @@ _EXEC_PARAMETERS: dict[str, Any] = {
             "type": "string",
             "description": (
                 "Optional working directory inside the workspace or a configured "
-                "writable root. Relative paths resolve from the workspace."
+                "readable root. Relative paths resolve from the workspace."
             ),
         },
         "timeout": {
@@ -759,19 +748,17 @@ class ExecRunner:
         cwd = self._resolve_working_dir(working_dir, access)
         if isinstance(cwd, str):
             return {"error": cwd}
-        guard_error = self._guard_command(
-            command,
-            cwd,
-        )
+        guard_error = self._guard_command(command)
         if guard_error:
             return {"error": guard_error}
-        shell_program, shell_error = _resolve_shell(shell)
+        env = _build_env()
+        shell_program, shell_error = _resolve_shell(shell, env)
         if shell_error:
             return {"error": shell_error}
         return PreparedCommand(
             command=command,
             cwd=str(cwd),
-            env=_build_env(),
+            env=env,
             timeout=self._resolve_timeout(timeout),
             shell_program=shell_program,
             login=False if login is None else login,
@@ -790,38 +777,20 @@ class ExecRunner:
         access: WorkspaceAccess,
     ) -> Path | str:
         if working_dir:
-            resolved = access.resolve_write(working_dir)
+            resolved = access.resolve_read(working_dir)
         else:
             resolved = access.workspace
         if isinstance(resolved, str):
-            return "working_dir is outside writable roots"
+            return "working_dir is outside readable roots"
         if not resolved.exists() or not resolved.is_dir():
             return "working_dir does not exist or is not a directory"
         return resolved
 
-    def _guard_command(
-        self,
-        command: str,
-        cwd: Path,
-    ) -> str | None:
+    def _guard_command(self, command: str) -> str | None:
         lower = command.strip().lower()
         for pattern in self.deny_patterns:
             if re.search(pattern, lower):
                 return "command blocked by safety policy"
-        if "../" in command or "..\\" in command:
-            return "command blocked by safety policy: path traversal"
-        for raw_path in _extract_absolute_paths(command):
-            expanded = os.path.expandvars(raw_path.strip())
-            if _is_benign_device_path(expanded):
-                continue
-            try:
-                path = Path(expanded).expanduser().resolve()
-            except OSError:
-                continue
-            if _is_benign_device_path(str(path)):
-                continue
-            if path != cwd and cwd not in path.parents:
-                return "command blocked by safety policy: path outside working_dir"
         return None
 
     def _access(self) -> WorkspaceAccess:
@@ -866,8 +835,16 @@ async def _spawn(
 ) -> asyncio.subprocess.Process:
     if _IS_WINDOWS:
         if "\n" in command:
+            search_path = env.get("PATH")
+            powershell = (
+                shutil.which("powershell.exe", path=search_path)
+                if search_path
+                else None
+            )
+            if not powershell:
+                raise RuntimeError("powershell not found")
             return await asyncio.create_subprocess_exec(
-                "powershell",
+                powershell,
                 "-NoProfile",
                 "-Command",
                 command,
@@ -877,6 +854,9 @@ async def _spawn(
                 cwd=cwd,
                 env=env,
             )
+        comspec = env.get("COMSPEC")
+        if not comspec:
+            raise RuntimeError("COMSPEC is required on Windows")
         return await asyncio.create_subprocess_shell(
             command,
             stdin=stdin,
@@ -884,8 +864,10 @@ async def _spawn(
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=env,
+            executable=comspec,
         )
-    shell_program = shell_program or shutil.which("bash") or "/bin/bash"
+    if shell_program is None:
+        raise RuntimeError("shell program is required on POSIX")
     shell_name = Path(shell_program).name.lower()
     args = [shell_program]
     if login and shell_name in {"bash", "bash.exe", "zsh", "zsh.exe"}:
@@ -902,11 +884,15 @@ async def _spawn(
     )
 
 
-def _resolve_shell(shell: str | None) -> tuple[str | None, str | None]:
-    if not shell:
-        return None, None
+def _resolve_shell(
+    shell: str | None,
+    env: dict[str, str],
+) -> tuple[str | None, str | None]:
     if _IS_WINDOWS:
-        return None, "shell parameter is not supported on Windows"
+        if shell:
+            return None, "shell parameter is not supported on Windows"
+        return None, None
+    shell = shell or "bash"
     if "\0" in shell or "\n" in shell or "\r" in shell:
         return None, "shell contains invalid characters"
     allowed = {"sh", "bash", "zsh"}
@@ -921,7 +907,8 @@ def _resolve_shell(shell: str | None) -> tuple[str | None, str | None]:
         return None, "shell must be a shell name or absolute path"
     if shell not in allowed:
         return None, f"unsupported shell {shell!r}. Allowed: bash, sh, zsh"
-    resolved = shutil.which(shell)
+    search_path = env.get("PATH")
+    resolved = shutil.which(shell, path=search_path) if search_path else None
     if not resolved:
         return None, f"shell not found: {shell}"
     return resolved, None
@@ -971,16 +958,21 @@ async def _kill_windows_process_tree(process: asyncio.subprocess.Process) -> Non
 def _build_env() -> dict[str, str]:
     if _IS_WINDOWS:
         system_root = os.environ.get("SYSTEMROOT", r"C:\Windows")
+        default_path = (
+            f"{system_root}\\System32;"
+            f"{system_root}\\System32\\WindowsPowerShell\\v1.0;"
+            f"{system_root}"
+        )
         return {
             "SYSTEMROOT": system_root,
-            "COMSPEC": os.environ.get("COMSPEC", f"{system_root}\\system32\\cmd.exe"),
+            "COMSPEC": os.environ.get("COMSPEC") or f"{system_root}\\System32\\cmd.exe",
             "USERPROFILE": os.environ.get("USERPROFILE", ""),
             "HOMEDRIVE": os.environ.get("HOMEDRIVE", "C:"),
             "HOMEPATH": os.environ.get("HOMEPATH", "\\"),
             "TEMP": os.environ.get("TEMP", f"{system_root}\\Temp"),
             "TMP": os.environ.get("TMP", f"{system_root}\\Temp"),
-            "PATHEXT": os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD"),
-            "PATH": os.environ.get("PATH", f"{system_root}\\system32;{system_root}"),
+            "PATHEXT": os.environ.get("PATHEXT") or ".COM;.EXE;.BAT;.CMD",
+            "PATH": _build_path(default_path),
             "PYTHONUNBUFFERED": "1",
             "APPDATA": os.environ.get("APPDATA", ""),
             "LOCALAPPDATA": os.environ.get("LOCALAPPDATA", ""),
@@ -992,23 +984,36 @@ def _build_env() -> dict[str, str]:
     return {
         "HOME": os.environ.get("HOME", "/tmp"),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "PATH": _build_path(os.defpath),
         "TERM": os.environ.get("TERM", "dumb"),
         "PYTHONUNBUFFERED": "1",
     }
 
 
-def _extract_absolute_paths(command: str) -> list[str]:
-    win_paths = re.findall(
-        r"(?<![A-Za-z])(?:[A-Za-z]:[^\s\"'|><;]*|\\\\[^\s\"'|><;]+(?:\\[^\s\"'|><;]+)*)",
-        command,
-    )
-    posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command)
-    home_paths = re.findall(r"(?:^|[\s>'\"])(~[^\s\"'>;|<]*)", command)
-    return win_paths + posix_paths + home_paths
+def _build_path(default: str) -> str:
+    path_module = ntpath if _IS_WINDOWS else posixpath
+    path_type = PureWindowsPath if _IS_WINDOWS else PurePosixPath
+    separator = ";" if _IS_WINDOWS else ":"
 
+    def normalize(entries: list[str]) -> list[str]:
+        paths: list[str] = []
+        seen: set[str] = set()
+        for entry in entries:
+            if not entry or not path_type(entry).is_absolute():
+                continue
+            path = path_module.normpath(entry)
+            key = path_module.normcase(path) if _IS_WINDOWS else path
+            if key in seen:
+                continue
+            seen.add(key)
+            paths.append(path)
+        return paths
 
-def _is_benign_device_path(path: str) -> bool:
-    return path in _BENIGN_DEVICE_PATHS or path.startswith("/dev/fd/")
+    inherited = normalize((os.environ.get("PATH") or default).split(separator))
+    if not inherited:
+        inherited = normalize(default.split(separator))
+    python_bin = path_module.dirname(sys.executable)
+    return separator.join(normalize([python_bin, *inherited]))
 
 
 def _truncate_output(output: str, max_output_chars: int) -> tuple[str, int]:

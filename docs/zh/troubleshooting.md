@@ -137,6 +137,8 @@ for status in runtime.tools.list_mcp_server_statuses():
 - 额外读取目录加入 `extra_read_roots`；
 - 额外写入目录加入 `extra_write_roots`。
 
+`exec` 的 `working_dir` 只要求位于可读目录中；这项校验不是子进程沙箱。
+
 不要为了省事开放整个主目录。路径限制也不会自动约束自定义工具、MCP 和子进程。
 
 ## Agent 没有记住上一轮

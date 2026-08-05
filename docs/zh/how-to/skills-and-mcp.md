@@ -58,7 +58,7 @@ Skill 默认安装到 `~/.bumblehive/skills/`。
 
 默认不会覆盖同名 Skill；确认需要替换时，再传入 `replace=True`。
 
-模型最初只会看到 Skill 的名称、描述和文件路径。它需要使用 `read_file` 打开 `SKILL.md`，因此启用 Skill 时通常也要开放 `read_file`。
+模型最初只会看到 Skill 的名称、描述和文件路径。Runtime 会将安装目录作为只读目录提供给路径感知的内置文件工具；模型需要使用 `read_file` 打开 `SKILL.md`，因此启用 Skill 时通常也要开放 `read_file`。启用 `exec` 后可以直接运行其中的脚本，但当前没有子进程沙箱，输出位置仍应明确设为 workspace 或 `extra_write_roots`。
 
 然后创建 Runtime，安装 Skill 并运行：
 

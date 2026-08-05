@@ -298,11 +298,11 @@ class BumblehiveRuntime:
         provider = await self._get_provider(run_config.provider)
         loop = self._build_loop()
         path_allowlist = PathAllowlist.from_roots(
-            extra_read_roots=run_config.runtime.extra_read_roots,
-            extra_write_roots=(
-                *run_config.runtime.extra_write_roots,
+            extra_read_roots=(
+                *run_config.runtime.extra_read_roots,
                 self.skills.skills_dir,
             ),
+            extra_write_roots=run_config.runtime.extra_write_roots,
         )
         return await loop.run_turn(
             message,

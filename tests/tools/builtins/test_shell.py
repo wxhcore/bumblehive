@@ -1,6 +1,9 @@
 import asyncio
+import os
+import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +14,7 @@ from bumblehive.tools.builtins.shell import (
     _build_env,
     _kill_process,
     _resolve_shell,
+    _spawn,
 )
 from bumblehive.tools.scope import bind_tool_session, reset_tool_session
 
@@ -48,6 +52,12 @@ def _interactive_command():
         "IFS= read line; printf 'got:%s\\n' \"$line\"; "
         "cat >/dev/null; printf 'eof\\n'"
     )
+
+
+def _shell_command(args):
+    if sys.platform == "win32":
+        return subprocess.list2cmdline(args)
+    return shlex.join(args)
 
 
 async def _execute(
@@ -166,7 +176,41 @@ async def test_windows_kill_terminates_the_process_tree(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_exec_runs_commands_and_enforces_working_directory_safety(tmp_path) -> None:
+async def test_windows_spawn_uses_prepared_shell_programs(monkeypatch, tmp_path) -> None:
+    calls = {}
+    powershell = r"C:\Tools\powershell.exe"
+    comspec = r"C:\Windows\System32\cmd.exe"
+    env = {"PATH": r"C:\Tools", "COMSPEC": comspec}
+
+    def which(program, *, path):
+        calls["which"] = (program, path)
+        return powershell
+
+    async def create_subprocess_exec(*args, **kwargs):
+        calls["exec"] = (args, kwargs)
+        return object()
+
+    async def create_subprocess_shell(command, **kwargs):
+        calls["shell"] = (command, kwargs)
+        return object()
+
+    monkeypatch.setattr("bumblehive.tools.builtins.shell._IS_WINDOWS", True)
+    monkeypatch.setattr("bumblehive.tools.builtins.shell.shutil.which", which)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", create_subprocess_shell)
+
+    await _spawn("line one\nline two", str(tmp_path), env)
+    await _spawn("echo ready", str(tmp_path), env)
+
+    assert calls["which"] == ("powershell.exe", env["PATH"])
+    assert calls["exec"][0][:3] == (powershell, "-NoProfile", "-Command")
+    assert calls["shell"][0] == "echo ready"
+    assert calls["shell"][1]["executable"] == comspec
+    assert calls["shell"][1]["env"] is env
+
+
+@pytest.mark.asyncio
+async def test_exec_runs_commands_from_readable_working_directories(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     extra = tmp_path / "skills"
     read_only = tmp_path / "reference"
@@ -179,9 +223,12 @@ async def test_exec_runs_commands_and_enforces_working_directory_safety(tmp_path
     else:
         script = extra / "run.sh"
         script.write_text("#!/bin/sh\nprintf 'from skills\\n'\n", encoding="utf-8")
-        script.chmod(0o700)
+        script.chmod(0o500)
     manager = _manager(timeout=10)
-    allowlist = PathAllowlist.from_roots(extra_write_roots=[extra])
+    allowlist = PathAllowlist.from_roots(extra_read_roots=[extra, read_only])
+    cwd_command = _shell_command(
+        [sys.executable, "-c", "import os; print(os.getcwd())"]
+    )
 
     normal = await _execute(manager, workspace, "exec", {"command": "echo hello"})
     skill_script = await _execute(
@@ -195,14 +242,14 @@ async def test_exec_runs_commands_and_enforces_working_directory_safety(tmp_path
         manager,
         workspace,
         "exec",
-        {"command": "pwd", "working_dir": str(tmp_path)},
+        {"command": cwd_command, "working_dir": str(tmp_path)},
     )
     read_only_cwd = await _execute(
         manager,
         workspace,
         "exec",
-        {"command": "pwd", "working_dir": str(read_only)},
-        allowlist=PathAllowlist.from_roots(extra_read_roots=[read_only]),
+        {"command": cwd_command, "working_dir": str(read_only)},
+        allowlist=allowlist,
     )
     blocked = await _execute(manager, workspace, "exec", {"command": "sudo ls"})
 
@@ -211,9 +258,70 @@ async def test_exec_runs_commands_and_enforces_working_directory_safety(tmp_path
     assert skill_script.content.get("timed_out") is False, skill_script.content
     assert skill_script.content["exit_code"] == 0, skill_script.content
     assert skill_script.content["stdout"].strip() == "from skills"
-    assert outside.content == {"error": "working_dir is outside writable roots"}
-    assert read_only_cwd.content == {"error": "working_dir is outside writable roots"}
+    assert outside.content == {"error": "working_dir is outside readable roots"}
+    assert read_only_cwd.content["exit_code"] == 0
+    assert Path(read_only_cwd.content["stdout"].strip()).resolve() == read_only.resolve()
     assert blocked.content == {"error": "command blocked by safety policy"}
+
+
+@pytest.mark.asyncio
+async def test_exec_accepts_absolute_executables_and_parent_paths(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    skills = tmp_path / "skills"
+    workspace.mkdir()
+    skills.mkdir()
+    script = skills / "run.py"
+    script.write_text("print('from parent path')\n", encoding="utf-8")
+    command = _shell_command(
+        [sys.executable, str(Path("..") / "skills" / "run.py")]
+    )
+
+    result = await _execute(
+        _manager(timeout=10),
+        workspace,
+        "exec",
+        {"command": command},
+        allowlist=PathAllowlist.from_roots(extra_read_roots=[skills]),
+    )
+
+    assert result.content["exit_code"] == 0, result.content
+    assert result.content["stdout"].strip() == "from parent path"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX PATH semantics")
+def test_posix_environment_prepends_python_bin_and_sanitizes_parent_path(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    parent_path = os.pathsep.join(
+        [str(first), "", "relative", str(second), str(first)]
+    )
+    monkeypatch.setenv("PATH", parent_path)
+
+    env = _build_env()
+
+    assert env["PATH"].split(os.pathsep) == [
+        str(Path(sys.executable).parent),
+        str(first),
+        str(second),
+    ]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX executables")
+@pytest.mark.parametrize("shell", [None, "bash"])
+def test_resolve_shell_uses_prepared_environment_path(tmp_path, shell) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    bash = bin_dir / "bash"
+    bash.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    bash.chmod(0o700)
+
+    resolved, error = _resolve_shell(shell, {"PATH": str(bin_dir)})
+
+    assert error is None
+    assert resolved == str(bash)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX stdin commands")
@@ -494,15 +602,24 @@ async def test_close_terminates_process_descendants(tmp_path) -> None:
         await manager.close()
 
 
-def test_windows_shell_environment_is_preserved(monkeypatch) -> None:
+def test_windows_shell_environment_is_prepared(monkeypatch) -> None:
     monkeypatch.setattr("bumblehive.tools.builtins.shell._IS_WINDOWS", True)
-    monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
+    monkeypatch.setattr(
+        "bumblehive.tools.builtins.shell.sys.executable",
+        r"C:\Python\python.exe",
+    )
+    monkeypatch.setenv("COMSPEC", "")
     monkeypatch.setenv("SYSTEMROOT", r"C:\Windows")
     monkeypatch.setenv("USERPROFILE", r"C:\Users\demo")
+    monkeypatch.setenv("PATHEXT", "")
+    monkeypatch.setenv("PATH", r"C:\Tools;relative;C:\TOOLS;D:\Node")
 
     env = _build_env()
 
     assert env["COMSPEC"] == r"C:\Windows\System32\cmd.exe"
     assert env["SYSTEMROOT"] == r"C:\Windows"
     assert env["USERPROFILE"] == r"C:\Users\demo"
-    assert _resolve_shell("bash")[1] == "shell parameter is not supported on Windows"
+    assert env["PATHEXT"] == ".COM;.EXE;.BAT;.CMD"
+    assert env["PATH"].split(";") == [r"C:\Python", r"C:\Tools", r"D:\Node"]
+    assert _resolve_shell(None, env) == (None, None)
+    assert _resolve_shell("bash", env)[1] == "shell parameter is not supported on Windows"
