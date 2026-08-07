@@ -11,6 +11,7 @@ A lightweight Python SDK for building a complete Agent Loop in just a few lines 
 [![Python SDK CI](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml/badge.svg?branch=main)](https://github.com/wxhcore/bumblehive/actions/workflows/sdk-ci.yml)
 [![MCP](https://img.shields.io/badge/MCP-Supported-green)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
+[![linux.do](https://shorturl.at/ggSqS)](https://linux.do)
 
 English | [简体中文](./README_zh.md)
 
