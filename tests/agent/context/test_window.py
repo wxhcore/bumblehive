@@ -1,3 +1,5 @@
+import pytest
+
 from bumblehive.agent.context.window import (
     estimate_message_tokens,
     estimate_prompt_tokens,
@@ -64,6 +66,58 @@ def test_fit_context_window_preserves_complete_tool_turn_when_it_fits() -> None:
 
     assert fitted[0]["role"] == "system"
     assert fitted[1:] == messages[2:]
+
+
+def test_fit_context_window_rejects_no_input_budget() -> None:
+    with pytest.raises(ValueError, match="No input token budget remains"):
+        fit_context_window(
+            provider=object(),
+            model="test-model",
+            messages=[{"role": "user", "content": "hello"}],
+            tools=[],
+            context_window_tokens=1_024,
+            max_completion_tokens=1,
+        )
+
+
+def test_fit_context_window_rejects_oversized_current_turn() -> None:
+    messages = [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "inspect the result"},
+        _assistant_call("large"),
+        {
+            "role": "tool",
+            "tool_call_id": "large",
+            "content": "x" * 20_000,
+        },
+    ]
+
+    with pytest.raises(ValueError, match="after trimming"):
+        fit_context_window(
+            provider=object(),
+            model="test-model",
+            messages=messages,
+            tools=[],
+            context_window_tokens=4_000,
+            max_completion_tokens=1_000,
+        )
+
+
+def test_fit_context_window_rejects_fixed_context_without_message_budget() -> None:
+    messages = [
+        {"role": "system", "content": "x" * 20_000},
+        {"role": "user", "content": "hello"},
+    ]
+
+    with pytest.raises(ValueError, match="leave no input budget"):
+        fit_context_window(
+            provider=object(),
+            model="test-model",
+            messages=messages,
+            tools=[],
+            context_window_tokens=4_000,
+            max_completion_tokens=1_000,
+        )
 
 
 def test_prompt_estimation_prefers_a_provider_counter() -> None:

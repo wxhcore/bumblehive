@@ -38,9 +38,14 @@ def fit_context_window(
         - _SNIP_SAFETY_BUFFER
     )
     if budget <= 0:
-        return messages
+        raise ValueError(
+            "No input token budget remains: "
+            f"context_window={effective_context_window_tokens}, "
+            f"max_completion={max_completion_tokens}, "
+            f"safety_buffer={_SNIP_SAFETY_BUFFER}"
+        )
 
-    estimate, _source = estimate_prompt_tokens(
+    estimate, source = estimate_prompt_tokens(
         provider=provider,
         model=model,
         messages=messages,
@@ -59,17 +64,20 @@ def fit_context_window(
         for message in messages
         if message.get("role") != "system"
     ]
-    if not non_system:
-        return messages
 
-    system_tokens = sum(estimate_message_tokens(message) for message in system_messages)
-    fixed_tokens, _source = estimate_prompt_tokens(
+    fixed_tokens, source = estimate_prompt_tokens(
         provider=provider,
         model=model,
         messages=system_messages,
         tools=tools,
     )
-    remaining_budget = max(0, budget - max(system_tokens, fixed_tokens))
+    remaining_budget = budget - fixed_tokens
+    if remaining_budget <= 0:
+        raise ValueError(
+            "System messages and tool definitions leave no input budget "
+            "for user, assistant, or tool messages: "
+            f"estimated={fixed_tokens}, budget={budget}, source={source}"
+        )
 
     kept: list[Message] = []
     kept_tokens = 0
@@ -81,7 +89,19 @@ def fit_context_window(
         kept_tokens += message_tokens
     kept.reverse()
 
-    return system_messages + _legal_history_tail(kept, non_system)
+    fitted = system_messages + _legal_history_tail(kept, non_system)
+    fitted_tokens, source = estimate_prompt_tokens(
+        provider=provider,
+        model=model,
+        messages=fitted,
+        tools=tools,
+    )
+    if fitted_tokens > budget:
+        raise ValueError(
+            "Model input exceeds context budget after trimming: "
+            f"estimated={fitted_tokens}, budget={budget}, source={source}"
+        )
+    return fitted
 
 
 def estimate_prompt_tokens(
