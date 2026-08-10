@@ -31,6 +31,7 @@ export interface SettingsDraft {
     maxIterations: number | null;
     extraReadRoots: string[];
     extraWriteRoots: string[];
+    restrictExecPaths: boolean;
   };
   mcpServers: McpServerSettings[];
 }
@@ -87,6 +88,9 @@ export function settingsToDraft(
         DEFAULT_CONFIG_VALUES.runtime.maxIterations,
       extraReadRoots: settings.runtime.extra_read_roots ?? [],
       extraWriteRoots: settings.runtime.extra_write_roots ?? [],
+      restrictExecPaths:
+        settings.runtime.restrict_exec_paths ??
+        DEFAULT_CONFIG_VALUES.runtime.restrictExecPaths,
     },
     mcpServers: settings.mcp_servers.map((server) => ({
       name: server.name,
@@ -208,6 +212,7 @@ export function draftToUpdate(
       extra_write_roots: draft.runtime.extraWriteRoots
         .map((path) => path.trim())
         .filter(Boolean),
+      restrict_exec_paths: draft.runtime.restrictExecPaths,
     },
     mcp_servers: mcpServers,
   };

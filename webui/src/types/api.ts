@@ -32,6 +32,7 @@ export interface RuntimeSettings {
   max_iterations?: number | null;
   extra_read_roots?: string[];
   extra_write_roots?: string[];
+  restrict_exec_paths?: boolean;
 }
 
 export interface McpServerSettings {

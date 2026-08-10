@@ -24,15 +24,25 @@ export function SettingRow({
   title,
   description,
   wide = false,
+  inlineControl = false,
   children,
 }: {
   title: string;
   description?: string;
   wide?: boolean;
+  inlineControl?: boolean;
   children: ReactNode;
 }) {
+  const className = [
+    "setting-row",
+    wide ? "setting-row-wide" : "",
+    inlineControl ? "setting-row-inline-control" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className={`setting-row${wide ? " setting-row-wide" : ""}`}>
+    <div className={className}>
       <div className="setting-copy">
         <div className="setting-label">{title}</div>
         {description ? <div className="setting-description">{description}</div> : null}

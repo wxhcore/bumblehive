@@ -863,8 +863,9 @@ export function SettingsView({
           <SettingRow
             title="思考模式"
             description="关闭时发送 thinking.type=disabled"
+            inlineControl
           >
-            <label className="settings-thinking-toggle">
+            <label className="settings-switch-control">
               <span className="tool-toggle">
                 <input
                   type="checkbox"
@@ -1299,29 +1300,57 @@ export function SettingsView({
           description="工作区始终可访问；这里只添加工作区之外的目录。"
         >
           <SettingRow
-            title="额外只读目录"
-            description="允许读取，但不允许修改"
-            wide
+            title="Shell 路径限制"
+            description="开启后限制 working_dir，并拒绝 ../ 和工作目录外的绝对路径"
+            inlineControl
           >
-            <StringListEditor
-              values={draft.runtime.extraReadRoots}
-              placeholder="/path/to/read-only"
-              addLabel="添加只读目录"
-              onChange={(extraReadRoots) => updateRuntime({ extraReadRoots })}
-            />
+            <label className="settings-switch-control">
+              <span className="tool-toggle">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label="Shell 路径限制"
+                  checked={draft.runtime.restrictExecPaths}
+                  onChange={(event) =>
+                    updateRuntime({ restrictExecPaths: event.target.checked })
+                  }
+                />
+                <span aria-hidden="true" />
+              </span>
+            </label>
           </SettingRow>
-          <SettingRow
-            title="额外可写目录"
-            description="允许在这些目录中创建或修改文件"
-            wide
-          >
-            <StringListEditor
-              values={draft.runtime.extraWriteRoots}
-              placeholder="/path/to/writable"
-              addLabel="添加可写目录"
-              onChange={(extraWriteRoots) => updateRuntime({ extraWriteRoots })}
-            />
-          </SettingRow>
+          {draft.runtime.restrictExecPaths ? (
+            <>
+              <SettingRow
+                title="额外只读目录"
+                description="允许读取，但不允许修改"
+                wide
+              >
+                <StringListEditor
+                  values={draft.runtime.extraReadRoots}
+                  placeholder="/path/to/read-only"
+                  addLabel="添加只读目录"
+                  onChange={(extraReadRoots) =>
+                    updateRuntime({ extraReadRoots })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title="额外可写目录"
+                description="允许在这些目录中创建或修改文件"
+                wide
+              >
+                <StringListEditor
+                  values={draft.runtime.extraWriteRoots}
+                  placeholder="/path/to/writable"
+                  addLabel="添加可写目录"
+                  onChange={(extraWriteRoots) =>
+                    updateRuntime({ extraWriteRoots })
+                  }
+                />
+              </SettingRow>
+            </>
+          ) : null}
         </SettingsSection>
       </>
     );

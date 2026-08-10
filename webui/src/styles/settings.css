@@ -403,6 +403,10 @@
   min-width: 0;
 }
 
+.setting-row-inline-control .setting-control {
+  justify-self: end;
+}
+
 .settings-content input:not([type="checkbox"]),
 .settings-content select,
 .settings-content textarea {
@@ -840,7 +844,7 @@
   font-size: 12.5px;
 }
 
-.settings-thinking-toggle {
+.settings-switch-control {
   min-height: 34px;
   display: flex;
   align-items: center;
@@ -2298,6 +2302,12 @@
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
     gap: 10px;
+  }
+
+  .setting-row.setting-row-inline-control {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
   }
 
   .tool-browser {
