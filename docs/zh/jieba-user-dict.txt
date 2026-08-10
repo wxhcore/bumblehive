@@ -5,7 +5,7 @@ AgentRunResult 100000 nz
 BumblehiveRuntime 100000 nz
 MessageHistory 100000 nz
 ModelProvider 100000 nz
-PathAllowlist 100000 nz
+ToolPathPolicy 100000 nz
 RuntimeArguments 100000 nz
 Skill 100000 nz
 Tool 100000 nz

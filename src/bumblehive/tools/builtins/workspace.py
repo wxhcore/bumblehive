@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import Lock
 
 from ...paths import get_workspace_path
-from ..scope import current_tool_path_scope
+from ..scope import ToolPathPolicy, current_tool_path_scope
 
 
 _DEFAULT_IGNORE_DIRS = frozenset(
@@ -188,24 +188,26 @@ class WorkspaceAccess:
     def __init__(
         self,
         workspace: str | Path,
-        *,
-        extra_read_roots: tuple[Path, ...] = (),
-        extra_write_roots: tuple[Path, ...] = (),
+        policy: ToolPathPolicy = ToolPathPolicy(),
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
-        self.write_roots = self._merge_roots(
+        self.policy = policy
+        self.allowed_write_roots = self._merge_roots(
             self.workspace,
-            *extra_write_roots,
+            *policy.extra_write_roots,
         )
-        self.read_roots = self._merge_roots(
+        self.allowed_read_roots = self._merge_roots(
             self.workspace,
-            *extra_read_roots,
-            *extra_write_roots,
+            *policy.extra_read_roots,
+            *policy.extra_write_roots,
         )
 
     def resolve_read(self, path: str | Path) -> Path | str:
         resolved = self._resolve(path)
-        if not any(self._is_within(resolved, root) for root in self.read_roots):
+        if not any(
+            self._is_within(resolved, root)
+            for root in self.allowed_read_roots
+        ):
             return "path is outside readable roots"
         return resolved
 
@@ -213,10 +215,14 @@ class WorkspaceAccess:
         resolved = self._resolve(path)
         if not any(
             self._is_within(resolved, root)
-            for root in self.write_roots
+            for root in self.allowed_write_roots
         ):
             return "path is outside writable roots"
         return resolved
+
+    def resolve_unchecked(self, path: str | Path) -> Path:
+        """Resolve a path without applying the configured root policy."""
+        return self._resolve(path)
 
     def _resolve(self, path: str | Path) -> Path:
         raw = Path(path).expanduser()
@@ -246,14 +252,8 @@ class WorkspaceAccess:
 def current_workspace_access() -> WorkspaceAccess:
     scope = current_tool_path_scope()
     workspace = scope.workspace if scope is not None else get_workspace_path()
-    allowlist = scope.path_allowlist if scope is not None else None
-    extra_read_roots = allowlist.extra_read_roots if allowlist is not None else ()
-    extra_write_roots = allowlist.extra_write_roots if allowlist is not None else ()
-    return WorkspaceAccess(
-        workspace,
-        extra_read_roots=extra_read_roots,
-        extra_write_roots=extra_write_roots,
-    )
+    policy = scope.policy if scope is not None else ToolPathPolicy()
+    return WorkspaceAccess(workspace, policy)
 
 
 def is_binary_bytes(raw: bytes) -> bool:

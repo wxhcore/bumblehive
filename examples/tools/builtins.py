@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import PathAllowlist, ToolManager
+from bumblehive.tools import ToolPathPolicy, ToolManager
 
 
 async def main() -> None:
@@ -16,7 +16,7 @@ async def main() -> None:
 
         tools = ToolManager()
         tools.register_builtin_tools()
-        allowlist = PathAllowlist.from_roots(extra_write_roots=[output])
+        policy = ToolPathPolicy.from_roots(extra_write_roots=[output])
 
         written, read, listed = await tools.execute_many(
             [
@@ -40,7 +40,7 @@ async def main() -> None:
                 ),
             ],
             workspace=workspace,
-            path_allowlist=allowlist,
+            path_policy=policy,
         )
 
         print("Written:", written.content)

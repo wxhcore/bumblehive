@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import PathAllowlist, ToolManager
+from bumblehive.tools import ToolPathPolicy, ToolManager
 from bumblehive.tools.builtins.workspace import WorkspaceAccess
 
 
@@ -13,11 +13,11 @@ def _manager():
     return manager
 
 
-async def _execute(manager, workspace, name, arguments, *, allowlist=PathAllowlist()):
+async def _execute(manager, workspace, name, arguments, *, policy=ToolPathPolicy()):
     return await manager.execute_call(
         ToolCall(f"call-{name}", name, arguments),
         workspace=workspace,
-        path_allowlist=allowlist,
+        path_policy=policy,
     )
 
 
@@ -134,7 +134,7 @@ async def test_read_file_extracts_pdf_and_office_documents(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_file_tools_use_allowlisted_roots_for_read_list_write_and_edit(tmp_path) -> None:
+async def test_file_tools_use_policyed_roots_for_read_list_write_and_edit(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     skills = tmp_path / "skills"
     workspace.mkdir()
@@ -142,31 +142,31 @@ async def test_file_tools_use_allowlisted_roots_for_read_list_write_and_edit(tmp
     skill_dir.mkdir(parents=True)
     skill_file = skill_dir / "SKILL.md"
     skill_file.write_text("original\n", encoding="utf-8")
-    allowlist = PathAllowlist.from_roots(extra_write_roots=[skills])
+    policy = ToolPathPolicy.from_roots(extra_write_roots=[skills])
     manager = _manager()
 
-    read = await _execute(manager, workspace, "read_file", {"path": str(skill_file)}, allowlist=allowlist)
-    listed = await _execute(manager, workspace, "list_dir", {"path": str(skill_dir)}, allowlist=allowlist)
+    read = await _execute(manager, workspace, "read_file", {"path": str(skill_file)}, policy=policy)
+    listed = await _execute(manager, workspace, "list_dir", {"path": str(skill_dir)}, policy=policy)
     written = await _execute(
         manager,
         workspace,
         "write_file",
         {"path": str(skill_file), "content": "replaced\n"},
-        allowlist=allowlist,
+        policy=policy,
     )
     edited = await _execute(
         manager,
         workspace,
         "edit_file",
         {"path": str(skill_file), "old_text": "replaced", "new_text": "edited"},
-        allowlist=allowlist,
+        policy=policy,
     )
     blocked = await _execute(
         manager,
         workspace,
         "write_file",
         {"path": str(tmp_path / "outside.txt"), "content": "no"},
-        allowlist=allowlist,
+        policy=policy,
     )
 
     assert "original" in read.content["content"]
@@ -186,8 +186,10 @@ def test_workspace_access_enforces_the_path_permission_matrix(tmp_path) -> None:
         root.mkdir()
     access = WorkspaceAccess(
         workspace,
-        extra_read_roots=(read_root,),
-        extra_write_roots=(write_root,),
+        ToolPathPolicy.from_roots(
+            extra_read_roots=[read_root],
+            extra_write_roots=[write_root],
+        ),
     )
 
     assert access.resolve_read("inside.txt") == workspace / "inside.txt"
@@ -210,14 +212,14 @@ def test_workspace_access_enforces_the_path_permission_matrix(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_read_only_allowlist_is_readable_but_not_writable(tmp_path) -> None:
+async def test_read_only_policy_is_readable_but_not_writable(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     read_root = tmp_path / "reference"
     workspace.mkdir()
     read_root.mkdir()
     target = read_root / "notes.txt"
     target.write_text("reference\n", encoding="utf-8")
-    allowlist = PathAllowlist.from_roots(extra_read_roots=[read_root])
+    policy = ToolPathPolicy.from_roots(extra_read_roots=[read_root])
     manager = _manager()
 
     read, write = await asyncio.gather(
@@ -226,14 +228,14 @@ async def test_read_only_allowlist_is_readable_but_not_writable(tmp_path) -> Non
             workspace,
             "read_file",
             {"path": str(target)},
-            allowlist=allowlist,
+            policy=policy,
         ),
         _execute(
             manager,
             workspace,
             "write_file",
             {"path": str(target), "content": "changed\n"},
-            allowlist=allowlist,
+            policy=policy,
         ),
     )
 

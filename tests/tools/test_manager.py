@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import PathAllowlist, ToolManager
+from bumblehive.tools import ToolPathPolicy, ToolManager
 
 
 BUILTINS = [
@@ -71,7 +71,7 @@ async def test_manager_applies_workspace_read_and_write_roots_to_builtins(tmp_pa
     target = write_root / "target.txt"
     manager = ToolManager()
     manager.register_builtin_tools()
-    allowlist = PathAllowlist.from_roots(
+    policy = ToolPathPolicy.from_roots(
         extra_read_roots=[read_root],
         extra_write_roots=[write_root],
     )
@@ -85,7 +85,7 @@ async def test_manager_applies_workspace_read_and_write_roots_to_builtins(tmp_pa
             _call("read-write", "read_file", {"path": str(target)}),
         ],
         workspace=workspace,
-        path_allowlist=allowlist,
+        path_policy=policy,
     )
 
     assert "workspace" in results[0].content["content"]
@@ -113,12 +113,12 @@ async def test_concurrent_manager_calls_keep_run_scopes_isolated(tmp_path) -> No
         manager.execute_call(
             _call("first", "read_file", {"path": str(first)}),
             workspace=workspace,
-            path_allowlist=PathAllowlist.from_roots(extra_read_roots=[first_root]),
+            path_policy=ToolPathPolicy.from_roots(extra_read_roots=[first_root]),
         ),
         manager.execute_call(
             _call("second", "read_file", {"path": str(second)}),
             workspace=workspace,
-            path_allowlist=PathAllowlist.from_roots(extra_read_roots=[second_root]),
+            path_policy=ToolPathPolicy.from_roots(extra_read_roots=[second_root]),
         ),
     )
 

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import PathAllowlist, ToolManager
+from bumblehive.tools import ToolPathPolicy, ToolManager
 
 
 def _manager():
@@ -12,11 +12,11 @@ def _manager():
     return manager
 
 
-async def _patch(manager, workspace, edits, *, dry_run=False, allowlist=PathAllowlist()):
+async def _patch(manager, workspace, edits, *, dry_run=False, policy=ToolPathPolicy()):
     return await manager.execute_call(
         ToolCall("patch", "apply_patch", {"edits": edits, "dry_run": dry_run}),
         workspace=workspace,
-        path_allowlist=allowlist,
+        path_policy=policy,
     )
 
 
@@ -58,19 +58,19 @@ async def test_apply_patch_accepts_absolute_paths_only_in_write_roots(tmp_path) 
     write_root.mkdir()
     outside.mkdir()
     manager = _manager()
-    allowlist = PathAllowlist.from_roots(extra_write_roots=[write_root])
+    policy = ToolPathPolicy.from_roots(extra_write_roots=[write_root])
 
     allowed = await _patch(
         manager,
         workspace,
         [{"path": str(write_root / "created.txt"), "action": "add", "new_text": "yes"}],
-        allowlist=allowlist,
+        policy=policy,
     )
     blocked = await _patch(
         manager,
         workspace,
         [{"path": str(outside / "blocked.txt"), "action": "add", "new_text": "no"}],
-        allowlist=allowlist,
+        policy=policy,
     )
 
     assert allowed.content["success"] is True

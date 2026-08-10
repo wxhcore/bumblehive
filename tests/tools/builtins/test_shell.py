@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import PathAllowlist, ToolManager
+from bumblehive.tools import ToolPathPolicy, ToolManager
 from bumblehive.tools.builtins.shell import (
     ExecSession,
     _build_env,
@@ -67,14 +67,14 @@ async def _execute(
     arguments=None,
     *,
     session_id=None,
-    allowlist=PathAllowlist(),
+    policy=ToolPathPolicy(),
 ):
     token = bind_tool_session(session_id)
     try:
         return await manager.execute_call(
             ToolCall(f"call-{name}", name, arguments or {}),
             workspace=workspace,
-            path_allowlist=allowlist,
+            path_policy=policy,
         )
     finally:
         reset_tool_session(token)
@@ -225,31 +225,42 @@ async def test_exec_runs_commands_from_readable_working_directories(tmp_path) ->
         script.write_text("#!/bin/sh\nprintf 'from skills\\n'\n", encoding="utf-8")
         script.chmod(0o500)
     manager = _manager(timeout=10)
-    allowlist = PathAllowlist.from_roots(extra_read_roots=[extra, read_only])
+    restricted_policy = ToolPathPolicy(restrict_exec_paths=True)
+    policy = ToolPathPolicy.from_roots(
+        extra_read_roots=[extra, read_only],
+        restrict_exec_paths=True,
+    )
     cwd_command = _shell_command(
-        [sys.executable, "-c", "import os; print(os.getcwd())"]
+        [Path(sys.executable).name, "-c", "import os; print(os.getcwd())"]
     )
 
-    normal = await _execute(manager, workspace, "exec", {"command": "echo hello"})
+    normal = await _execute(
+        manager,
+        workspace,
+        "exec",
+        {"command": "echo hello"},
+        policy=restricted_policy,
+    )
     skill_script = await _execute(
         manager,
         workspace,
         "exec",
         {"command": str(script), "working_dir": str(extra)},
-        allowlist=allowlist,
+        policy=policy,
     )
     outside = await _execute(
         manager,
         workspace,
         "exec",
         {"command": cwd_command, "working_dir": str(tmp_path)},
+        policy=restricted_policy,
     )
     read_only_cwd = await _execute(
         manager,
         workspace,
         "exec",
         {"command": cwd_command, "working_dir": str(read_only)},
-        allowlist=allowlist,
+        policy=policy,
     )
     blocked = await _execute(manager, workspace, "exec", {"command": "sudo ls"})
 
@@ -276,12 +287,13 @@ async def test_exec_accepts_absolute_executables_and_parent_paths(tmp_path) -> N
         [sys.executable, str(Path("..") / "skills" / "run.py")]
     )
 
+    policy = ToolPathPolicy()
     result = await _execute(
         _manager(timeout=10),
         workspace,
         "exec",
         {"command": command},
-        allowlist=PathAllowlist.from_roots(extra_read_roots=[skills]),
+        policy=policy,
     )
 
     assert result.content["exit_code"] == 0, result.content

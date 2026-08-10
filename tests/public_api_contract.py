@@ -111,7 +111,7 @@ PUBLIC_API = {
     bumblehive.tools: {
         "CallableTool",
         "MCPServerStatus",
-        "PathAllowlist",
+        "ToolPathPolicy",
         "Tool",
         "ToolManager",
         "ToolRegistry",

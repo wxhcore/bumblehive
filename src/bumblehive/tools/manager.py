@@ -13,7 +13,7 @@ from .builtins.state import BuiltinToolState
 from .executor import ToolExecutor
 from .mcp.manager import MCPManager, MCPServerStatus
 from .registry import ToolRegistry
-from .scope import PathAllowlist, bind_tool_path_scope, reset_tool_path_scope
+from .scope import ToolPathPolicy, bind_tool_path_scope, reset_tool_path_scope
 
 
 class ToolManager:
@@ -188,10 +188,10 @@ class ToolManager:
         *,
         tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
-        path_allowlist: PathAllowlist = PathAllowlist(),
+        path_policy: ToolPathPolicy = ToolPathPolicy(),
         emitter: EventEmitter | None = None,
     ) -> ToolResult:
-        """Execute one tool call with a run-scoped built-in path allowlist.
+        """Execute one tool call with a run-scoped built-in path policy.
 
         Custom Python and MCP tools are responsible for enforcing their own
         filesystem access rules.
@@ -201,7 +201,7 @@ class ToolManager:
             call,
             allowed=allowed,
             workspace=workspace,
-            path_allowlist=path_allowlist,
+            path_policy=path_policy,
             emitter=emitter,
         )
 
@@ -211,7 +211,7 @@ class ToolManager:
         *,
         allowed: frozenset[str] | None,
         workspace: Path | str | None,
-        path_allowlist: PathAllowlist,
+        path_policy: ToolPathPolicy,
         emitter: EventEmitter | None,
     ) -> ToolResult:
         if allowed is not None and call.name not in allowed:
@@ -227,7 +227,7 @@ class ToolManager:
             )
 
         try:
-            token = bind_tool_path_scope(workspace, path_allowlist)
+            token = bind_tool_path_scope(workspace, path_policy)
         except Exception as exc:
             return ToolResult(
                 call_id=call.id,
@@ -249,10 +249,10 @@ class ToolManager:
         *,
         tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
-        path_allowlist: PathAllowlist = PathAllowlist(),
+        path_policy: ToolPathPolicy = ToolPathPolicy(),
         emitter: EventEmitter | None = None,
     ) -> list[ToolResult]:
-        """Execute tool calls with one run-scoped built-in path allowlist.
+        """Execute tool calls with one run-scoped built-in path policy.
 
         Custom Python and MCP tools are responsible for enforcing their own
         filesystem access rules.
@@ -265,7 +265,7 @@ class ToolManager:
                 call,
                 allowed=allowed,
                 workspace=workspace,
-                path_allowlist=path_allowlist,
+                path_policy=path_policy,
                 emitter=emitter,
             )
 

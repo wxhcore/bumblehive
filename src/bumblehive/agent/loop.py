@@ -13,7 +13,7 @@ from ..protocols import (
 from ..providers.base import ModelProvider
 from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
-from ..tools.scope import PathAllowlist, bind_tool_session, reset_tool_session
+from ..tools.scope import ToolPathPolicy, bind_tool_session, reset_tool_session
 from .context import ContextBuilder, DynamicValue, MessageHistory
 from .runner import AgentRunResult, CheckpointCallback, ToolCallingRunner
 
@@ -44,7 +44,7 @@ class AgentLoop:
         history_messages: list[Message] | None = None,
         generation: GenerationConfig | None = None,
         workspace: Path | str | None = None,
-        path_allowlist: PathAllowlist = PathAllowlist(),
+        path_policy: ToolPathPolicy = ToolPathPolicy(),
         timezone: str | None = None,
         dynamic_context: Mapping[str, DynamicValue] | None = None,
         skill_names: list[str] | None = None,
@@ -109,7 +109,7 @@ class AgentLoop:
                     model=model,
                     generation=generation,
                     workspace=workspace,
-                    path_allowlist=path_allowlist,
+                    path_policy=path_policy,
                     tool_names=tool_names,
                     context_window_tokens=context_window_tokens,
                     max_tool_result_chars=max_tool_result_chars,

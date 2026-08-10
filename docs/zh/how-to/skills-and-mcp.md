@@ -137,7 +137,7 @@ MCP 有两层限制：
 - MCP 配置不能通过单次 `run(config=...)` 修改；
 - Header 只适用于 HTTP 或 SSE 传输；
 - 默认工具超时为 30 秒；
-- `PathAllowlist` 不会限制 MCP Server 的文件访问能力。
+- `ToolPathPolicy` 不会限制 MCP Server 的文件访问能力。
 
 连接失败时，Runtime 初始化会直接抛出异常。请检查 URL、鉴权 Header 和 Server 是否可用。
 

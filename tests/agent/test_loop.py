@@ -12,7 +12,7 @@ from bumblehive.protocols import GenerationConfig, ToolCall
 from bumblehive.protocols.errors import AgentError
 from bumblehive.providers import ModelProvider, ModelRequest, ModelResponse
 from bumblehive.skills import SkillsManager
-from bumblehive.tools import PathAllowlist, ToolManager
+from bumblehive.tools import ToolPathPolicy, ToolManager
 from bumblehive.tools.scope import current_tool_path_scope, current_tool_session_id
 
 
@@ -66,7 +66,7 @@ async def test_run_turn_composes_context_capabilities_and_execution_scope(
         assert scope is not None
         observed.update(
             workspace=scope.workspace,
-            allowlist=scope.path_allowlist,
+            policy=scope.policy,
             session_id=current_tool_session_id(),
         )
         return {"workspace": scope.workspace.as_posix()}
@@ -87,7 +87,7 @@ async def test_run_turn_composes_context_capabilities_and_execution_scope(
         ]
     )
     generation = GenerationConfig(max_completion_tokens=123, temperature=0.2)
-    allowlist = PathAllowlist.from_roots(extra_write_roots=[skills_dir])
+    policy = ToolPathPolicy.from_roots(extra_write_roots=[skills_dir])
 
     result = await _loop(tmp_path, tools, skills).run_turn(
         "inspect",
@@ -95,7 +95,7 @@ async def test_run_turn_composes_context_capabilities_and_execution_scope(
         model="test-model",
         generation=generation,
         workspace=tmp_path,
-        path_allowlist=allowlist,
+        path_policy=policy,
         timezone="Asia/Shanghai",
         dynamic_context={"active_file": "src/bumblehive/agent/loop.py"},
         skill_names=["audit"],
@@ -116,7 +116,7 @@ async def test_run_turn_composes_context_capabilities_and_execution_scope(
     )
     assert observed == {
         "workspace": tmp_path.resolve(),
-        "allowlist": allowlist,
+        "policy": policy,
         "session_id": "session-a",
     }
     assert current_tool_session_id() is None

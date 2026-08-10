@@ -57,9 +57,9 @@ config = bumblehive.RuntimeArguments(
 )
 ```
 
-## `PathAllowlist` 不是操作系统沙箱
+## `ToolPathPolicy` 不是操作系统沙箱
 
-路径白名单只约束 Bumblehive 中了解该规则的内置工具。
+路径策略只约束 Bumblehive 中了解该规则的内置工具。
 
 它不会自动限制：
 

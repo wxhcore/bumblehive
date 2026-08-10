@@ -3,7 +3,7 @@ import os
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import PathAllowlist, ToolManager
+from bumblehive.tools import ToolPathPolicy, ToolManager
 
 
 def _manager():
@@ -12,11 +12,11 @@ def _manager():
     return manager
 
 
-async def _execute(manager, workspace, name, arguments, *, allowlist=PathAllowlist()):
+async def _execute(manager, workspace, name, arguments, *, policy=ToolPathPolicy()):
     return await manager.execute_call(
         ToolCall(f"call-{name}", name, arguments),
         workspace=workspace,
-        path_allowlist=allowlist,
+        path_policy=policy,
     )
 
 
@@ -99,7 +99,7 @@ async def test_grep_supports_file_count_and_content_modes(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_search_reads_allowlisted_roots_but_not_escaping_symlinks(tmp_path) -> None:
+async def test_search_reads_policyed_roots_but_not_escaping_symlinks(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     read_root = tmp_path / "skills"
     outside = tmp_path / "outside"
@@ -114,7 +114,7 @@ async def test_search_reads_allowlisted_roots_but_not_escaping_symlinks(tmp_path
         link.symlink_to(secret)
     except OSError as exc:
         pytest.skip(f"symlinks are not supported: {exc}")
-    allowlist = PathAllowlist.from_roots(extra_read_roots=[read_root])
+    policy = ToolPathPolicy.from_roots(extra_read_roots=[read_root])
     manager = _manager()
 
     grep = await _execute(
@@ -122,14 +122,14 @@ async def test_search_reads_allowlisted_roots_but_not_escaping_symlinks(tmp_path
         workspace,
         "grep",
         {"pattern": "needle|outside-secret", "path": str(read_root)},
-        allowlist=allowlist,
+        policy=policy,
     )
     found = await _execute(
         manager,
         workspace,
         "find_files",
         {"path": str(read_root)},
-        allowlist=allowlist,
+        policy=policy,
     )
 
     assert grep.content["files"] == ["SKILL.md"]

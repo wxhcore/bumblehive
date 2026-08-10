@@ -11,7 +11,7 @@ from bumblehive.config import ProviderConfig
 from bumblehive.observability.events import make_event
 from bumblehive.protocols import ToolCall
 from bumblehive.protocols.errors import AgentError
-from bumblehive.tools import PathAllowlist, ToolManager
+from bumblehive.tools import ToolPathPolicy, ToolManager
 from bumblehive.tools.scope import (
     bind_tool_path_scope,
     bind_tool_session,
@@ -237,7 +237,7 @@ def _start_subagent_tool(
     task: str,
 ) -> asyncio.Task[str]:
     session_token = bind_tool_session("parent-session")
-    path_token = bind_tool_path_scope(workspace, PathAllowlist())
+    path_token = bind_tool_path_scope(workspace, ToolPathPolicy())
     try:
         tool = runtime.tools.get_tool("sub_agent")
         assert tool is not None

@@ -22,25 +22,29 @@ def _normalize_roots(roots: Sequence[str | Path]) -> tuple[Path, ...]:
 
 
 @dataclass(frozen=True, slots=True)
-class PathAllowlist:
-    """Extra filesystem roots available to path-aware built-in tools.
+class ToolPathPolicy:
+    """Run-scoped path policy for path-aware built-in tools.
 
-    This is not an OS sandbox. It does not automatically restrict arbitrary
-    Python tools, MCP servers, or filesystem access performed by subprocesses.
+    This is an application-level policy, not an OS sandbox. It does not
+    automatically restrict arbitrary Python tools, MCP servers, or filesystem
+    access performed by subprocesses.
     """
 
     extra_read_roots: tuple[Path, ...] = ()
     extra_write_roots: tuple[Path, ...] = ()
+    restrict_exec_paths: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.restrict_exec_paths, bool):
+            raise TypeError("restrict_exec_paths must be a bool")
         for roots in (self.extra_read_roots, self.extra_write_roots):
             if not isinstance(roots, tuple):
-                raise TypeError("allowlist roots must be tuples of Path instances")
+                raise TypeError("policy roots must be tuples of Path instances")
             for root in roots:
                 if not isinstance(root, Path):
-                    raise TypeError("allowlist roots must be tuples of Path instances")
+                    raise TypeError("policy roots must be tuples of Path instances")
                 if not root.is_absolute():
-                    raise ValueError("allowlist roots must be absolute paths")
+                    raise ValueError("policy roots must be absolute paths")
 
     @classmethod
     def from_roots(
@@ -48,18 +52,20 @@ class PathAllowlist:
         *,
         extra_read_roots: Sequence[str | Path] = (),
         extra_write_roots: Sequence[str | Path] = (),
-    ) -> "PathAllowlist":
-        """Build an allowlist from normalized, deduplicated filesystem roots."""
+        restrict_exec_paths: bool = False,
+    ) -> "ToolPathPolicy":
+        """Build a policy from normalized, deduplicated filesystem roots."""
         return cls(
             extra_read_roots=_normalize_roots(extra_read_roots),
             extra_write_roots=_normalize_roots(extra_write_roots),
+            restrict_exec_paths=restrict_exec_paths,
         )
 
 
 @dataclass(frozen=True, slots=True)
 class _ToolPathScope:
     workspace: Path
-    path_allowlist: PathAllowlist
+    policy: ToolPathPolicy
 
 
 _CURRENT_TOOL_PATH_SCOPE: ContextVar[_ToolPathScope | None] = ContextVar(
@@ -74,12 +80,12 @@ _CURRENT_TOOL_SESSION_ID: ContextVar[str | None] = ContextVar(
 
 def bind_tool_path_scope(
     workspace: Path | str | None,
-    path_allowlist: PathAllowlist,
+    policy: ToolPathPolicy,
 ) -> Token[_ToolPathScope | None]:
     return _CURRENT_TOOL_PATH_SCOPE.set(
         _ToolPathScope(
             workspace=get_workspace_path(workspace),
-            path_allowlist=path_allowlist,
+            policy=policy,
         )
     )
 

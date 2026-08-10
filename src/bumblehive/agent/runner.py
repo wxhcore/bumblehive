@@ -14,7 +14,7 @@ from ..providers.base import (
     ModelStreamCallbacks,
 )
 from ..tools.manager import ToolManager
-from ..tools.scope import PathAllowlist
+from ..tools.scope import ToolPathPolicy
 from .context import ContextGovernanceConfig, ContextGovernor
 
 CheckpointCallback = Callable[[list[Message]], Awaitable[None]]
@@ -51,7 +51,7 @@ class ToolCallingRunner:
         model: str,
         generation: GenerationConfig | None = None,
         workspace: Path | str | None = None,
-        path_allowlist: PathAllowlist = PathAllowlist(),
+        path_policy: ToolPathPolicy = ToolPathPolicy(),
         tool_names: list[str] | None = None,
         context_window_tokens: int | None = None,
         max_tool_result_chars: int | None = None,
@@ -86,7 +86,7 @@ class ToolCallingRunner:
                 model=model,
                 generation=generation,
                 workspace=workspace,
-                path_allowlist=path_allowlist,
+                path_policy=path_policy,
                 tool_names=tool_names,
                 context_window_tokens=context_window_tokens,
                 max_tool_result_chars=max_tool_result_chars,
@@ -111,7 +111,7 @@ class ToolCallingRunner:
         model: str,
         generation: GenerationConfig | None,
         workspace: Path | str | None,
-        path_allowlist: PathAllowlist,
+        path_policy: ToolPathPolicy,
         tool_names: list[str] | None,
         context_window_tokens: int | None,
         max_tool_result_chars: int | None,
@@ -211,7 +211,7 @@ class ToolCallingRunner:
                     response.tool_calls,
                     tool_names=tool_names,
                     workspace=workspace,
-                    path_allowlist=path_allowlist,
+                    path_policy=path_policy,
                     emitter=iteration_emitter,
                 )
                 for tool_call, tool_result in zip(response.tool_calls, tool_results):
