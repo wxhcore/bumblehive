@@ -38,6 +38,7 @@ class RuntimeConfig:
     max_iterations: int | None = None
     extra_read_roots: tuple[str, ...] = ()
     extra_write_roots: tuple[str, ...] = ()
+    restrict_exec_paths: bool = False
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ class RuntimeArguments:
     max_iterations: int | None = None
     extra_read_roots: Sequence[str | Path] = ()
     extra_write_roots: Sequence[str | Path] = ()
+    restrict_exec_paths: bool = False
     agent_instructions: str | None = None
     dynamic_context: dict[str, Any] = field(default_factory=dict)
     skill_names: list[str] | tuple[str, ...] | None = None
@@ -106,6 +108,7 @@ class RuntimeArguments:
                 max_iterations=self.max_iterations,
                 extra_read_roots=tuple(str(path) for path in self.extra_read_roots),
                 extra_write_roots=tuple(str(path) for path in self.extra_write_roots),
+                restrict_exec_paths=self.restrict_exec_paths,
             ),
             mcp_servers=self.mcp_servers,
         )
@@ -235,6 +238,7 @@ def _runtime_config(value: Any) -> RuntimeConfig:
         max_iterations=_optional_int(data.get("max_iterations")),
         extra_read_roots=_runtime_roots(data, "extra_read_roots"),
         extra_write_roots=_runtime_roots(data, "extra_write_roots"),
+        restrict_exec_paths=_runtime_bool(data, "restrict_exec_paths", False),
     )
 
 
@@ -243,6 +247,13 @@ def _runtime_roots(data: Mapping[str, Any], key: str) -> tuple[str, ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         raise TypeError(f"runtime.{key} must be a sequence")
     return tuple(str(item) for item in value)
+
+
+def _runtime_bool(data: Mapping[str, Any], key: str, default: bool) -> bool:
+    value = data.get(key, default)
+    if not isinstance(value, bool):
+        raise TypeError(f"runtime.{key} must be a bool")
+    return value
 
 
 def _mcp_servers(value: Any) -> tuple[MCPServerConfig, ...]:
@@ -367,6 +378,8 @@ def _runtime_to_dict(config: RuntimeConfig) -> dict[str, Any]:
     _set_if_not_none(data, "max_iterations", config.max_iterations)
     _set_if_not_empty(data, "extra_read_roots", list(config.extra_read_roots))
     _set_if_not_empty(data, "extra_write_roots", list(config.extra_write_roots))
+    if config.restrict_exec_paths:
+        data["restrict_exec_paths"] = True
     return data
 
 

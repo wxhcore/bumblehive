@@ -348,6 +348,7 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
             "max_iterations": 300,
             "extra_read_roots": [],
             "extra_write_roots": [],
+            "restrict_exec_paths": False,
         },
         "mcp_servers": [],
     }

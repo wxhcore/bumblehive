@@ -276,7 +276,7 @@ async def test_exec_runs_commands_from_readable_working_directories(tmp_path) ->
 
 
 @pytest.mark.asyncio
-async def test_exec_accepts_absolute_executables_and_parent_paths(tmp_path) -> None:
+async def test_exec_accepts_unrestricted_working_directories_and_paths(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     skills = tmp_path / "skills"
     workspace.mkdir()
@@ -295,9 +295,75 @@ async def test_exec_accepts_absolute_executables_and_parent_paths(tmp_path) -> N
         {"command": command},
         policy=policy,
     )
+    cwd_result = await _execute(
+        _manager(timeout=10),
+        workspace,
+        "exec",
+        {
+            "command": _shell_command(
+                [Path(sys.executable).name, "-c", "import os; print(os.getcwd())"]
+            ),
+            "working_dir": str(skills),
+        },
+        policy=policy,
+    )
 
     assert result.content["exit_code"] == 0, result.content
     assert result.content["stdout"].strip() == "from parent path"
+    assert cwd_result.content["exit_code"] == 0, cwd_result.content
+    assert Path(cwd_result.content["stdout"].strip()).resolve() == skills.resolve()
+
+
+@pytest.mark.asyncio
+async def test_exec_restricted_policy_blocks_parent_and_outside_absolute_paths(
+    tmp_path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    policy = ToolPathPolicy(restrict_exec_paths=True)
+
+    parent = await _execute(
+        _manager(timeout=10),
+        workspace,
+        "exec",
+        {"command": "echo ../outside.txt"},
+        policy=policy,
+    )
+    absolute = await _execute(
+        _manager(timeout=10),
+        workspace,
+        "exec",
+        {"command": f"echo {outside}"},
+        policy=policy,
+    )
+
+    assert parent.content == {
+        "error": "command blocked by safety policy: path traversal"
+    }
+    assert absolute.content == {
+        "error": "command blocked by safety policy: path outside working_dir"
+    }
+
+
+@pytest.mark.asyncio
+async def test_exec_unrestricted_policy_keeps_dangerous_command_filter(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    policy = ToolPathPolicy()
+
+    result = await _execute(
+        _manager(timeout=10),
+        workspace,
+        "exec",
+        {"command": "sudo ls", "working_dir": str(outside)},
+        policy=policy,
+    )
+
+    assert result.content == {"error": "command blocked by safety policy"}
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX PATH semantics")

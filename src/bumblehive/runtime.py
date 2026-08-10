@@ -303,6 +303,7 @@ class BumblehiveRuntime:
                 self.skills.skills_dir,
             ),
             extra_write_roots=run_config.runtime.extra_write_roots,
+            restrict_exec_paths=run_config.runtime.restrict_exec_paths,
         )
         return await loop.run_turn(
             message,

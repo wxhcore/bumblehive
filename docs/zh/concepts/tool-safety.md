@@ -44,15 +44,23 @@ config = bumblehive.RuntimeArguments(
 - 在 `extra_read_roots` 中读取；
 - 在 `extra_write_roots` 中读写。
 
-相对路径从 `workspace` 解析。额外目录应尽量小，不要直接开放用户主目录或磁盘根目录。
+`readable roots` 是 `workspace`、`extra_read_roots` 和
+`extra_write_roots` 合并后的有效可读目录集合；可写目录同时也是可读目录。相对路径从
+`workspace` 解析。额外目录应尽量小，不要直接开放用户主目录或磁盘根目录。
 
-`exec` 的 `working_dir` 可以位于任意可读目录中。子进程的 `PATH` 优先包含当前 Python 解释器所在目录，然后继承父进程中有效的绝对路径，因此当前 Python 环境可以直接使用；如果父进程的 `PATH` 包含 Conda，子进程也可以直接调用 `conda`。
+默认 `restrict_exec_paths=False`：`working_dir` 可以是任意存在的目录，
+不检查命令中的 `../` 和绝对路径。设为 `True` 后，`working_dir`
+必须位于 `readable roots`，命令中的 `../` 会被拒绝，绝对路径必须位于
+当前 `working_dir`。无论开关状态如何，内置危险命令正则都会执行。
+
+子进程的 `PATH` 优先包含当前 Python 解释器所在目录，然后继承父进程中有效的绝对路径，因此当前 Python 环境可以直接使用；如果父进程的 `PATH` 包含 Conda，子进程也可以直接调用 `conda`。
 
 ```python
 config = bumblehive.RuntimeArguments(
     workspace="./project",
     extra_read_roots=["./shared-docs"],
     extra_write_roots=["./output"],
+    restrict_exec_paths=True,
     tool_names=["read_file", "write_file"],
 )
 ```
@@ -67,7 +75,8 @@ config = bumblehive.RuntimeArguments(
 - MCP Server；
 - `exec` 启动的子进程对文件系统的访问。
 
-`exec` 不会静态解析命令中的绝对路径或 `../`。限制它的工作目录，只是在调用前校验进程的起始目录，不代表子进程无法读取或修改其他系统路径。
+`exec` 的命令路径检查只是对命令字符串的尽力而为检查，不会解析 Shell
+变量、脚本内部访问或所有间接路径。即使开启 `restrict_exec_paths`，也不代表子进程受到操作系统沙箱限制。
 
 ## 最小权限建议
 

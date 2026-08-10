@@ -30,6 +30,19 @@ _MAX_OUTPUT_CHARS = 50_000
 _OUTPUT_DRAIN_GRACE_S = 0.1
 _SESSION_BUFFER_CHAR_LIMIT = 200_000
 _EXEC_MANAGER_METADATA_KEY = "_bumblehive_builtin_exec_session_manager"
+_BENIGN_DEVICE_PATHS = frozenset(
+    {
+        "/dev/null",
+        "/dev/zero",
+        "/dev/full",
+        "/dev/random",
+        "/dev/urandom",
+        "/dev/stdin",
+        "/dev/stdout",
+        "/dev/stderr",
+        "/dev/tty",
+    }
+)
 
 _EXEC_DESCRIPTION = (
     "Execute a shell command for tests, builds, package operations, git, and other "
@@ -748,7 +761,11 @@ class ExecRunner:
         cwd = self._resolve_working_dir(working_dir, access)
         if isinstance(cwd, str):
             return {"error": cwd}
-        guard_error = self._guard_command(command)
+        guard_error = self._guard_command(
+            command,
+            cwd,
+            restrict_paths=access.policy.restrict_exec_paths,
+        )
         if guard_error:
             return {"error": guard_error}
         env = _build_env()
@@ -777,7 +794,11 @@ class ExecRunner:
         access: WorkspaceAccess,
     ) -> Path | str:
         if working_dir:
-            resolved = access.resolve_read(working_dir)
+            resolved = (
+                access.resolve_read(working_dir)
+                if access.policy.restrict_exec_paths
+                else access.resolve_unchecked(working_dir)
+            )
         else:
             resolved = access.workspace
         if isinstance(resolved, str):
@@ -786,11 +807,43 @@ class ExecRunner:
             return "working_dir does not exist or is not a directory"
         return resolved
 
-    def _guard_command(self, command: str) -> str | None:
+    def _guard_command(
+        self,
+        command: str,
+        cwd: Path,
+        *,
+        restrict_paths: bool,
+    ) -> str | None:
+        deny_error = self._guard_deny_patterns(command)
+        if deny_error:
+            return deny_error
+        if not restrict_paths:
+            return None
+        return self._guard_command_paths(command, cwd)
+
+    def _guard_deny_patterns(self, command: str) -> str | None:
         lower = command.strip().lower()
         for pattern in self.deny_patterns:
             if re.search(pattern, lower):
                 return "command blocked by safety policy"
+        return None
+
+    @staticmethod
+    def _guard_command_paths(command: str, cwd: Path) -> str | None:
+        if "../" in command or "..\\" in command:
+            return "command blocked by safety policy: path traversal"
+        for raw_path in _extract_absolute_paths(command):
+            expanded = os.path.expandvars(raw_path.strip())
+            if _is_benign_device_path(expanded):
+                continue
+            try:
+                path = Path(expanded).expanduser().resolve()
+            except OSError:
+                continue
+            if _is_benign_device_path(str(path)):
+                continue
+            if path != cwd and cwd not in path.parents:
+                return "command blocked by safety policy: path outside working_dir"
         return None
 
     def _access(self) -> WorkspaceAccess:
@@ -988,6 +1041,20 @@ def _build_env() -> dict[str, str]:
         "TERM": os.environ.get("TERM", "dumb"),
         "PYTHONUNBUFFERED": "1",
     }
+
+
+def _extract_absolute_paths(command: str) -> list[str]:
+    win_paths = re.findall(
+        r"(?<![A-Za-z])(?:[A-Za-z]:[^\s\"'|><;]*|\\\\[^\s\"'|><;]+(?:\\[^\s\"'|><;]+)*)",
+        command,
+    )
+    posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command)
+    home_paths = re.findall(r"(?:^|[\s>'\"])(~[^\s\"'>;|<]*)", command)
+    return win_paths + posix_paths + home_paths
+
+
+def _is_benign_device_path(path: str) -> bool:
+    return path in _BENIGN_DEVICE_PATHS or path.startswith("/dev/fd/")
 
 
 def _build_path(default: str) -> str:
