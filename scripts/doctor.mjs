@@ -160,7 +160,7 @@ if (pythonInfo) {
     "mcp",
     "jsonschema",
     "yaml",
-    "fitz",
+    "pymupdf",
     "docx",
     "openpyxl",
     "pptx",

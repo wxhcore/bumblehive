@@ -91,14 +91,14 @@ async def test_edit_warns_before_read_and_reports_ambiguous_replacements(tmp_pat
 
 @pytest.mark.asyncio
 async def test_read_file_extracts_pdf_and_office_documents(tmp_path) -> None:
-    import fitz
+    import pymupdf
     from docx import Document
     from openpyxl import Workbook
     from pptx import Presentation
     from pptx.util import Inches
 
     pdf_path = tmp_path / "sample.pdf"
-    pdf = fitz.open()
+    pdf = pymupdf.open()
     pdf.new_page().insert_text((72, 72), "PDF first")
     pdf.new_page().insert_text((72, 72), "PDF second")
     pdf.save(pdf_path)

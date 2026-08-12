@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import fitz
+import pymupdf
 from docx import Document as DocxDocument
 from openpyxl import load_workbook
 from pptx import Presentation as PptxPresentation
@@ -389,7 +389,7 @@ class WorkspaceFiles:
 
     def _read_pdf(self, path: Path, pages: str | None) -> dict[str, Any]:
         try:
-            doc = fitz.open(str(path))
+            doc = pymupdf.open(str(path))
         except Exception as exc:
             return {"error": f"error reading PDF: {exc}", "path": str(path)}
 
