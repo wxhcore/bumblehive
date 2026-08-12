@@ -336,7 +336,7 @@ test("initial setup exposes only the required model connection", () => {
   assert.doesNotMatch(html, />放弃更改</);
 });
 
-test("runtime settings expose the opt-in shell path restriction", () => {
+test("runtime file roots remain configurable independently of shell restrictions", () => {
   const renderRuntimeSettings = (restrictExecPaths) =>
     renderToStaticMarkup(
       createElement(settingsView.SettingsView, {
@@ -371,15 +371,15 @@ test("runtime settings expose the opt-in shell path restriction", () => {
   );
   assert.match(disabledHtml, /aria-label="Shell 路径限制"/);
   assert.doesNotMatch(disabledHtml, /aria-label="Shell 路径限制" checked/);
-  assert.doesNotMatch(disabledHtml, /额外只读目录/);
-  assert.doesNotMatch(disabledHtml, /额外可写目录/);
+  assert.match(disabledHtml, /额外只读目录/);
+  assert.match(disabledHtml, /额外可写目录/);
 
   assert.match(enabledHtml, /aria-label="Shell 路径限制" checked/);
   assert.match(enabledHtml, /额外只读目录/);
   assert.match(enabledHtml, /额外可写目录/);
   assert.ok(
-    enabledHtml.indexOf("Shell 路径限制") <
-      enabledHtml.indexOf("额外只读目录"),
+    enabledHtml.indexOf("额外只读目录") <
+      enabledHtml.indexOf("Shell 路径限制"),
   );
 });
 

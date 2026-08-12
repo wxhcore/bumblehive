@@ -1297,11 +1297,35 @@ export function SettingsView({
 
         <SettingsSection
           title="额外文件权限"
-          description="工作区始终可访问；这里只添加工作区之外的目录。"
+          description="工作区始终可访问；以下目录始终用于内置文件工具的读写权限。"
         >
           <SettingRow
+            title="额外只读目录"
+            description="允许读取，但不允许修改"
+            wide
+          >
+            <StringListEditor
+              values={draft.runtime.extraReadRoots}
+              placeholder="/path/to/read-only"
+              addLabel="添加只读目录"
+              onChange={(extraReadRoots) => updateRuntime({ extraReadRoots })}
+            />
+          </SettingRow>
+          <SettingRow
+            title="额外可写目录"
+            description="允许在这些目录中创建或修改文件"
+            wide
+          >
+            <StringListEditor
+              values={draft.runtime.extraWriteRoots}
+              placeholder="/path/to/writable"
+              addLabel="添加可写目录"
+              onChange={(extraWriteRoots) => updateRuntime({ extraWriteRoots })}
+            />
+          </SettingRow>
+          <SettingRow
             title="Shell 路径限制"
-            description="开启后限制 working_dir，并拒绝 ../ 和工作目录外的绝对路径"
+            description="开启后，Shell 工作目录必须位于可读目录中，并限制命令中的父级路径和绝对路径"
             inlineControl
           >
             <label className="settings-switch-control">
@@ -1319,38 +1343,6 @@ export function SettingsView({
               </span>
             </label>
           </SettingRow>
-          {draft.runtime.restrictExecPaths ? (
-            <>
-              <SettingRow
-                title="额外只读目录"
-                description="允许读取，但不允许修改"
-                wide
-              >
-                <StringListEditor
-                  values={draft.runtime.extraReadRoots}
-                  placeholder="/path/to/read-only"
-                  addLabel="添加只读目录"
-                  onChange={(extraReadRoots) =>
-                    updateRuntime({ extraReadRoots })
-                  }
-                />
-              </SettingRow>
-              <SettingRow
-                title="额外可写目录"
-                description="允许在这些目录中创建或修改文件"
-                wide
-              >
-                <StringListEditor
-                  values={draft.runtime.extraWriteRoots}
-                  placeholder="/path/to/writable"
-                  addLabel="添加可写目录"
-                  onChange={(extraWriteRoots) =>
-                    updateRuntime({ extraWriteRoots })
-                  }
-                />
-              </SettingRow>
-            </>
-          ) : null}
         </SettingsSection>
       </>
     );
