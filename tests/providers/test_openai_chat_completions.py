@@ -395,7 +395,10 @@ async def test_stream_retries_only_the_unsupported_stream_options_shape() -> Non
 
 @pytest.mark.asyncio
 async def test_stream_timeout_is_a_recoverable_model_error(monkeypatch) -> None:
-    monkeypatch.setenv("BUMBLEHIVE_STREAM_IDLE_TIMEOUT_S", "0.001")
+    monkeypatch.setattr(
+        "bumblehive.providers.openai_chat_completions._STREAM_IDLE_TIMEOUT_S",
+        0.001,
+    )
     provider = OpenAIChatCompletionsProvider(
         client=FakeClient(FakeCompletions(SlowStream()))
     )

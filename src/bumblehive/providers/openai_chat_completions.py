@@ -17,9 +17,9 @@ from .base import (
     ModelResponse,
     ModelStreamCallbacks,
 )
-from .streaming import resolve_stream_idle_timeout_s
 
 
+_STREAM_IDLE_TIMEOUT_S = 90.0
 _ALLOWED_MESSAGE_KEYS = frozenset(
     {
         "role",
@@ -113,7 +113,7 @@ class OpenAIChatCompletionsProvider(ModelProvider):
         payload = self._build_payload(request)
         payload["stream"] = True
         payload["stream_options"] = {"include_usage": True}
-        idle_timeout_s = resolve_stream_idle_timeout_s()
+        idle_timeout_s = _STREAM_IDLE_TIMEOUT_S
         accumulator = _ChatStreamAccumulator(type(self))
         try:
             stream = await self._create_stream(payload)

@@ -10,7 +10,6 @@ from bumblehive.providers import (
     ModelStreamCallbacks,
     RetryConfig,
 )
-from bumblehive.providers.streaming import resolve_stream_idle_timeout_s
 
 
 class StreamingProvider(ModelProvider):
@@ -77,17 +76,6 @@ def _recoverable_error_response() -> ModelResponse:
             recoverable=True,
         ),
     )
-
-
-def test_resolve_stream_idle_timeout_bounds_invalid_values() -> None:
-    assert resolve_stream_idle_timeout_s(env_value=None, default=12) == 12
-    assert resolve_stream_idle_timeout_s(env_value="bad", default=12) == 12
-    assert resolve_stream_idle_timeout_s(env_value="-1", default=12) == 12
-    assert resolve_stream_idle_timeout_s(
-        env_value="9999",
-        default=12,
-        maximum=30,
-    ) == 30
 
 
 @pytest.mark.asyncio

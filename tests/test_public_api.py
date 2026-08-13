@@ -57,9 +57,6 @@ NON_PUBLIC_REEXPORTS = {
         "new_run_id",
         "normalize_hooks",
     },
-    bumblehive.providers: {
-        "resolve_stream_idle_timeout_s",
-    },
     bumblehive.session: {
         "SessionManager",
         "SessionState",
