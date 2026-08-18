@@ -41,11 +41,7 @@ class ContextBuilder:
         *,
         timezone: str | None = None,
     ) -> None:
-        self.workspace = (
-            get_workspace_path(workspace)
-            if workspace is not None
-            else None
-        )
+        self.workspace = workspace
         self.timezone = timezone
 
     def build(
@@ -115,10 +111,12 @@ class ContextBuilder:
         self,
         workspace: Path | str | None,
     ) -> Path:
-        if workspace is not None:
-            return get_workspace_path(workspace)
-
-        return self.workspace or get_workspace_path()
+        selected_workspace = (
+            workspace
+            if workspace is not None
+            else self.workspace
+        )
+        return get_workspace_path(selected_workspace)
 
     def _build_system_content(
         self,

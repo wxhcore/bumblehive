@@ -82,6 +82,8 @@ def test_call_values_override_builder_defaults(tmp_path) -> None:
     call_workspace = tmp_path / "call"
     builder = ContextBuilder(default_workspace, timezone="UTC")
 
+    assert not default_workspace.exists()
+
     messages = builder.build(
         current_messages=[{"role": "user", "content": "hello"}],
         workspace=call_workspace,
@@ -90,3 +92,18 @@ def test_call_values_override_builder_defaults(tmp_path) -> None:
 
     assert f"<cwd>{call_workspace.as_posix()}</cwd>" in messages[0]["content"]
     assert "(Asia/Shanghai, UTC+08:00)" in messages[-1]["content"]
+    assert not default_workspace.exists()
+
+
+def test_builder_resolves_and_creates_its_default_workspace_when_used(tmp_path) -> None:
+    workspace = tmp_path / "default"
+    builder = ContextBuilder(str(workspace), timezone="UTC")
+
+    assert not workspace.exists()
+
+    messages = builder.build(
+        current_messages=[{"role": "user", "content": "hello"}],
+    )
+
+    assert workspace.is_dir()
+    assert f"<cwd>{workspace.resolve().as_posix()}</cwd>" in messages[0]["content"]
