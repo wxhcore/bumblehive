@@ -15,6 +15,7 @@ config = bumblehive.RuntimeArguments(
     api_key=os.environ["BUMBLEHIVE_API_KEY"],
     base_url=os.environ["BUMBLEHIVE_BASE_URL"],
     workspace="./workspace",
+    skills_dir="./skills",
     timezone="Asia/Shanghai",
     max_completion_tokens=2_048,
     temperature=0.2,
@@ -41,6 +42,7 @@ Bumblehive 不会自动读取这些环境变量。上面的 `os.environ` 和 `os
 | Agent | `agent_instructions` | Agent 的长期行为要求 |
 | Agent | `dynamic_context` | 项目名、用户角色等动态信息 |
 | 能力 | `skill_names`、`tool_names` | 本次 Runtime 默认开放的能力 |
+| 能力 | `skills_dir` | Runtime 加载和安装 Skill 的根目录 |
 | 运行 | `workspace`、`timezone` | 工作目录和时区 |
 | 运行 | `max_iterations` | 最多执行多少轮模型/工具循环 |
 | 运行 | `context_window_tokens` | 上下文窗口预算 |
@@ -54,6 +56,7 @@ Bumblehive 不会自动读取这些环境变量。上面的 `os.environ` 和 `os
 
 ```python
 config = {
+    "skills_dir": "./skills",
     "provider": {
         "model": os.environ["BUMBLEHIVE_MODEL"],
         "api_key": os.environ["BUMBLEHIVE_API_KEY"],
@@ -99,7 +102,7 @@ result = await runtime.run(
 
 单次覆盖不会修改 Runtime 的基础配置。
 
-`mcp_servers` 不能按调用覆盖，因为 MCP 连接属于 Runtime 生命周期。应在创建 Runtime 时配置。
+`mcp_servers` 和 `skills_dir` 不能按调用覆盖，因为 MCP 连接和 Skill 目录属于 Runtime 生命周期。应在创建 Runtime 时配置。
 
 ## 能力列表：省略、`None` 和空列表 { #capability-lists }
 

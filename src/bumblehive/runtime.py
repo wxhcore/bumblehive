@@ -39,9 +39,9 @@ class BumblehiveRuntime:
         self.providers = ProviderManager()
         self.tools = ToolManager()
         self.context = ContextBuilder()
-        self.skills = SkillsManager()
         self.runner = ToolCallingRunner()
         self.sessions = SessionManager()
+        self.skills = SkillsManager(self.config.skills_dir)
 
         self._tools_initialized = False
         self._tools_init_lock = asyncio.Lock()
@@ -341,6 +341,8 @@ class BumblehiveRuntime:
     ) -> BumblehiveConfig:
         if config is not None and "mcp_servers" in config:
             raise ValueError("mcp_servers cannot be changed per run")
+        if config is not None and "skills_dir" in config:
+            raise ValueError("skills_dir cannot be changed per run")
         if config is None:
             return self.config
 

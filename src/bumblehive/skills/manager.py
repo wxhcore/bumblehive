@@ -18,6 +18,15 @@ class SkillsManager:
         self.skills_dir = get_skills_path(skills_dir)
         self._cache: tuple[SkillFilesSnapshot, SkillLoadResult] | None = None
 
+    def set_skills_dir(self, skills_dir: str | Path | None) -> None:
+        """Switch the managed skills directory and clear cached results."""
+        resolved = get_skills_path(skills_dir)
+        if resolved == self.skills_dir:
+            return
+
+        self.skills_dir = resolved
+        self._cache = None
+
     def list_skills(self, *, force_reload: bool = False) -> SkillLoadResult:
         snapshot = self._snapshot_skill_files()
         cached = self._cache

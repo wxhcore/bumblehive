@@ -66,6 +66,7 @@ class RuntimeArguments:
     skill_names: list[str] | tuple[str, ...] | None = None
     tool_names: list[str] | tuple[str, ...] | None = None
     mcp_servers: tuple[MCPServerConfig, ...] = ()
+    skills_dir: str | Path | None = None
 
     def to_config(self) -> "BumblehiveConfig":
         """Convert flat runtime arguments into structured config."""
@@ -111,6 +112,11 @@ class RuntimeArguments:
                 restrict_exec_paths=self.restrict_exec_paths,
             ),
             mcp_servers=self.mcp_servers,
+            skills_dir=(
+                str(self.skills_dir)
+                if self.skills_dir is not None
+                else None
+            ),
         )
 
 
@@ -123,6 +129,7 @@ class BumblehiveConfig:
     agent: AgentConfig = field(default_factory=AgentConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     mcp_servers: tuple[MCPServerConfig, ...] = ()
+    skills_dir: str | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any] | None) -> "BumblehiveConfig":
@@ -154,6 +161,7 @@ class BumblehiveConfig:
             agent=_agent_config(raw.get("agent")),
             runtime=_runtime_config(raw.get("runtime")),
             mcp_servers=_mcp_servers(raw.get("mcp_servers")),
+            skills_dir=_optional_str(raw.get("skills_dir")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -176,6 +184,8 @@ class BumblehiveConfig:
                 _mcp_server_to_dict(server)
                 for server in self.mcp_servers
             ]
+
+        _set_if_not_none(data, "skills_dir", self.skills_dir)
 
         return data
 

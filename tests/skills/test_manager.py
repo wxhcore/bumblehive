@@ -30,6 +30,25 @@ def test_manager_creates_its_directory_only_when_installing(tmp_path) -> None:
     assert (skills_dir / "audit" / "SKILL.md").is_file()
 
 
+def test_manager_switches_directories_and_clears_cached_results(tmp_path) -> None:
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    _write_skill(first_dir, "first")
+    _write_skill(second_dir, "second")
+    manager = SkillsManager(first_dir)
+
+    first = manager.list_skills()
+    manager.set_skills_dir(first_dir)
+    assert manager.list_skills() is first
+
+    manager.set_skills_dir(second_dir)
+    second = manager.list_skills()
+
+    assert second is not first
+    assert manager.skills_dir == second_dir.resolve()
+    assert [skill.name for skill in second.skills] == ["second"]
+
+
 def test_manager_uses_an_explicit_directory_and_exposes_selected_skills(tmp_path) -> None:
     skills_dir = tmp_path / "custom-skills"
     github_content = _write_skill(

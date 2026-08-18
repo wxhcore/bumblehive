@@ -351,6 +351,7 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
             "restrict_exec_paths": False,
         },
         "mcp_servers": [],
+        "skills_dir": None,
     }
     assert runtimes[0].closed is True
     assert runtimes[1].initialized is True

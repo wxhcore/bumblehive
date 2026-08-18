@@ -49,12 +49,22 @@ config = bumblehive.RuntimeArguments(
     api_key=os.environ["BUMBLEHIVE_API_KEY"],
     base_url=os.environ["BUMBLEHIVE_BASE_URL"],
     workspace=".",
+    skills_dir="./skills",
     skill_names=["course-summary"],
     tool_names=["read_file"],
 )
 ```
 
-Skill 默认安装到 `~/.bumblehive/skills/`。
+`skills_dir` 指向包含各个 Skill 子目录的根目录。省略时默认使用 `~/.bumblehive/skills/`；目录会在首次安装 Skill 时创建，单纯创建 Runtime 或列出空目录不会创建它。
+
+`SkillsManager` 也保留运行前切换目录的能力；切换时会清空旧目录的加载缓存，但不会立即创建新目录：
+
+```python
+manager = bumblehive.SkillsManager()
+manager.set_skills_dir(Path("./other-skills"))
+```
+
+该方法适合独立使用 `SkillsManager`。Runtime 的 Skill 目录仍应通过 `RuntimeArguments.skills_dir` 在创建时确定，避免配置状态与实际目录不一致。
 
 默认不会覆盖同名 Skill；确认需要替换时，再传入 `replace=True`。
 

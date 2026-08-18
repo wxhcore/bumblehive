@@ -59,6 +59,7 @@ def test_config_round_trips_all_public_sections(tmp_path) -> None:
                 enabled_tools=["search"],
             ),
         ),
+        skills_dir=str(tmp_path / "skills"),
     )
 
     data = config.to_dict()
@@ -67,6 +68,7 @@ def test_config_round_trips_all_public_sections(tmp_path) -> None:
     assert data["runtime"]["extra_read_roots"] == [str(tmp_path / "read")]
     assert data["runtime"]["restrict_exec_paths"] is True
     assert data["mcp_servers"][0]["enabled_tools"] == ["search"]
+    assert data["skills_dir"] == str(tmp_path / "skills")
 
 
 def test_runtime_arguments_build_the_same_structured_config(tmp_path) -> None:
@@ -81,6 +83,7 @@ def test_runtime_arguments_build_the_same_structured_config(tmp_path) -> None:
         agent_instructions="Be concise.",
         skill_names=["audit"],
         tool_names=["read_file"],
+        skills_dir=tmp_path / "skills",
     ).to_config()
 
     assert config.provider.model == "demo-model"
@@ -92,6 +95,7 @@ def test_runtime_arguments_build_the_same_structured_config(tmp_path) -> None:
     assert config.agent.instructions == "Be concise."
     assert config.agent.skill_names == ("audit",)
     assert config.agent.tool_names == ("read_file",)
+    assert config.skills_dir == str(tmp_path / "skills")
 
 
 @pytest.mark.parametrize("model", [None, "", "   "])

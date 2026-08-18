@@ -62,6 +62,19 @@ def _runtime(tmp_path, **overrides) -> bumblehive.BumblehiveRuntime:
     return bumblehive.from_config(config)
 
 
+def test_runtime_applies_skills_directory_without_creating_it(tmp_path) -> None:
+    skills_dir = tmp_path / "custom-skills"
+
+    runtime = bumblehive.from_config(
+        bumblehive.RuntimeArguments(skills_dir=skills_dir)
+    )
+
+    assert runtime.config.skills_dir == str(skills_dir)
+    assert runtime.skills.skills_dir == skills_dir.resolve()
+    assert not skills_dir.exists()
+    assert not (tmp_path / "skills").exists()
+
+
 @pytest.mark.asyncio
 async def test_runtime_runs_stateless_turns_with_per_run_overlays_and_closes(monkeypatch, tmp_path) -> None:
     _install_provider(monkeypatch)
@@ -202,6 +215,7 @@ async def test_runtime_applies_run_roots_and_exposes_skills_as_read_only(
 
     _install_provider(monkeypatch, PathProvider)
     runtime = _runtime(tmp_path, agent={"tool_names": ["read_file", "write_file"]})
+    runtime.skills.skills_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     skill_source = runtime.skills.skills_dir / "reference.txt"
     skill_source.write_text("skill content", encoding="utf-8")
     skill_target = runtime.skills.skills_dir / "generated.txt"
@@ -441,6 +455,8 @@ async def test_runtime_rejects_unsupported_run_configuration(tmp_path) -> None:
     runtime = _runtime(tmp_path)
     with pytest.raises(ValueError, match="cannot be changed per run"):
         await runtime.run("hello", config={"mcp_servers": []})
+    with pytest.raises(ValueError, match="cannot be changed per run"):
+        await runtime.run("hello", config={"skills_dir": str(tmp_path / "skills")})
 
 
 @pytest.mark.asyncio
