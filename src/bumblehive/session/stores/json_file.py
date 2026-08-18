@@ -70,6 +70,7 @@ class JsonSessionStore:
         temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
 
         try:
+            self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
             with temporary.open("x", encoding="utf-8") as file:
                 with suppress(OSError):
                     os.chmod(temporary, 0o600)

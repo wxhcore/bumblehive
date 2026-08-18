@@ -54,6 +54,7 @@ class SkillsManager:
         if not source_paths:
             return self.reload()
 
+        self.skills_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         with TemporaryDirectory(prefix=".install-", dir=self.skills_dir) as temp:
             temporary_root = Path(temp)
             staging_root = temporary_root / "packages"

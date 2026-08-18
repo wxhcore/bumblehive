@@ -13,6 +13,23 @@ def _write_skill(root, name, description="Skill description.", body=""):
     return content
 
 
+def test_manager_creates_its_directory_only_when_installing(tmp_path) -> None:
+    skills_dir = tmp_path / "skills"
+    sources = tmp_path / "sources"
+    _write_skill(sources, "audit", "Audit the project.")
+    manager = SkillsManager(skills_dir)
+
+    assert manager.skills_dir == skills_dir.resolve()
+    assert not skills_dir.exists()
+    assert manager.list_skills().skills == []
+    assert not skills_dir.exists()
+
+    manager.install_skills([sources / "audit"])
+
+    assert skills_dir.is_dir()
+    assert (skills_dir / "audit" / "SKILL.md").is_file()
+
+
 def test_manager_uses_an_explicit_directory_and_exposes_selected_skills(tmp_path) -> None:
     skills_dir = tmp_path / "custom-skills"
     github_content = _write_skill(

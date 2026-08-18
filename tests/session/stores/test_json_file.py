@@ -6,6 +6,23 @@ from bumblehive.session.stores.json_file import JsonSessionStore, SessionFileErr
 
 
 @pytest.mark.asyncio
+async def test_store_creates_directory_only_when_a_session_is_saved(tmp_path) -> None:
+    directory = tmp_path / "sessions"
+    store = JsonSessionStore(directory)
+
+    assert store.directory == directory.resolve()
+    assert not directory.exists()
+
+    assert await store.load("missing") is None
+    assert await store.delete("missing") is False
+    assert not directory.exists()
+
+    await store.save("created", [])
+
+    assert directory.is_dir()
+
+
+@pytest.mark.asyncio
 async def test_store_persists_loads_and_deletes_one_session(tmp_path) -> None:
     store = JsonSessionStore(tmp_path)
     messages = [{"role": "user", "content": "你好"}]
