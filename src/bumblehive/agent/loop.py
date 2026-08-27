@@ -65,9 +65,9 @@ class AgentLoop:
         ``None`` exposes everything, ``[]`` exposes nothing, and a non-empty
         list exposes only the named items in the given order.
 
-        ``history`` is caller-owned local memory that is read and updated for
-        this call without being retained by the loop. ``history_messages`` is
-        a managed-session snapshot and therefore requires ``session_id``.
+        ``history`` is caller-owned local memory that is read without being
+        updated or retained by the loop. ``history_messages`` is a
+        managed-session snapshot and therefore requires ``session_id``.
         """
         resolved_history_messages = self._resolve_history_messages(
             history,
@@ -118,8 +118,6 @@ class AgentLoop:
                     stream=stream,
                     checkpoint_callback=checkpoint_callback,
                 )
-                if history is not None:
-                    history.replace_run_messages(result.messages)
                 await turn_events.finished(
                     stop_reason=result.stop_reason,
                     error=result.error,

@@ -91,13 +91,12 @@ class BumblehiveRuntime:
         """Run one conversation turn.
 
         With neither ``history`` nor ``session_id``, the turn is stateless.
-        Passing ``history`` reads and updates caller-owned in-memory history.
+        Passing ``history`` reads caller-owned in-memory history without
+        updating it. Use ``history.replace_run_messages(result.messages)`` to
+        carry a completed run into the next turn.
         Passing ``session_id`` loads, recovers, and persists a managed session.
         Passing both raises ``ValueError``.
 
-        Caller-owned history is updated whenever an ``AgentRunResult`` is
-        returned, including ``model_error`` and ``max_iterations`` results. It
-        remains unchanged when the run raises an exception or is cancelled.
         Do not share one ``MessageHistory`` across concurrent runs: await turns
         sequentially, or use separate histories for parallel conversations.
         """
@@ -224,7 +223,7 @@ class BumblehiveRuntime:
         hooks: HookInput,
         stream: bool,
     ) -> AgentRunResult:
-        """Run against a caller-owned history and commit a completed result."""
+        """Run against caller-owned history without modifying it."""
         result = await self._run_agent(
             message,
             run_config=run_config,

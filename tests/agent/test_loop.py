@@ -156,7 +156,7 @@ async def test_run_turn_accepts_message_list(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_turn_updates_caller_history_without_retaining_it(tmp_path) -> None:
+async def test_run_turn_reads_caller_history_without_updating_it(tmp_path) -> None:
     history = MessageHistory(
         [
             {"role": "user", "content": "earlier question"},
@@ -197,8 +197,6 @@ async def test_run_turn_updates_caller_history_without_retaining_it(tmp_path) ->
     assert history.get_history() == [
         {"role": "user", "content": "earlier question"},
         {"role": "assistant", "content": "earlier answer"},
-        {"role": "user", "content": "first question"},
-        {"role": "assistant", "content": "first answer"},
     ]
 
 
@@ -276,7 +274,7 @@ async def test_history_preserves_tool_message_order_across_turns(tmp_path) -> No
     loop = _loop(tmp_path, tools, SkillsManager(tmp_path / "skills"))
     history = MessageHistory()
 
-    await loop.run_turn(
+    first = await loop.run_turn(
         "first question",
         provider=provider,
         model="test-model",
@@ -285,6 +283,7 @@ async def test_history_preserves_tool_message_order_across_turns(tmp_path) -> No
         dynamic_context={"turn": 1},
         tool_names=["echo"],
     )
+    history.replace_run_messages(first.messages)
     assert [message["role"] for message in history.get_history()] == [
         "user",
         "assistant",
@@ -292,7 +291,7 @@ async def test_history_preserves_tool_message_order_across_turns(tmp_path) -> No
         "assistant",
     ]
 
-    await loop.run_turn(
+    second = await loop.run_turn(
         "second question",
         provider=provider,
         model="test-model",
@@ -301,6 +300,7 @@ async def test_history_preserves_tool_message_order_across_turns(tmp_path) -> No
         dynamic_context={"turn": 2},
         tool_names=["echo"],
     )
+    history.replace_run_messages(second.messages)
 
     second_turn_messages = provider.requests[2].messages
     assert [message["role"] for message in second_turn_messages] == [
@@ -430,13 +430,14 @@ async def test_model_error_closes_the_turn_for_following_history(tmp_path) -> No
     loop = _loop(tmp_path, ToolManager(), SkillsManager(tmp_path / "skills"))
     history = MessageHistory()
 
-    await loop.run_turn(
+    first = await loop.run_turn(
         "first",
         provider=provider,
         model="test-model",
         history=history,
         workspace=tmp_path,
     )
+    history.replace_run_messages(first.messages)
     await loop.run_turn(
         "second",
         provider=provider,

@@ -149,7 +149,9 @@ for status in runtime.tools.list_mcp_server_statuses():
 
 ```python
 history = bumblehive.MessageHistory()
-await runtime.run("第一轮", history=history)
+first = await runtime.run("第一轮", history=history)
+history.replace_run_messages(first.messages)
+
 await runtime.run("第二轮", history=history)
 ```
 

@@ -18,10 +18,12 @@ async def main() -> None:
             "Remember that my project is named Bumblehive.",
             history=history,
         )
+        history.replace_run_messages(first.messages)
         second = await runtime.run(
             "What is my project named?",
             history=history,
         )
+        history.replace_run_messages(second.messages)
 
     print("First:", first.final_content)
     print("Second:", second.final_content)

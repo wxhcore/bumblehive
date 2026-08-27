@@ -21,8 +21,11 @@ async def main() -> None:
     history = bumblehive.MessageHistory()
 
     async with bumblehive.from_config(config) as runtime:
-        await runtime.run("记住：我的项目叫 Bumblehive", history=history)
+        first = await runtime.run("记住：我的项目叫 Bumblehive", history=history)
+        history.replace_run_messages(first.messages)
+
         result = await runtime.run("我的项目叫什么？", history=history)
+        history.replace_run_messages(result.messages)
 
     print(result.final_content)
 
@@ -36,6 +39,9 @@ asyncio.run(main())
 messages = history.get_history()
 history.clear()
 ```
+
+Runtime 不会自动修改 `history`。`replace_run_messages()` 用运行结果替换历史，
+并去掉其中的 system message 和 runtime context。
 
 `get_history()` 返回消息副本，修改它不会直接改变原历史。
 

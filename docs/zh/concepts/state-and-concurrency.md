@@ -7,7 +7,7 @@ Bumblehive 支持无状态、内存历史和持久化会话三种对话方式。
 | 调用方式 | 是否记住上一轮 | 是否写入磁盘 | 适合场景 |
 | --- | --- | --- | --- |
 | 不传任何参数 | 否 | 否 | 独立任务、批处理 |
-| `history=MessageHistory()` | 是 | 否 | 单进程临时对话 |
+| `history=MessageHistory()` | 手动更新后 | 否 | 单进程临时对话 |
 | `session_id="user:42"` | 是 | 是 | 需要重启后继续的对话 |
 
 不传 `history` 或 `session_id` 时，每次调用都是独立的：
@@ -21,16 +21,18 @@ result = await runtime.run("刚才的数字是什么？")
 
 ## `MessageHistory` 的所有者是调用者
 
-Runtime 会读取并更新你传入的对象，但不会保存这个对象：
+Runtime 只读取你传入的对象，不会自动修改它。需要继续对话时，调用方手动更新历史：
 
 ```python
 history = bumblehive.MessageHistory()
 
-await runtime.run("记住数字 7", history=history)
+first = await runtime.run("记住数字 7", history=history)
+history.replace_run_messages(first.messages)
+
 result = await runtime.run("刚才的数字是什么？", history=history)
 ```
 
-一次调用返回 `AgentRunResult` 后，历史会被更新，包括 `model_error` 和 `max_iterations` 结果。调用直接抛出异常或被取消时，历史保持原样。
+`replace_run_messages()` 会去掉每轮运行产生的 system message 和 runtime context。是否保存正常结果、`model_error` 或 `max_iterations` 结果，由调用方决定。
 
 > 不要让两个并发任务共享同一个 `MessageHistory`。并发对话应各自创建历史对象。
 

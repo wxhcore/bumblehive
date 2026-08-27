@@ -126,7 +126,7 @@ async def test_runtime_string_and_message_list_inputs_are_equivalent(
 
 
 @pytest.mark.asyncio
-async def test_runtime_reads_and_updates_caller_owned_history(monkeypatch, tmp_path) -> None:
+async def test_runtime_reads_history_without_updating_it(monkeypatch, tmp_path) -> None:
     _install_provider(monkeypatch)
     runtime = _runtime(
         tmp_path,
@@ -134,8 +134,11 @@ async def test_runtime_reads_and_updates_caller_owned_history(monkeypatch, tmp_p
     )
     history = bumblehive.MessageHistory()
 
-    await runtime.run("first", history=history)
-    await runtime.run("second", history=history)
+    first = await runtime.run("first", history=history)
+    assert history.get_history() == []
+
+    history.replace_run_messages(first.messages)
+    second = await runtime.run("second", history=history)
 
     provider = FakeProvider.instances[0]
     assert [message["role"] for message in provider.requests[1].messages] == [
@@ -145,6 +148,12 @@ async def test_runtime_reads_and_updates_caller_owned_history(monkeypatch, tmp_p
         "user",
     ]
     assert provider.requests[1].messages[1]["content"] == "first"
+    assert history.get_history() == [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "reply-1"},
+    ]
+
+    history.replace_run_messages(second.messages)
     assert history.get_history() == [
         {"role": "user", "content": "first"},
         {"role": "assistant", "content": "reply-1"},
@@ -380,7 +389,10 @@ async def test_runtime_serializes_one_session_but_allows_distinct_sessions(monke
 
 
 @pytest.mark.asyncio
-async def test_runtime_stream_updates_caller_owned_history(monkeypatch, tmp_path) -> None:
+async def test_runtime_stream_does_not_update_caller_owned_history(
+    monkeypatch,
+    tmp_path,
+) -> None:
     _install_provider(monkeypatch)
     runtime = _runtime(tmp_path)
     history = bumblehive.MessageHistory()
@@ -390,6 +402,9 @@ async def test_runtime_stream_updates_caller_owned_history(monkeypatch, tmp_path
     streamed_result = await stream.result()
 
     assert streamed_result.final_content == "reply-1"
+    assert history.get_history() == []
+
+    history.replace_run_messages(streamed_result.messages)
     assert history.get_history() == [
         {"role": "user", "content": "stream"},
         {"role": "assistant", "content": "reply-1"},
@@ -438,10 +453,7 @@ async def test_runtime_stream_and_console_expose_the_same_agent_result(monkeypat
     assert console_result.final_content == "reply-2"
     assert renderer.started == "console"
     assert renderer.events and renderer.finished
-    assert console_history.get_history() == [
-        {"role": "user", "content": "console"},
-        {"role": "assistant", "content": "reply-2"},
-    ]
+    assert console_history.get_history() == []
 
 
 @pytest.mark.asyncio

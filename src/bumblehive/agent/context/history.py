@@ -90,8 +90,8 @@ class MessageHistory:
         """Replace history from ``AgentRunResult.messages``.
 
         Drops per-turn system messages and strips runtime context from user
-        messages before storing them. Use this after ``AgentLoop.run_turn`` or
-        ``ToolCallingRunner.run`` when carrying history into the next turn.
+        messages before storing them. Use this to explicitly carry an
+        ``AgentRunResult`` into the next turn.
         """
         self._messages = run_messages_to_history(messages)
 

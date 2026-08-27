@@ -18,7 +18,10 @@
 ```python
 async with bumblehive.from_config(config) as runtime:
     result = await runtime.run("你好", history=history)
+    history.replace_run_messages(result.messages)
 ```
+
+Runtime 只读取 `history`，不会自动修改它；`session_id` 则由 Runtime 自动持久化。
 
 不要同时传入 `history` 和 `session_id`。
 
