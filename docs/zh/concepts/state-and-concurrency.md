@@ -7,7 +7,7 @@ Bumblehive 支持无状态、内存历史和持久化会话三种对话方式。
 | 调用方式 | 是否记住上一轮 | 是否写入磁盘 | 适合场景 |
 | --- | --- | --- | --- |
 | 不传任何参数 | 否 | 否 | 独立任务、批处理 |
-| `history=MessageHistory()` | 手动更新后 | 否 | 单进程临时对话 |
+| <code class="bumble-nowrap">history=MessageHistory()</code> | 手动更新后 | 否 | 单进程临时对话 |
 | `session_id="user:42"` | 是 | 是 | 需要重启后继续的对话 |
 
 不传 `history` 或 `session_id` 时，每次调用都是独立的：

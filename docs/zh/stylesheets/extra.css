@@ -145,6 +145,10 @@ input {
   font-family: var(--bumble-font-mono);
 }
 
+.md-typeset code.bumble-nowrap {
+  white-space: nowrap;
+}
+
 .md-typeset .highlight {
   margin: 1rem 0;
 }
