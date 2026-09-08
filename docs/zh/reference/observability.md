@@ -17,9 +17,13 @@ print([event.kind for event in recorder.events])
 | `turn.started` | 开始处理用户输入 |
 | `model.request.started` | 开始请求模型 |
 | `model.stream.content_delta` | 收到一段流式文本 |
+| `tool.approval.started` | 工具调用开始等待审批 |
+| `tool.approval.finished` | 工具审批结束 |
 | `tool.call.finished` | 一个工具执行完成 |
 | `final_result` | 得到最终结果 |
 | `turn.error` | 本轮抛出异常 |
+
+配置 `approval_handler` 后，审批事件会出现在 `tool.call.started` 和 `tool.call.finished` 之间，并通过 `call_id` 关联对应的工具调用。使用方式见[工具](tools.md)。
 
 ## 公开接口
 

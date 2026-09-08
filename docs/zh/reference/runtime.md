@@ -25,6 +25,8 @@ Runtime 只读取 `history`，不会自动修改它；`session_id` 则由 Runtim
 
 不要同时传入 `history` 和 `session_id`。
 
+`run()`、`stream()` 和 `run_console()` 也接受仅作用于当前调用的 `approval_handler`。使用方式见[工具](tools.md)。
+
 ## `BumblehiveRuntime`
 
 ::: bumblehive.BumblehiveRuntime
