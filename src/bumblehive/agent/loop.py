@@ -7,6 +7,7 @@ from ..observability.hooks import HookInput
 from ..protocols import (
     GenerationConfig,
     Message,
+    ToolApprovalHandler,
     UserMessage,
     normalize_user_message,
 )
@@ -49,6 +50,7 @@ class AgentLoop:
         dynamic_context: Mapping[str, DynamicValue] | None = None,
         skill_names: list[str] | None = None,
         tool_names: list[str] | None = None,
+        approval_handler: ToolApprovalHandler | None = None,
         context_window_tokens: int | None = None,
         max_tool_result_chars: int | None = None,
         max_iterations: int | None = None,
@@ -111,6 +113,7 @@ class AgentLoop:
                     workspace=workspace,
                     path_policy=path_policy,
                     tool_names=tool_names,
+                    approval_handler=approval_handler,
                     context_window_tokens=context_window_tokens,
                     max_tool_result_chars=max_tool_result_chars,
                     max_iterations=max_iterations,

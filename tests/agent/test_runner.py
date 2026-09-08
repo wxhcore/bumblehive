@@ -8,7 +8,7 @@ from bumblehive.agent import ToolCallingRunner
 from bumblehive.protocols import GenerationConfig, ToolCall
 from bumblehive.protocols.errors import AgentError
 from bumblehive.providers import ModelProvider, ModelRequest, ModelResponse
-from bumblehive.tools import CallableTool, ToolManager
+from bumblehive.tools import CallableTool, ToolApprovalDecision, ToolManager
 
 
 class SequenceProvider(ModelProvider):
@@ -110,6 +110,53 @@ async def test_run_executes_multiple_tool_iterations_and_returns_errors_to_model
     assert result.tools_used == ["add"]
     assert result.usage == {"prompt_tokens": 14, "completion_tokens": 8}
     assert provider.requests[-1].messages[-1] == tool_messages[-1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("approval_outcome", "error_code"),
+    [
+        ("denied", "tool_approval_denied"),
+        ("error", "tool_approval_error"),
+    ],
+)
+async def test_run_returns_approval_failures_to_the_model_and_continues(
+    tmp_path,
+    approval_outcome,
+    error_code,
+) -> None:
+    provider = SequenceProvider(
+        [
+            ModelResponse(
+                content="",
+                finish_reason="tool_calls",
+                tool_calls=[_call("add", {"a": 2, "b": 5})],
+            ),
+            ModelResponse(content="handled"),
+        ]
+    )
+
+    async def approve(_request):
+        if approval_outcome == "denied":
+            return ToolApprovalDecision.reject("not approved")
+        raise RuntimeError("approval unavailable")
+
+    result = await ToolCallingRunner().run(
+        provider=provider,
+        tools=_tools(),
+        messages=[{"role": "user", "content": "run it"}],
+        model="test-model",
+        workspace=tmp_path,
+        approval_handler=approve,
+    )
+
+    tool_message = next(
+        message for message in result.messages if message["role"] == "tool"
+    )
+    assert f'"code": "{error_code}"' in tool_message["content"]
+    assert provider.requests[1].messages[-1] == tool_message
+    assert result.final_content == "handled"
+    assert result.tools_used == []
 
 
 @pytest.mark.asyncio

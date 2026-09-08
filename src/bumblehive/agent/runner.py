@@ -7,6 +7,7 @@ from ..observability.emitter import EventEmitter
 from ..observability.emitters import ModelEvents, RunEvents, ToolEvents
 from ..protocols import GenerationConfig, Message
 from ..protocols.errors import AgentError
+from ..protocols.tool_approval import ToolApprovalHandler
 from ..providers.base import (
     ModelProvider,
     ModelRequest,
@@ -53,6 +54,7 @@ class ToolCallingRunner:
         workspace: Path | str | None = None,
         path_policy: ToolPathPolicy = ToolPathPolicy(),
         tool_names: list[str] | None = None,
+        approval_handler: ToolApprovalHandler | None = None,
         context_window_tokens: int | None = None,
         max_tool_result_chars: int | None = None,
         max_iterations: int | None = None,
@@ -88,6 +90,7 @@ class ToolCallingRunner:
                 workspace=workspace,
                 path_policy=path_policy,
                 tool_names=tool_names,
+                approval_handler=approval_handler,
                 context_window_tokens=context_window_tokens,
                 max_tool_result_chars=max_tool_result_chars,
                 max_iterations=effective_max_iterations,
@@ -113,6 +116,7 @@ class ToolCallingRunner:
         workspace: Path | str | None,
         path_policy: ToolPathPolicy,
         tool_names: list[str] | None,
+        approval_handler: ToolApprovalHandler | None,
         context_window_tokens: int | None,
         max_tool_result_chars: int | None,
         max_iterations: int,
@@ -212,6 +216,7 @@ class ToolCallingRunner:
                     tool_names=tool_names,
                     workspace=workspace,
                     path_policy=path_policy,
+                    approval_handler=approval_handler,
                     emitter=iteration_emitter,
                 )
                 for tool_call, tool_result in zip(response.tool_calls, tool_results):

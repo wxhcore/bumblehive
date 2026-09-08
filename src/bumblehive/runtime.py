@@ -20,7 +20,7 @@ from .observability import (
     HookInput,
 )
 from .observability.streaming import AsyncEventStreamHook
-from .protocols import Message, UserMessage
+from .protocols import Message, ToolApprovalHandler, UserMessage
 from .providers import ModelProvider
 from .providers.manager import ProviderManager
 from .session.manager import SessionManager
@@ -87,6 +87,7 @@ class BumblehiveRuntime:
         hooks: HookInput = None,
         history: MessageHistory | None = None,
         session_id: str | None = None,
+        approval_handler: ToolApprovalHandler | None = None,
     ) -> AgentRunResult:
         """Run one conversation turn.
 
@@ -106,6 +107,7 @@ class BumblehiveRuntime:
             hooks=hooks,
             history=history,
             session_id=session_id,
+            approval_handler=approval_handler,
             stream=False,
         )
 
@@ -117,6 +119,7 @@ class BumblehiveRuntime:
         hooks: HookInput = None,
         history: MessageHistory | None = None,
         session_id: str | None = None,
+        approval_handler: ToolApprovalHandler | None = None,
         max_queue_size: int = DEFAULT_STREAM_QUEUE_SIZE,
     ) -> AsyncEventStream[AgentRunResult]:
         """Stream one turn with stateless, in-memory, or persisted history."""
@@ -130,6 +133,7 @@ class BumblehiveRuntime:
                 hooks=_append_hook(hooks, stream_hook),
                 history=history,
                 session_id=session_id,
+                approval_handler=approval_handler,
                 stream=True,
             )
 
@@ -143,6 +147,7 @@ class BumblehiveRuntime:
         hooks: HookInput = None,
         history: MessageHistory | None = None,
         session_id: str | None = None,
+        approval_handler: ToolApprovalHandler | None = None,
         renderer: Any | None = None,
         max_queue_size: int = DEFAULT_STREAM_QUEUE_SIZE,
     ) -> AgentRunResult:
@@ -159,6 +164,7 @@ class BumblehiveRuntime:
             hooks=hooks,
             history=history,
             session_id=session_id,
+            approval_handler=approval_handler,
             max_queue_size=max_queue_size,
         )
         renderer.start(message)
@@ -182,6 +188,7 @@ class BumblehiveRuntime:
         hooks: HookInput = None,
         history: MessageHistory | None = None,
         session_id: str | None = None,
+        approval_handler: ToolApprovalHandler | None = None,
         stream: bool = False,
     ) -> AgentRunResult:
         """Resolve the conversation source, then run one turn."""
@@ -194,6 +201,7 @@ class BumblehiveRuntime:
                 history=history,
                 run_config=run_config,
                 hooks=hooks,
+                approval_handler=approval_handler,
                 stream=stream,
             )
 
@@ -203,6 +211,7 @@ class BumblehiveRuntime:
                 session_id=session_id,
                 run_config=run_config,
                 hooks=hooks,
+                approval_handler=approval_handler,
                 stream=stream,
             )
 
@@ -211,6 +220,7 @@ class BumblehiveRuntime:
             run_config=run_config,
             hooks=hooks,
             session_id=None,
+            approval_handler=approval_handler,
             stream=stream,
         )
 
@@ -221,6 +231,7 @@ class BumblehiveRuntime:
         history: MessageHistory,
         run_config: BumblehiveConfig,
         hooks: HookInput,
+        approval_handler: ToolApprovalHandler | None,
         stream: bool,
     ) -> AgentRunResult:
         """Run against caller-owned history without modifying it."""
@@ -230,6 +241,7 @@ class BumblehiveRuntime:
             history=history,
             hooks=hooks,
             session_id=None,
+            approval_handler=approval_handler,
             stream=stream,
         )
         return result
@@ -241,6 +253,7 @@ class BumblehiveRuntime:
         session_id: str,
         run_config: BumblehiveConfig,
         hooks: HookInput,
+        approval_handler: ToolApprovalHandler | None,
         stream: bool,
     ) -> AgentRunResult:
         """Run against a locked, persisted session."""
@@ -258,6 +271,7 @@ class BumblehiveRuntime:
                     history_messages=history_messages,
                     hooks=hooks,
                     session_id=session.session_id,
+                    approval_handler=approval_handler,
                     stream=stream,
                     checkpoint_callback=checkpoint,
                 )
@@ -288,6 +302,7 @@ class BumblehiveRuntime:
         run_config: BumblehiveConfig,
         hooks: HookInput,
         session_id: str | None,
+        approval_handler: ToolApprovalHandler | None,
         stream: bool,
         history: MessageHistory | None = None,
         history_messages: list[Message] | None = None,
@@ -317,6 +332,7 @@ class BumblehiveRuntime:
             dynamic_context=run_config.agent.dynamic_context,
             skill_names=_list_or_none(run_config.agent.skill_names),
             tool_names=_list_or_none(run_config.agent.tool_names),
+            approval_handler=approval_handler,
             context_window_tokens=run_config.runtime.context_window_tokens,
             max_tool_result_chars=run_config.runtime.max_tool_result_chars,
             max_iterations=run_config.runtime.max_iterations,

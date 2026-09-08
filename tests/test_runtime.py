@@ -4,7 +4,12 @@ from typing import Any
 import pytest
 
 import bumblehive
-from bumblehive.observability import FINAL_RESULT, MODEL_STREAM_CONTENT_DELTA
+from bumblehive.observability import (
+    FINAL_RESULT,
+    MODEL_STREAM_CONTENT_DELTA,
+    TOOL_APPROVAL_FINISHED,
+    TOOL_APPROVAL_STARTED,
+)
 from bumblehive.protocols import ToolCall
 from bumblehive.providers import (
     ModelProvider,
@@ -42,6 +47,24 @@ class FakeProvider(ModelProvider):
 
     async def close(self) -> None:
         self.closed = True
+
+
+class ToolCallingProvider(FakeProvider):
+    async def generate(self, request: ModelRequest) -> ModelResponse:
+        self.requests.append(request)
+        if len(self.requests) % 2 == 1:
+            return ModelResponse(
+                content="",
+                finish_reason="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        f"call-{len(self.requests)}",
+                        "protected_tool",
+                        {"value": len(self.requests)},
+                    )
+                ],
+            )
+        return ModelResponse(content="done")
 
 
 def _install_provider(monkeypatch, provider_type=FakeProvider) -> None:
@@ -409,6 +432,45 @@ async def test_runtime_stream_does_not_update_caller_owned_history(
         {"role": "user", "content": "stream"},
         {"role": "assistant", "content": "reply-1"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_runtime_run_and_stream_propagate_approval_handler(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _install_provider(monkeypatch, ToolCallingProvider)
+    runtime = _runtime(tmp_path, agent={"tool_names": ["protected_tool"]})
+    approvals = []
+    executions = []
+
+    @runtime.tools.tool
+    def protected_tool(value: int) -> int:
+        """Execute only after approval."""
+        executions.append(value)
+        return value
+
+    async def approve(request):
+        approvals.append(request)
+        return bumblehive.ToolApprovalDecision.approve()
+
+    result = await runtime.run("run", approval_handler=approve)
+    stream = runtime.stream("stream", approval_handler=approve)
+    events = [event async for event in stream]
+    streamed_result = await stream.result()
+
+    assert result.final_content == "done"
+    assert streamed_result.final_content == "done"
+    assert [request.name for request in approvals] == [
+        "protected_tool",
+        "protected_tool",
+    ]
+    assert executions == [1, 3]
+    assert [
+        event.kind
+        for event in events
+        if event.kind in {TOOL_APPROVAL_STARTED, TOOL_APPROVAL_FINISHED}
+    ] == [TOOL_APPROVAL_STARTED, TOOL_APPROVAL_FINISHED]
 
 
 @pytest.mark.asyncio
