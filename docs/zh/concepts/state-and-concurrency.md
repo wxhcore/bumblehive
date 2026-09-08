@@ -1,4 +1,13 @@
+---
+search:
+  exclude: true
+---
+
 # 状态与并发
+
+!!! note "新版入口"
+    常用内容已整理到[会话与历史](../how-to/memory-and-sessions.md)。本页保留已有链接和详细说明。
+
 
 Bumblehive 支持无状态、内存历史和持久化会话三种对话方式。
 
@@ -72,4 +81,4 @@ deleted = await runtime.delete_session("user:42")
 
 会话内容以本地 JSON 保存，并非加密存储。不要保存不必要的敏感信息。
 
-下一步：阅读[保存多轮对话](../how-to/memory-and-sessions.md)。
+相关内容：[保存多轮对话](../how-to/memory-and-sessions.md)。

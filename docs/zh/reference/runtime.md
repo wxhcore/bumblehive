@@ -1,42 +1,42 @@
-# Runtime 与推荐入口
+# Runtime 与运行结果
 
-普通项目优先使用 `BumblehiveRuntime`。它负责组合模型、工具、Skills、历史和 Agent Loop。
+Runtime 组合模型、工具、Skills 与会话。使用 `async with` 初始化并释放资源，复用同一 Runtime 可以发起多次运行。
 
-## 常用入口
+[快速开始](../getting-started/installation.md) · [流式输出](../how-to/streaming.md) · [会话与历史](../how-to/memory-and-sessions.md)
+
+## 常用接口
 
 | 接口 | 用途 |
 | --- | --- |
-| `RuntimeArguments` | 用一组扁平参数创建 Runtime |
-| `from_config()` | 根据参数、字典或配置对象创建 Runtime |
-| `BumblehiveRuntime.run()` | 运行一次对话 |
-| `BumblehiveRuntime.stream()` | 流式接收运行事件 |
-| `MessageHistory` | 保存调用者管理的内存历史 |
-| `AgentRunResult` | 获取回答、工具、用量和错误 |
+| [`from_config`](#bumblehive.from_config) | 从配置对象、字典或 JSON 路径创建 Runtime。 |
+| [`BumblehiveRuntime`](#bumblehive.BumblehiveRuntime) | `run()` 获取结果；`stream()` 消费事件；`run_console()` 在终端展示过程。`history` 与 `session_id` 不能同时使用，`approval_handler` 仅影响当前调用。 |
+| [`AgentRunResult`](#bumblehive.AgentRunResult) | `final_content` 是最终回答，`usage` 是模型用量，`stop_reason` 说明结束原因。首先检查 `error`；`tools_used` 只记录成功执行的工具。 |
 
-推荐使用：
+## 创建与运行
 
-```python
-async with bumblehive.from_config(config) as runtime:
-    result = await runtime.run("你好", history=history)
-    history.replace_run_messages(result.messages)
-```
-
-Runtime 只读取 `history`，不会自动修改它；`session_id` 则由 Runtime 自动持久化。
-
-不要同时传入 `history` 和 `session_id`。
-
-`run()`、`stream()` 和 `run_console()` 也接受仅作用于当前调用的 `approval_handler`。使用方式见[工具](tools.md)。
-
-## `BumblehiveRuntime`
-
-::: bumblehive.BumblehiveRuntime
-    options:
-      show_root_heading: false
-      show_root_full_path: false
-
-## `from_config()`
+从配置对象、字典或 JSON 路径创建 Runtime。
 
 ::: bumblehive.from_config
     options:
-      show_root_heading: false
+      heading_level: 3
+      show_root_heading: true
+      show_root_full_path: false
+
+`run()` 获取结果；`stream()` 消费事件；`run_console()` 在终端展示过程。`history` 与 `session_id` 不能同时使用，`approval_handler` 仅影响当前调用。
+
+::: bumblehive.BumblehiveRuntime
+    options:
+      heading_level: 3
+      show_root_heading: true
+      show_root_full_path: false
+
+
+## 读取结果
+
+`final_content` 是最终回答，`usage` 是模型用量，`stop_reason` 说明结束原因。首先检查 `error`；`tools_used` 只记录成功执行的工具。
+
+::: bumblehive.AgentRunResult
+    options:
+      heading_level: 3
+      show_root_heading: true
       show_root_full_path: false

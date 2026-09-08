@@ -82,10 +82,11 @@ Bumblehive Desktop 是使用 Bumblehive Python SDK 构建的可选参考应用�
 
 | 目标 | 从这里开始 |
 | --- | --- |
-| 运行第一个 Agent | [第一次调用](https://wxhcore.github.io/bumblehive/getting-started/first-call/) |
+| 运行第一个 Agent | [安装与快速开始](https://wxhcore.github.io/bumblehive/getting-started/installation/) |
 | 添加 Python 工具 | [注册第一个工具](https://wxhcore.github.io/bumblehive/getting-started/first-tool/) |
 | 保存对话 | [消息历史与 Session](https://wxhcore.github.io/bumblehive/how-to/memory-and-sessions/) |
-| 使用 Skills 或 MCP | [Skills 与 MCP](https://wxhcore.github.io/bumblehive/how-to/skills-and-mcp/) |
+| 加载工作方法 | [Skills](https://wxhcore.github.io/bumblehive/how-to/skills/) |
+| 连接外部工具 | [MCP](https://wxhcore.github.io/bumblehive/how-to/mcp/) |
 | 查询公开接口 | [API Reference](https://wxhcore.github.io/bumblehive/reference/runtime/) |
 | 查看可运行代码 | [Examples](examples/README.md) |
 

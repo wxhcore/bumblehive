@@ -1,19 +1,52 @@
-# Agent Loop
+# AgentLoop 与 Runner
 
-当 `BumblehiveRuntime` 不能满足组合需求时，再使用底层 Agent API。
+直接组装底层对象时，需要自行管理 Provider、工具与资源生命周期。普通应用从 Runtime 开始。
 
-| 接口 | 适合场景 |
+[Agent 如何工作](../concepts/mental-model.md) · [上下文指南](../how-to/context.md) · [消息与会话](protocols.md)
+
+## 常用接口
+
+| 接口 | 用途 |
 | --- | --- |
-| `AgentLoop` | 自己组合 Context、Skills、Tools 和 Provider |
-| `ToolCallingRunner` | 已经准备好消息，只需要模型与工具循环 |
-| `ContextBuilder` | 自定义运行上下文 |
-| `MessageHistory` | 调用者管理的对话历史 |
+| [`AgentLoop`](#bumblehive.agent.AgentLoop) | 构建上下文、选择 Skills 和 Tools，再驱动运行。 |
+| [`ToolCallingRunner`](#bumblehive.agent.ToolCallingRunner) | 对已经准备好的消息执行模型与工具循环。 |
+| [`ContextBuilder`](#bumblehive.agent.ContextBuilder) | 组装指令、动态信息和能力说明。窗口裁剪与工具结果截断的应用配置见上下文指南。 |
 
-`skill_names` 与 `tool_names` 都支持三种选择：`None` 表示全部，`[]` 表示不提供，非空列表表示只选择指定项。Skill 只把摘要加入上下文，Tool 才是模型可以调用的函数。完整规则见[配置 Runtime](../how-to/configuration.md#capability-lists)。
+## 循环与执行
 
-## 公开接口
+构建上下文、选择 Skills 和 Tools，再驱动运行。
 
-::: bumblehive.agent
+::: bumblehive.agent.AgentLoop
     options:
-      show_root_heading: false
+      heading_level: 3
+      show_root_heading: true
       show_root_full_path: false
+
+对已经准备好的消息执行模型与工具循环。
+
+::: bumblehive.agent.ToolCallingRunner
+    options:
+      heading_level: 3
+      show_root_heading: true
+      show_root_full_path: false
+
+
+## 上下文组装
+
+组装指令、动态信息和能力说明。窗口裁剪与工具结果截断的应用配置见上下文指南。
+
+::: bumblehive.agent.ContextBuilder
+    options:
+      heading_level: 3
+      show_root_heading: true
+      show_root_full_path: false
+
+## 相关类型
+
+<span id="bumblehive.agent.AgentRunResult"></span>
+
+[`AgentRunResult`](runtime.md#bumblehive.AgentRunResult) 的完整定义已集中到对应主题。
+
+<span id="bumblehive.agent.MessageHistory"></span>
+
+[`MessageHistory`](protocols.md#bumblehive.MessageHistory) 的完整定义已集中到对应主题。

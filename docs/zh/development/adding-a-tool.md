@@ -1,4 +1,13 @@
+---
+search:
+  exclude: true
+---
+
 # 增加一个工具
+
+!!! note "新版入口"
+    常用内容已整理到[工具调用](../getting-started/first-tool.md)。本页保留已有链接和详细说明。
+
 
 工具让模型能够调用你的 Python 代码。
 
@@ -56,4 +65,4 @@ async def fetch_course(course_id: str) -> dict[str, str]:
 - 不把密钥返回给模型。
 - 为有副作用的操作编写测试。
 
-下一步：阅读[工具 API](../reference/tools.md)。
+相关内容：[工具 API](../reference/tools.md)。

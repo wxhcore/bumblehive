@@ -1,8 +1,58 @@
-# 工具安全
+# 工具审批与访问范围
 
-工具可以读写文件或执行命令。正式项目应只向模型开放完成当前任务所需的工具。
+通过 `approval_handler` 在工具执行前批准或拒绝调用。工具白名单控制模型能调用什么，文件路径规则控制内置工具能访问哪里。
 
-## 先理解 `tool_names`
+## 等待用户确认
+
+先完成[模型配置](../getting-started/installation.md#configure-model)，从仓库根目录运行：
+
+```bash
+python examples/runtime/tool_approval.py
+```
+
+```python title="examples/runtime/tool_approval.py"
+--8<-- "examples/runtime/tool_approval.py"
+```
+
+示例把工作目录设为脚本所在的 `examples/runtime/`，并打印绝对路径。模型请求调用后，终端展示工具名称和校验后的参数：输入 `y` 或 `yes` 批准，回车或其他输入拒绝。
+
+批准后工具会创建或覆盖 `approval-demo.txt`，内容为 `hello`。拒绝后本次调用不会修改文件，原因交回 Agent。通过 Conda 运行时使用 `conda run --no-capture-output -n bumblehive_env python examples/runtime/tool_approval.py`，以保留输入输出。
+
+## 执行顺序
+
+```text
+模型请求工具 → 参数校验 → 等待审批 → 批准：执行工具
+                                  → 拒绝：返回拒绝原因
+```
+
+只有参数校验通过后才调用审批处理器。处理器抛出异常时，本次工具不会执行，错误以 `tool_approval_error` 交回 Agent。拒绝使用 `tool_approval_denied`；这不一定使整个运行失败。
+
+## 按规则自动拒绝
+
+下面的片段在已创建的 `runtime` 中运行，将审批改为固定策略：
+
+```python
+from bumblehive import ToolApprovalDecision, ToolApprovalRequest
+
+async def approve_tool(request: ToolApprovalRequest) -> ToolApprovalDecision:
+    print("已拒绝工具调用：", request.name)
+    return ToolApprovalDecision.reject("当前任务不允许写入文件。")
+
+result = await runtime.run(
+    "请调用 write_file 创建 approval-demo.txt，内容为 hello。"
+    "如果被拒绝，不要重试，说明文件未创建。",
+    config={"agent": {"tool_names": ["write_file"]}},
+    approval_handler=approve_tool,
+)
+```
+
+用审批输出或事件确认处理器确实被调用。工具白名单与明确的提示词仍不能强制模型发起调用。
+
+## 在界面中显示审批
+
+`tool.approval.started` 和 `tool.approval.finished` 位于 `tool.call.started` 与 `tool.call.finished` 之间，用 `call_id` 关联请求。同一并行批次可能存在多个待审批请求，界面应分别保存状态；用户选择通过审批处理器返回，事件 Hook 负责展示和记录。
+
+## 选择可用工具
 
 | 配置 | 含义 |
 | --- | --- |
@@ -26,7 +76,7 @@ config = bumblehive.RuntimeArguments(
 )
 ```
 
-## Runtime 会注册哪些内置工具
+### 内置工具
 
 第一次初始化时会注册：
 
@@ -65,7 +115,7 @@ config = bumblehive.RuntimeArguments(
 )
 ```
 
-## `ToolPathPolicy` 不是操作系统沙箱
+### 路径策略的边界
 
 路径策略只约束 Bumblehive 中了解该规则的内置工具。
 
@@ -78,12 +128,6 @@ config = bumblehive.RuntimeArguments(
 `exec` 的命令路径检查只是对命令字符串的尽力而为检查，不会解析 Shell
 变量、脚本内部访问或所有间接路径。即使开启 `restrict_exec_paths`，也不代表子进程受到操作系统沙箱限制。
 
-## 最小权限建议
+## 相关接口
 
-1. 使用明确的 `tool_names`，不要在生产环境依赖 `None`。
-2. 只开放必要的读写目录。
-3. 面对不可信输入时，不开放 `exec`、`write_file` 或 `apply_patch`。
-4. 自定义工具自行校验路径、用户身份和业务权限。
-5. MCP 使用 `enabled_tools` 再过滤一次远端工具。
-
-下一步：阅读[配置 Runtime](../how-to/configuration.md)。
+[工具与审批 API](../reference/tools.md) · [文件与命令](../how-to/files-and-commands.md) · [运行事件](../reference/observability.md)

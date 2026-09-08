@@ -19,37 +19,36 @@ plugins:
     jieba_dict_user: docs/zh/jieba-user-dict.txt
 
 nav:
-  - 快速开始:
+  - 开始使用:
       - 概览: index.md
-      - 安装: getting-started/installation.md
-      - 第一次调用: getting-started/first-call.md
-      - 注册第一个工具: getting-started/first-tool.md
-      - 下一步: getting-started/next-steps.md
-  - 核心概念:
-      - Agent 的基本结构: concepts/mental-model.md
-      - 选择合适的抽象层: concepts/choose-your-layer.md
-      - Runtime 生命周期: concepts/runtime-lifecycle.md
-      - 状态与并发: concepts/state-and-concurrency.md
-      - 工具安全: concepts/tool-safety.md
-  - 使用指南:
-      - 配置模型和 Runtime: how-to/configuration.md
-      - 流式输出: how-to/streaming.md
-      - 消息历史与会话: how-to/memory-and-sessions.md
-      - Skills 与 MCP: how-to/skills-and-mcp.md
-      - 错误处理: how-to/error-handling.md
-      - 测试 Agent: how-to/testing-an-agent.md
+      - 安装与快速开始: getting-started/installation.md
+      - Agent 如何工作: concepts/mental-model.md
+  - 核心能力:
+      - 模型接入与配置: how-to/configuration.md
+      - 提示词与上下文: how-to/context.md
+      - 工具调用: getting-started/first-tool.md
+      - 文件操作与命令执行: how-to/files-and-commands.md
+      - MCP: how-to/mcp.md
+      - Skills: how-to/skills.md
+      - 流式输出与运行事件: how-to/streaming.md
+      - 会话与历史: how-to/memory-and-sessions.md
+      - 工具审批与访问范围: concepts/tool-safety.md
+      - 图片输入: how-to/images.md
+      - Hooks 与运行记录: how-to/hooks.md
+  - 应用示例:
+      - 构建文件与代码助手: examples/file-assistant.md
+      - 接入聊天界面: examples/chat-interface.md
+      - 子 Agent 与任务委派: examples/sub-agents.md
   - API 参考:
-      - Runtime: reference/runtime.md
-      - 配置: reference/config.md
-      - Agent: reference/agent.md
-      - 工具: reference/tools.md
-      - 模型 Provider: reference/providers.md
-      - 协议对象: reference/protocols.md
-      - Skills: reference/skills.md
-      - 可观测性: reference/observability.md
-  - SDK 开发:
-      - 架构: development/sdk-architecture.md
-      - 添加工具: development/adding-a-tool.md
-      - 添加 Provider: development/adding-a-provider.md
-      - 测试与发布: development/testing-and-release.md
-  - 常见问题: troubleshooting.md
+      - Runtime 与运行结果: reference/runtime.md
+      - 配置与模型 Provider: reference/config.md
+      - AgentLoop 与 Runner: reference/agent.md
+      - 工具与审批: reference/tools.md
+      - 消息与会话: reference/protocols.md
+      - MCP 与 Skills: reference/skills.md
+      - 事件与 Hooks: reference/observability.md
+  - 开发与排错:
+      - 错误、重试与常见问题: how-to/error-handling.md
+      - 测试 Agent: how-to/testing-an-agent.md
+      - 自定义 Provider 与底层组装: development/adding-a-provider.md
+      - 参与 SDK 开发: development/testing-and-release.md

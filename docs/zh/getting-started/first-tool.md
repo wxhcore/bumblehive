@@ -1,75 +1,54 @@
-# 注册第一个 Python 工具
+# 工具调用
 
-本页将把普通 Python 函数注册为工具，让 Agent 查询课程信息。
+把 Python 函数注册为工具，让 Agent 查询业务数据或执行具体操作。SDK 根据函数参数类型生成工具定义，并在执行前校验参数。
 
-预计时间：10 分钟。
+## 注册 Python 函数
 
-## 前置条件
+先完成[模型配置](installation.md#configure-model)。以下完整示例使用本地课程表：
 
-- 已经完成[运行第一个 Agent](first-call.md)
-- 当前终端仍然设置了模型相关环境变量
-
-## 1. 编写代码
-
-新建 `first_tool.py`，写入：
-
-```python
+```python title="examples/runtime/custom_tool.py"
 --8<-- "examples/runtime/custom_tool.py"
 ```
 
-## 2. 运行
+从仓库根目录运行 `python examples/runtime/custom_tool.py`。终端会输出成功使用的工具名称与回答；`result.error` 表示本次运行的结构化错误。
 
-```bash
-python first_tool.py
+## 定义输入和返回值
+
+`name` 是模型看到的名称，`description` 说明何时使用和需要什么输入。为每个参数提供准确的 Python 类型，工具返回值应包含模型完成任务所需的信息。
+
+以下代码在已创建的 `runtime` 中运行：
+
+```python
+@runtime.tools.tool(name="add", description="计算两个整数的和。")
+def add(a: int, b: int) -> int:
+    return a + b
+
+result = await runtime.run(
+    "请调用 add 计算 21 加 34。",
+    config={"agent": {"tool_names": ["add"]}},
+)
 ```
 
-预期输出类似：
+网络或数据库操作可以使用 `async def`。SDK 也接受同步函数；耗时阻塞操作应由应用妥善处理，避免阻塞运行事件。
 
-```text
-工具：get_course_info
-回答：Python 入门课在周一 10:00，于教学楼 A101 上课。
-```
+## 选择可用工具
 
-回答的具体文字可能不同，但“工具”一行应该包含 `get_course_info`。
+| `tool_names` | 模型可用的工具 |
+| --- | --- |
+| `None` | 全部已注册工具 |
+| `[]` | 不提供工具 |
+| `["add"]` | 仅列出的工具 |
 
-## 工具是什么？
+工具必须先注册，再调用 `run()`。同名工具不能靠不同描述区分；MCP 工具名称通常为 `mcp_<server>_<tool>`。
 
-模型本身不知道你项目中的实时数据。工具可以理解为你提供给模型的“可调用函数”。
+工具列表限定可见范围，并不强制模型一定调用工具。提示词应明确要求完成具体动作，模型也必须支持 Tool Calling。
 
-这个示例的过程是：
+## 处理工具失败
 
-```text
-用户询问课程 → 模型选择 get_course_info → Runtime 执行函数 → 模型根据结果回答
-```
+参数错误或工具异常会作为工具结果交回模型，它可以修改参数或继续处理。因此某个工具失败，并不意味着最终 `result.error` 一定非空。
 
-## 代码说明
+`result.tools_used` 只记录成功执行的工具。检查单次调用的成败，使用[工具事件与 Hooks](../how-to/hooks.md)。需要用户确认时传入[审批处理器](../concepts/tool-safety.md)。
 
-- `@runtime.tools.tool(...)` 把下面的 Python 函数注册为工具。
-- `name` 指定模型看到的工具名称。
-- 参数类型 `course: str` 会帮助 Bumblehive 生成工具参数说明。
-- `description` 告诉模型这个工具能做什么。
-- `tool_names=["get_course_info"]` 表示只向模型开放这个工具。
-- `result.tools_used` 记录本次成功执行过的工具名称。
+## 相关接口
 
-工具可以是同步函数，也可以使用 `async def` 定义异步函数。
-
-!!! warning "工具会执行真实代码"
-    只注册当前 Agent 确实需要的工具。自定义工具如果可以访问文件、数据库或网络，应在函数内部做好权限和参数检查。
-
-## 常见问题
-
-### Agent 没有调用工具
-
-确认 `agent_instructions` 明确要求先调用工具，并检查 `tool_names` 中的名称与装饰器中的 `name` 完全一致。
-
-### 提示 Unknown tools
-
-工具必须在调用 `runtime.run()` 之前通过 `@runtime.tools.tool(...)` 注册，并且名称必须出现在 `tool_names` 中。
-
-### 工具收到了错误参数
-
-为函数参数添加准确的 Python 类型，并让 `description` 清楚说明输入要求。Bumblehive 会在执行前校验参数。
-
-## 下一步
-
-[选择接下来的学习路径](next-steps.md)。
+[ToolManager、Tool 与 CallableTool](../reference/tools.md) · [文件与命令](../how-to/files-and-commands.md) · [MCP](../how-to/mcp.md)

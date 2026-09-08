@@ -1,4 +1,13 @@
+---
+search:
+  exclude: true
+---
+
 # Runtime 生命周期
+
+!!! note "新版入口"
+    常用内容已整理到[Runtime 参考](../reference/runtime.md)。本页保留已有链接和详细说明。
+
 
 一个 Runtime 应在一组相关任务中复用，并在最后明确关闭。
 
@@ -66,4 +75,4 @@ async with bumblehive.from_config(config) as runtime:
 
 如果要提前停止，调用 `await stream.aclose()`。提前关闭的流不会产生可读取的最终结果。
 
-下一步：阅读[状态与并发](state-and-concurrency.md)。
+相关内容：[状态与并发](state-and-concurrency.md)。

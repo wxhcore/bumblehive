@@ -1,6 +1,6 @@
-# 配置 Runtime
+# 模型接入与配置
 
-简单项目优先使用 `RuntimeArguments`。需要保存配置时，再使用字典或 JSON 文件。
+高层 Runtime 使用 OpenAI Chat Completions 兼容接口。通过 `model`、`api_key` 和 `base_url` 连接模型；简单项目使用 `RuntimeArguments`，需要保存配置时使用字典或 JSON。
 
 ## 使用 `RuntimeArguments`
 
@@ -88,7 +88,7 @@ JSON 不会展开环境变量。不要把真实 API Key 提交到 Git 仓库；�
 
 ## 覆盖单次调用配置
 
-`run()` 的 `config` 会与 Runtime 基础配置深度合并：
+以下片段在已创建且注册了 `calculate` 工具的 `runtime` 中运行。`run()` 的 `config` 会与 Runtime 基础配置深度合并：
 
 ```python
 result = await runtime.run(
@@ -118,4 +118,4 @@ Skill 是加入上下文的能力说明，不是可调用函数。未知工具�
 
 在 `run(config=...)` 中省略这两个字段会继承 Runtime 配置；显式传入 `None` 才会改为全部。正式项目建议写出明确列表。
 
-下一步：阅读[工具安全](../concepts/tool-safety.md)。
+[提示词与上下文](context.md) · [配置与 Provider API](../reference/config.md)

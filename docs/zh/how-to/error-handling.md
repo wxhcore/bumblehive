@@ -1,4 +1,4 @@
-# 处理运行错误
+# 错误、重试与常见问题
 
 Bumblehive 的失败分为两类：返回结构化错误，以及直接抛出异常。项目代码需要同时处理。
 
@@ -80,4 +80,19 @@ for event in recorder.by_kind(TOOL_CALL_FINISHED):
 
 对于持久化会话，不要在捕获异常后直接重复提交同一条消息。先确认业务是否允许重复执行工具，再决定是否重试。
 
-遇到具体问题时，查看[故障排查](../troubleshooting.md)。
+## 按症状定位
+
+| 症状 | 检查方向 |
+| --- | --- |
+| 无法导入 SDK、环境变量 KeyError | Python 环境与模型变量是否配置，见[快速开始](../getting-started/installation.md) |
+| 模型错误 401 / 403 / 404 / 429 | 检查凭据、Base URL、模型名与服务限流 |
+| 没有调用工具、Unknown tools | 检查注册顺序、tool_names 和模型的工具能力，见[工具调用](../getting-started/first-tool.md) |
+| 审批提示没有出现 | 模型是否发出有效工具请求；参数校验先于审批，见[审批指南](../concepts/tool-safety.md) |
+| Skill 未生效 | 名称、目录、SKILL.md 和 read_file 是否可用，见[Skills](skills.md) |
+| MCP 连接失败 | URL、Header 和远端状态；连接在 Runtime 初始化时发生，见[MCP](mcp.md) |
+| 文件路径被拒绝 | workspace 和额外读写根目录是否包含该路径，见[访问范围](../concepts/tool-safety.md) |
+| 忘记前一轮 | 是否复用了 history 或 session_id，见[会话](memory-and-sessions.md) |
+| 无法获取流式结果 | 是否已消费完整事件流，是否提前关闭，见[流式输出](streaming.md) |
+| 达到最大迭代次数 | 检查工具是否持续失败、指令是否冲突，再考虑提高 max_iterations |
+
+[详细诊断步骤](../troubleshooting.md) · [AgentError 参考](../reference/protocols.md#bumblehive.protocols.AgentError)

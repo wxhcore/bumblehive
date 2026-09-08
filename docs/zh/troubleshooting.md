@@ -1,4 +1,13 @@
+---
+search:
+  exclude: true
+---
+
 # 故障排查
+
+!!! note "新版入口"
+    常用内容已整理到[错误、重试与常见问题](how-to/error-handling.md)。本页保留已有链接和详细说明。
+
 
 先区分两种失败：
 

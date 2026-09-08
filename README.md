@@ -82,10 +82,11 @@ The English documentation is in progress. See the [English overview](https://wxh
 
 | Goal | Start here |
 | --- | --- |
-| Make the first Agent call | [First call (Chinese)](https://wxhcore.github.io/bumblehive/getting-started/first-call/) |
+| Make the first Agent call | [Quickstart (Chinese)](https://wxhcore.github.io/bumblehive/getting-started/installation/) |
 | Add a Python tool | [Register a tool (Chinese)](https://wxhcore.github.io/bumblehive/getting-started/first-tool/) |
 | Save a conversation | [History and sessions (Chinese)](https://wxhcore.github.io/bumblehive/how-to/memory-and-sessions/) |
-| Use Skills or MCP | [Skills and MCP (Chinese)](https://wxhcore.github.io/bumblehive/how-to/skills-and-mcp/) |
+| Load task instructions | [Skills (Chinese)](https://wxhcore.github.io/bumblehive/how-to/skills/) |
+| Connect external tools | [MCP (Chinese)](https://wxhcore.github.io/bumblehive/how-to/mcp/) |
 | Look up a public API | [API Reference (Chinese)](https://wxhcore.github.io/bumblehive/reference/runtime/) |
 | Browse runnable code | [Examples](examples/README.md) |
 

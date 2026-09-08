@@ -1,4 +1,4 @@
-# Bumblehive 如何工作
+# Agent 如何工作
 
 Bumblehive 把模型、工具、上下文和对话状态组合成一个可以反复运行的 Agent。
 
@@ -23,7 +23,7 @@ Bumblehive 把模型、工具、上下文和对话状态组合成一个可以反
 | `ModelProvider` | 向模型发送请求 | 模型连接器 |
 | `ToolManager` | 注册并执行工具 | Agent 的工具箱 |
 | `SkillsManager` | 向模型提供工作方法和资源位置 | Agent 的说明书目录 |
-| `MessageHistory` / `session_id` | 保存多轮对话 | Agent 的记忆 |
+| `MessageHistory` / `session_id` | 保存多轮对话 | 对话记录 |
 
 ## Tool 和 Skill 有什么区别
 
@@ -60,4 +60,4 @@ else:
     print(result.final_content)
 ```
 
-下一步：阅读[选择合适的接口层](choose-your-layer.md)。
+[安装与快速开始](../getting-started/installation.md) · [自定义底层组装](../development/adding-a-provider.md)

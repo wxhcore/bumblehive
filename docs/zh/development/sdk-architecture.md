@@ -1,4 +1,13 @@
+---
+search:
+  exclude: true
+---
+
 # Python SDK 架构
+
+!!! note "新版入口"
+    常用内容已整理到[底层组装](adding-a-provider.md)。本页保留已有链接和详细说明。
+
 
 Bumblehive 分成三层。普通项目从第一层开始，需要扩展时再向下使用。
 
@@ -39,4 +48,4 @@ AgentRunResult
 
 没有出现在 `__all__` 中的对象属于内部实现，升级时可能发生变化。
 
-下一步：阅读[增加一个工具](adding-a-tool.md)或[增加一个 Provider](adding-a-provider.md)。
+相关内容：[增加一个工具](adding-a-tool.md)或[增加一个 Provider](adding-a-provider.md)。

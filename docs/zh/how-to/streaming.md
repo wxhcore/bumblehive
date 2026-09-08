@@ -1,4 +1,4 @@
-# 使用流式输出
+# 流式输出与运行事件
 
 `runtime.stream()` 会在 Agent 运行时持续返回结构化事件，适合终端输出、聊天界面和运行日志。
 
@@ -37,7 +37,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## 为什么最后还要调用 `result()`
+## 获取最终结果
 
 事件流用于展示过程，`AgentRunResult` 才是完整结果。它包含最终文本、工具使用情况、token 用量和错误。
 
@@ -51,6 +51,22 @@ result = await stream.result()
 ```
 
 提前调用 `result()` 会抛出 `RuntimeError`。
+
+## 显示工具进度
+
+在上面的事件循环中，根据事件类型更新界面。工具开始事件包含 `tool_call`，完成事件包含 `tool_result` 和 `ok`：
+
+```python
+from bumblehive.observability import TOOL_CALL_STARTED, TOOL_CALL_FINISHED
+
+# 放入 async for event in stream 循环：
+if event.kind == TOOL_CALL_STARTED:
+    print("开始：", event.payload["tool_call"]["name"])
+elif event.kind == TOOL_CALL_FINISHED:
+    print("完成：", event.payload["ok"])
+```
+
+工具名称与调用 ID 应分别保存，避免多个工具同时运行时相互覆盖。完整映射见[接入聊天界面](../examples/chat-interface.md)。
 
 ## 常用事件
 
@@ -81,4 +97,4 @@ await stream.aclose()
 result = await runtime.run_console("解释当前项目")
 ```
 
-下一步：阅读[处理运行错误](error-handling.md)。
+[聊天界面集成](../examples/chat-interface.md) · [事件与 Hooks API](../reference/observability.md)

@@ -1,6 +1,31 @@
-# 保存多轮对话
+# 会话与历史
 
 临时对话使用 `MessageHistory`；需要重启后继续时使用 `session_id`。
+
+## 保存并继续对话
+
+先完成[快速开始](../getting-started/installation.md)，复用其中的 `config`，在 `async main()` 中运行：
+
+```python
+async with bumblehive.from_config(config) as runtime:
+    await runtime.run(
+        "记住：我的课程是操作系统",
+        session_id="user-42:course-helper",
+    )
+    result = await runtime.run(
+        "我的课程是什么？",
+        session_id="user-42:course-helper",
+    )
+```
+
+会话默认保存在 `~/.bumblehive/sessions/`。创建新的 Runtime 后，使用同一个 `session_id` 仍能继续对话。
+
+`session_id` 必须是非空字符串。建议由业务身份和对话标识组成，例如：
+
+```text
+user-42:course-helper
+team-7:project-18
+```
 
 ## 使用内存历史
 
@@ -45,29 +70,6 @@ Runtime 不会自动修改 `history`。`replace_run_messages()` 用运行结果�
 
 `get_history()` 返回消息副本，修改它不会直接改变原历史。
 
-## 使用持久化会话
-
-```python
-async with bumblehive.from_config(config) as runtime:
-    await runtime.run(
-        "记住：我的课程是操作系统",
-        session_id="user-42:course-helper",
-    )
-    result = await runtime.run(
-        "我的课程是什么？",
-        session_id="user-42:course-helper",
-    )
-```
-
-会话默认保存在 `~/.bumblehive/sessions/`。创建新的 Runtime 后，使用同一个 `session_id` 仍能继续对话。
-
-`session_id` 必须是非空字符串。建议由业务身份和对话标识组成，例如：
-
-```text
-user-42:course-helper
-team-7:project-18
-```
-
 ## 删除会话
 
 ```python
@@ -94,4 +96,4 @@ deleted = await runtime.delete_session("user-42:course-helper")
 - 不要让多个 Runtime 或进程同时写同一个 `session_id`；
 - 持久化会话是本地 JSON，不是加密数据库。
 
-更多原理见[状态与并发](../concepts/state-and-concurrency.md)。
+[消息与会话 API](../reference/protocols.md) · [Runtime 生命周期](../concepts/runtime-lifecycle.md)

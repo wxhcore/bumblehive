@@ -1,4 +1,6 @@
-# 测试与发布检查
+# 参与 SDK 开发
+
+Python SDK 的源码位于 `src/bumblehive/`，示例位于 `examples/`。先用[架构说明](sdk-architecture.md)定位模块，再修改对应实现和测试。添加内置工具时参考[工具开发说明](adding-a-tool.md)。
 
 ## 安装开发依赖
 
@@ -39,6 +41,7 @@ python -m pytest tests/agent
 
 ```bash
 python -m mkdocs build --strict -f mkdocs.zh.yml
+python -m mkdocs build --strict -f mkdocs.en.yml
 python docs/scripts/check_api_coverage.py
 ```
 

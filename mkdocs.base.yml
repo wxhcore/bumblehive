@@ -6,7 +6,10 @@ use_directory_urls: true
 
 theme:
   name: material
+  font: false
   features:
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.indexes
     - navigation.top
@@ -31,13 +34,23 @@ plugins:
           separate_signature: true
           show_signature_annotations: true
           show_source: false
+          heading_level: 3
+          show_root_full_path: false
+          show_symbol_type_heading: true
+          show_symbol_type_toc: false
+          docstring_section_style: spacy
+          line_length: 68
 
 markdown_extensions:
   admonition: {}
+  pymdownx.emoji:
+    emoji_index: !!python/name:material.extensions.emoji.twemoji
+    emoji_generator: !!python/name:material.extensions.emoji.to_svg
   attr_list: {}
   md_in_html: {}
   toc:
     permalink: true
+    toc_depth: 2-3
   pymdownx.details: {}
   pymdownx.superfences: {}
   pymdownx.tabbed:

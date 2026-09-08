@@ -1,4 +1,13 @@
+---
+search:
+  exclude: true
+---
+
 # 选择合适的接口层
+
+!!! note "新版入口"
+    常用内容已整理到[自定义 Provider 与底层组装](../development/adding-a-provider.md)。本页保留已有链接和详细说明。
+
 
 大多数项目从 `BumblehiveRuntime` 开始即可。只有需要替换底层组件时，才使用更低层接口。
 
@@ -60,4 +69,4 @@ async with bumblehive.from_config(config) as runtime:
 
 > 先使用能完成任务的最高层接口。只有 Runtime 无法满足扩展需求时，再下降到 `AgentLoop` 或 `ToolCallingRunner`。
 
-下一步：阅读[Runtime 生命周期](runtime-lifecycle.md)。
+相关内容：[Runtime 生命周期](runtime-lifecycle.md)。

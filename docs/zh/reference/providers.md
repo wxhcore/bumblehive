@@ -1,4 +1,11 @@
+---
+search:
+  exclude: true
+---
+
 # 模型 Provider
+
+模型接入内容已集中到[配置与模型 Provider](config.md)。本页保留旧链接和接口锚点。
 
 `ModelProvider` 把不同模型服务转换成 Bumblehive 使用的统一请求和响应。
 

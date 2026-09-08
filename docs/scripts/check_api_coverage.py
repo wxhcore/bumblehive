@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -21,7 +23,12 @@ def main() -> int:
     reference_dir = ROOT / "docs" / "zh" / "reference"
     directives: set[str] = set()
     for path in reference_dir.glob("*.md"):
-        directives.update(DIRECTIVE.findall(path.read_text(encoding="utf-8")))
+        content = path.read_text(encoding="utf-8")
+        if content.startswith("---\n"):
+            metadata = yaml.safe_load(content.split("---", 2)[1]) or {}
+            if metadata.get("search", {}).get("exclude"):
+                continue
+        directives.update(DIRECTIVE.findall(content))
 
     documented_objects: set[int] = set()
     for identifier in directives:

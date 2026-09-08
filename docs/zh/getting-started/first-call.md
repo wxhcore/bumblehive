@@ -1,4 +1,13 @@
+---
+search:
+  exclude: true
+---
+
 # 运行第一个 Agent
+
+!!! note "新版入口"
+    常用内容已整理到[安装与快速开始](installation.md)。本页保留已有链接和详细说明。
+
 
 本页将使用 `BumblehiveRuntime` 向模型发送一个问题，并打印回答。
 

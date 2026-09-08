@@ -1,8 +1,19 @@
-# 增加一个 Provider
+# 自定义 Provider 与底层组装
 
 Provider 负责把模型服务转换为统一的 `ModelRequest` 和 `ModelResponse`。
 
 当前高层 Runtime 只创建 `openai_chat_completions` Provider。自定义 Provider 应直接传给 `AgentLoop`。
+
+## 选择接口层
+
+| 需求 | 入口 |
+| --- | --- |
+| 构建普通应用，复用会话和资源管理 | `BumblehiveRuntime` |
+| 替换 Provider，组合上下文与工具 | `AgentLoop` |
+| 已有消息构建，只需要模型与工具循环 | `ToolCallingRunner` |
+| 只使用工具注册与执行 | `ToolManager` |
+
+[SDK 架构](sdk-architecture.md)说明各层关系。下面的静态 Provider 不访问网络，适合测试底层组装。
 
 ## 最小 Provider
 
@@ -50,4 +61,4 @@ result = await loop.run_turn(
 
 先使用确定性响应测试 Provider，再连接真实服务。
 
-下一步：阅读[Provider API](../reference/providers.md)。
+[配置与 Provider API](../reference/config.md) · [AgentLoop API](../reference/agent.md)
