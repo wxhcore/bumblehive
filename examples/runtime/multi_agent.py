@@ -26,6 +26,8 @@ async def main() -> None:
                 task,
                 config={"agent": {"tool_names": READ_ONLY_TOOLS}},
             )
+            if response.error:
+                raise RuntimeError(response.error.message)
             return response.final_content or ""
 
         result = await runtime.run(

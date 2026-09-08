@@ -236,3 +236,7 @@ desktop/src-tauri/sidecar/*
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Runtime tutorial outputs
+examples/runtime/file-assistant-workspace/
+examples/runtime/approval-demo.txt
