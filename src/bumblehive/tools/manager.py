@@ -6,6 +6,7 @@ from typing import Any, Mapping
 from ..observability.emitter import EventEmitter
 from ..protocols import MCPServerConfig
 from ..protocols.errors import AgentError
+from ..protocols.tool_approval import ToolApprovalHandler
 from ..protocols.tool_calls import ToolCall, ToolResult
 from .base import Tool
 from .builtins import _register_builtin_tools
@@ -189,6 +190,7 @@ class ToolManager:
         tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
         path_policy: ToolPathPolicy = ToolPathPolicy(),
+        approval_handler: ToolApprovalHandler | None = None,
         emitter: EventEmitter | None = None,
     ) -> ToolResult:
         """Execute one tool call with a run-scoped built-in path policy.
@@ -202,6 +204,7 @@ class ToolManager:
             allowed=allowed,
             workspace=workspace,
             path_policy=path_policy,
+            approval_handler=approval_handler,
             emitter=emitter,
         )
 
@@ -212,6 +215,7 @@ class ToolManager:
         allowed: frozenset[str] | None,
         workspace: Path | str | None,
         path_policy: ToolPathPolicy,
+        approval_handler: ToolApprovalHandler | None,
         emitter: EventEmitter | None,
     ) -> ToolResult:
         if allowed is not None and call.name not in allowed:
@@ -239,7 +243,11 @@ class ToolManager:
             )
 
         try:
-            return await self._executor.execute_call(call, emitter=emitter)
+            return await self._executor.execute_call(
+                call,
+                approval_handler=approval_handler,
+                emitter=emitter,
+            )
         finally:
             reset_tool_path_scope(token)
 
@@ -250,6 +258,7 @@ class ToolManager:
         tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
         path_policy: ToolPathPolicy = ToolPathPolicy(),
+        approval_handler: ToolApprovalHandler | None = None,
         emitter: EventEmitter | None = None,
     ) -> list[ToolResult]:
         """Execute tool calls with one run-scoped built-in path policy.
@@ -266,6 +275,7 @@ class ToolManager:
                 allowed=allowed,
                 workspace=workspace,
                 path_policy=path_policy,
+                approval_handler=approval_handler,
                 emitter=emitter,
             )
 

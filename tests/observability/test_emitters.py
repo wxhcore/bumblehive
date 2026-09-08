@@ -11,6 +11,8 @@ from bumblehive.observability import (
     RUN_ERROR,
     RUN_FINISHED,
     RUN_STARTED,
+    TOOL_APPROVAL_FINISHED,
+    TOOL_APPROVAL_STARTED,
     TOOL_CALL_FINISHED,
     TOOL_CALL_STARTED,
     TOOL_CALLS_FINISHED,
@@ -29,7 +31,7 @@ from bumblehive.providers import (
     ModelStreamCallbacks,
 )
 from bumblehive.skills import SkillsManager
-from bumblehive.tools import ToolManager
+from bumblehive.tools import ToolApprovalDecision, ToolManager
 
 
 class SequenceProvider(ModelProvider):
@@ -115,6 +117,105 @@ async def test_runner_emits_one_complete_model_and_tool_timeline(tmp_path) -> No
     assert recorder.by_kind(FINAL_RESULT)[0].payload == {
         "final_content": "done",
         "stop_reason": "completed",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tool_approval_events_wrap_execution_with_compact_payloads() -> None:
+    tools = ToolManager()
+    recorder = EventRecorder()
+    executed = []
+    requests = []
+
+    @tools.tool
+    def inspect(value: int, nested: dict) -> str:
+        """Inspect validated arguments."""
+        executed.append({"value": value, "nested": nested})
+        return "done"
+
+    async def approve(request):
+        requests.append(request)
+        nested = request.arguments["nested"]
+        assert isinstance(nested, dict)
+        nested["value"] = "changed-in-handler"
+        return ToolApprovalDecision.approve()
+
+    emitter = EventEmitter.from_hooks(
+        recorder,
+        run_id="approval-run",
+        session_id="approval-session",
+    ).with_iteration(2)
+    result = await tools.execute_call(
+        ToolCall(
+            "approval-call",
+            "inspect",
+            {"value": "2", "nested": {"value": "original"}},
+        ),
+        approval_handler=approve,
+        emitter=emitter,
+    )
+
+    assert result.content == "done"
+    assert executed == [{"value": 2, "nested": {"value": "original"}}]
+    assert [event.kind for event in recorder.events] == [
+        TOOL_CALL_STARTED,
+        TOOL_APPROVAL_STARTED,
+        TOOL_APPROVAL_FINISHED,
+        TOOL_CALL_FINISHED,
+    ]
+    approval_started = recorder.by_kind(TOOL_APPROVAL_STARTED)[0]
+    assert approval_started.payload == {"call_id": "approval-call"}
+    assert recorder.by_kind(TOOL_APPROVAL_FINISHED)[0].payload == {
+        "call_id": "approval-call",
+        "approved": True,
+    }
+    assert {event.run_id for event in recorder.events} == {"approval-run"}
+    assert {event.session_id for event in recorder.events} == {"approval-session"}
+    assert {event.iteration for event in recorder.events} == {2}
+
+    assert requests[0].arguments["nested"] == {"value": "changed-in-handler"}
+    assert executed == [{"value": 2, "nested": {"value": "original"}}]
+
+
+@pytest.mark.asyncio
+async def test_tool_approval_events_distinguish_denial_from_handler_error() -> None:
+    tools = _tools()
+
+    async def reject(_request):
+        return ToolApprovalDecision.reject("not now")
+
+    rejected_recorder = EventRecorder()
+    rejected = await tools.execute_call(
+        ToolCall("rejected", "add", {"a": 1, "b": 2}),
+        approval_handler=reject,
+        emitter=EventEmitter.from_hooks(rejected_recorder),
+    )
+    assert rejected.error is not None
+    assert rejected.error.code == "tool_approval_denied"
+    assert rejected_recorder.by_kind(TOOL_APPROVAL_FINISHED)[0].payload == {
+        "call_id": "rejected",
+        "approved": False,
+        "reason": "not now",
+    }
+
+    async def fail(_request):
+        raise RuntimeError("approval broke")
+
+    failed_recorder = EventRecorder()
+    failed = await tools.execute_call(
+        ToolCall("failed", "add", {"a": 1, "b": 2}),
+        approval_handler=fail,
+        emitter=EventEmitter.from_hooks(failed_recorder),
+    )
+    assert failed.error is not None
+    assert failed.error.code == "tool_approval_error"
+    assert failed_recorder.by_kind(TOOL_APPROVAL_FINISHED)[0].payload == {
+        "call_id": "failed",
+        "error": {
+            "code": "tool_approval_error",
+            "message": "Tool approval failed: approval broke",
+            "recoverable": False,
+        },
     }
 
 

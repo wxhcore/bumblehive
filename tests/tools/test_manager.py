@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import ToolPathPolicy, ToolManager
+from bumblehive.tools import ToolApprovalDecision, ToolPathPolicy, ToolManager
 
 
 BUILTINS = [
@@ -56,6 +56,31 @@ async def test_manager_owns_registration_discovery_filtering_and_execution() -> 
     assert manager.get_tool("add") is None
     with pytest.raises(ValueError, match="Unknown tools"):
         manager.get_openai_tool_definitions(["add"])
+
+
+@pytest.mark.asyncio
+async def test_manager_does_not_approve_unexposed_tools() -> None:
+    manager = ToolManager()
+    approvals: list[str] = []
+
+    @manager.tool
+    def hidden() -> str:
+        """A tool omitted from the model request."""
+        return "hidden"
+
+    async def approve(request):
+        approvals.append(request.call_id)
+        return ToolApprovalDecision.approve()
+
+    result = await manager.execute_call(
+        _call("hidden", "hidden"),
+        tool_names=[],
+        approval_handler=approve,
+    )
+
+    assert result.error is not None
+    assert result.error.code == "tool_not_allowed"
+    assert approvals == []
 
 
 @pytest.mark.asyncio

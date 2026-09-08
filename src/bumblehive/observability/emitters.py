@@ -3,7 +3,14 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from ..protocols import AgentError, Message, ToolCall, ToolResult
+from ..protocols import (
+    AgentError,
+    Message,
+    ToolApprovalDecision,
+    ToolApprovalRequest,
+    ToolCall,
+    ToolResult,
+)
 from .emitter import EventEmitter
 from .events import (
     FINAL_RESULT,
@@ -18,6 +25,8 @@ from .events import (
     RUN_ERROR,
     RUN_FINISHED,
     RUN_STARTED,
+    TOOL_APPROVAL_FINISHED,
+    TOOL_APPROVAL_STARTED,
     TOOL_CALL_FINISHED,
     TOOL_CALL_STARTED,
     TOOL_CALLS_FINISHED,
@@ -225,6 +234,34 @@ class ToolEvents:
         await self.emitter.emit(
             TOOL_CALL_STARTED,
             **tool_call_payload(call),
+        )
+
+    async def approval_started(self, call_id: str) -> None:
+        await self.emitter.emit(
+            TOOL_APPROVAL_STARTED,
+            call_id=call_id,
+        )
+
+    async def approval_finished(
+        self,
+        *,
+        request: ToolApprovalRequest,
+        decision: ToolApprovalDecision | None = None,
+        error: AgentError | None = None,
+    ) -> None:
+        if decision is not None:
+            await self.emitter.emit(
+                TOOL_APPROVAL_FINISHED,
+                call_id=request.call_id,
+                approved=decision.approved,
+                reason=decision.reason,
+            )
+            return
+
+        await self.emitter.emit(
+            TOOL_APPROVAL_FINISHED,
+            call_id=request.call_id,
+            error=error_payload(error),
         )
 
     async def call_finished(

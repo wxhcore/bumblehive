@@ -1,5 +1,10 @@
 """Tool registration primitives."""
 
+from ..protocols import (
+    ToolApprovalDecision,
+    ToolApprovalHandler,
+    ToolApprovalRequest,
+)
 from .adapters.function import CallableTool
 from .base import Tool
 from .manager import ToolManager
@@ -10,6 +15,9 @@ from .scope import ToolPathPolicy
 __all__ = [
     "CallableTool",
     "MCPServerStatus",
+    "ToolApprovalDecision",
+    "ToolApprovalHandler",
+    "ToolApprovalRequest",
     "ToolPathPolicy",
     "Tool",
     "ToolManager",

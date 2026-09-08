@@ -63,6 +63,8 @@ MODEL_RESPONSE_FINISHED = "model.response.finished"
 
 TOOL_CALLS_STARTED = "tool.calls.started"
 TOOL_CALL_STARTED = "tool.call.started"
+TOOL_APPROVAL_STARTED = "tool.approval.started"
+TOOL_APPROVAL_FINISHED = "tool.approval.finished"
 TOOL_CALL_FINISHED = "tool.call.finished"
 TOOL_CALLS_FINISHED = "tool.calls.finished"
 

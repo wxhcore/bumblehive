@@ -7,9 +7,14 @@ from .observability import (
     AgentHook,
     EventRecorder,
 )
+from .protocols import (
+    ToolApprovalDecision,
+    ToolApprovalHandler,
+    ToolApprovalRequest,
+)
 from .runtime import BumblehiveRuntime, from_config
 from .skills import SkillsManager
-from .tools.manager import ToolManager
+from .tools import ToolManager
 
 __all__ = [
     "AgentEvent",
@@ -22,6 +27,9 @@ __all__ = [
     "MessageHistory",
     "RuntimeArguments",
     "SkillsManager",
+    "ToolApprovalDecision",
+    "ToolApprovalHandler",
+    "ToolApprovalRequest",
     "ToolCallingRunner",
     "ToolManager",
     "from_config",
