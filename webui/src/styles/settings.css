@@ -852,12 +852,6 @@
   cursor: pointer;
 }
 
-.settings-list-editor {
-  display: grid;
-  gap: 7px;
-}
-
-.settings-list-row,
 .mcp-header-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 32px;

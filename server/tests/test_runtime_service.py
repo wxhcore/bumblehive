@@ -11,12 +11,12 @@ from bumblehive.config import ProviderConfig
 from bumblehive.observability.events import make_event
 from bumblehive.protocols import ToolCall
 from bumblehive.protocols.errors import AgentError
-from bumblehive.tools import ToolPathPolicy, ToolManager
+from bumblehive.tools import ToolManager
 from bumblehive.tools.scope import (
-    bind_tool_path_scope,
     bind_tool_session,
-    reset_tool_path_scope,
+    bind_tool_workspace,
     reset_tool_session,
+    reset_tool_workspace,
 )
 from bumblehive_server.runtime_service import RuntimeBusyError, RuntimeService
 from bumblehive_server.subagents import observe_subagents
@@ -237,13 +237,13 @@ def _start_subagent_tool(
     task: str,
 ) -> asyncio.Task[str]:
     session_token = bind_tool_session("parent-session")
-    path_token = bind_tool_path_scope(workspace, ToolPathPolicy())
+    workspace_token = bind_tool_workspace(workspace)
     try:
         tool = runtime.tools.get_tool("sub_agent")
         assert tool is not None
         return asyncio.create_task(tool.execute(title=title, task=task))
     finally:
-        reset_tool_path_scope(path_token)
+        reset_tool_workspace(workspace_token)
         reset_tool_session(session_token)
 
 
@@ -346,9 +346,6 @@ async def test_runtime_service_updates_config_without_exposing_api_key(
             "context_window_tokens": 200_000,
             "max_tool_result_chars": 20_000,
             "max_iterations": 300,
-            "extra_read_roots": [],
-            "extra_write_roots": [],
-            "restrict_exec_paths": False,
         },
         "mcp_servers": [],
         "skills_dir": None,

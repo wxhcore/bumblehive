@@ -255,8 +255,6 @@ test("settings editor exposes context navigation and every config domain", () =>
         },
         runtime: {
           workspace: "/tmp/project",
-          extra_read_roots: [],
-          extra_write_roots: [],
         },
         mcp_servers: [],
       },
@@ -309,8 +307,6 @@ test("initial setup exposes only the required model connection", () => {
         },
         runtime: {
           workspace: "/tmp/project",
-          extra_read_roots: [],
-          extra_write_roots: [],
         },
         mcp_servers: [],
       },
@@ -334,53 +330,6 @@ test("initial setup exposes only the required model connection", () => {
   assert.doesNotMatch(html, />上下文</);
   assert.doesNotMatch(html, />生成参数</);
   assert.doesNotMatch(html, />放弃更改</);
-});
-
-test("runtime file roots remain configurable independently of shell restrictions", () => {
-  const renderRuntimeSettings = (restrictExecPaths) =>
-    renderToStaticMarkup(
-      createElement(settingsView.SettingsView, {
-        settings: {
-          provider: {
-            type: "openai_chat_completions",
-            model: "test-model",
-            api_key_configured: true,
-          },
-          generation: {},
-          agent: {},
-          runtime: { restrict_exec_paths: restrictExecPaths },
-          mcp_servers: [],
-        },
-        mode: "settings",
-        focusWorkspace: true,
-        hasRunningSessions: false,
-        onCancel() {},
-        async onSave(settings) {
-          return settings;
-        },
-      }),
-    );
-
-  const disabledHtml = renderRuntimeSettings(false);
-  const enabledHtml = renderRuntimeSettings(true);
-
-  assert.match(disabledHtml, /Shell 路径限制/);
-  assert.match(
-    disabledHtml,
-    /class="setting-row setting-row-inline-control"/,
-  );
-  assert.match(disabledHtml, /aria-label="Shell 路径限制"/);
-  assert.doesNotMatch(disabledHtml, /aria-label="Shell 路径限制" checked/);
-  assert.match(disabledHtml, /额外只读目录/);
-  assert.match(disabledHtml, /额外可写目录/);
-
-  assert.match(enabledHtml, /aria-label="Shell 路径限制" checked/);
-  assert.match(enabledHtml, /额外只读目录/);
-  assert.match(enabledHtml, /额外可写目录/);
-  assert.ok(
-    enabledHtml.indexOf("额外只读目录") <
-      enabledHtml.indexOf("Shell 路径限制"),
-  );
 });
 
 test("tool sources group MCP tools by their configured server", () => {
@@ -475,9 +424,6 @@ test("settings draft maps UI fields back to the complete config shape", () => {
       },
       runtime: {
         workspace: "/tmp/project",
-        extra_read_roots: ["/tmp/read"],
-        extra_write_roots: [],
-        restrict_exec_paths: true,
       },
       mcp_servers: [
         {
@@ -490,11 +436,11 @@ test("settings draft maps UI fields back to the complete config shape", () => {
     "Asia/Shanghai",
   );
   assert.equal(draft.generation.maxCompletionTokens, 16_384);
+  assert.equal(draft.runtime.workspace, "/tmp/project");
   assert.equal(draft.runtime.timezone, "Asia/Shanghai");
   assert.equal(draft.runtime.contextWindowTokens, 200_000);
   assert.equal(draft.runtime.maxToolResultChars, 20_000);
   assert.equal(draft.runtime.maxIterations, 300);
-  assert.equal(draft.runtime.restrictExecPaths, true);
   draft.generation.thinkingEnabled = false;
   draft.generation.reasoningEffort = "vendor-ultra";
 
@@ -514,9 +460,8 @@ test("settings draft maps UI fields back to the complete config shape", () => {
   assert.equal(update.runtime.context_window_tokens, 200_000);
   assert.equal(update.runtime.max_tool_result_chars, 20_000);
   assert.equal(update.runtime.max_iterations, 300);
+  assert.equal(update.runtime.workspace, "/tmp/project");
   assert.equal(update.runtime.timezone, "Asia/Shanghai");
-  assert.deepEqual(update.runtime.extra_read_roots, ["/tmp/read"]);
-  assert.equal(update.runtime.restrict_exec_paths, true);
   assert.deepEqual(update.mcp_servers, [
     {
       name: "docs",
@@ -542,8 +487,6 @@ test("configured timezone takes priority over the detected system timezone", () 
       },
       runtime: {
         timezone: "Europe/Paris",
-        extra_read_roots: [],
-        extra_write_roots: [],
       },
       mcp_servers: [],
     },
@@ -551,7 +494,6 @@ test("configured timezone takes priority over the detected system timezone", () 
   );
 
   assert.equal(draft.runtime.timezone, "Europe/Paris");
-  assert.equal(draft.runtime.restrictExecPaths, false);
 });
 
 test("settings draft switches disabled thinking to a custom reasoning effort", () => {
@@ -573,10 +515,7 @@ test("settings draft switches disabled thinking to a custom reasoning effort", (
       skill_names: null,
       tool_names: null,
     },
-    runtime: {
-      extra_read_roots: [],
-      extra_write_roots: [],
-    },
+    runtime: {},
     mcp_servers: [],
   });
 

@@ -9,7 +9,6 @@ export const DEFAULT_CONFIG_VALUES = {
     contextWindowTokens: 200_000,
     maxToolResultChars: 20_000,
     maxIterations: 300,
-    restrictExecPaths: false,
   },
 } as const;
 

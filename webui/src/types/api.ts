@@ -30,9 +30,6 @@ export interface RuntimeSettings {
   context_window_tokens?: number | null;
   max_tool_result_chars?: number | null;
   max_iterations?: number | null;
-  extra_read_roots?: string[];
-  extra_write_roots?: string[];
-  restrict_exec_paths?: boolean;
 }
 
 export interface McpServerSettings {

@@ -8,7 +8,7 @@ from typing import Protocol
 from bumblehive import BumblehiveRuntime
 from bumblehive.agent import AgentRunResult
 from bumblehive.observability import AgentEvent
-from bumblehive.tools.scope import current_tool_path_scope, current_tool_session_id
+from bumblehive.tools.scope import current_tool_session_id, current_tool_workspace
 
 from .session_reader import SessionReader
 
@@ -119,11 +119,10 @@ def register_subagent_tool(
             raise ValueError("task must not be blank")
 
         parent_session_id = current_tool_session_id()
-        path_scope = current_tool_path_scope()
-        if parent_session_id is None or path_scope is None:
+        workspace_path = current_tool_workspace()
+        if parent_session_id is None or workspace_path is None:
             raise RuntimeError("sub_agent requires an active server conversation")
 
-        workspace_path = path_scope.workspace
         workspace = str(workspace_path)
         child_session_id = await session_reader.create_child(
             workspace_path,
