@@ -14,9 +14,9 @@ python examples/runtime/tool_approval.py
 --8<-- "examples/runtime/tool_approval.py"
 ```
 
-示例把工作目录设为脚本所在的 `examples/runtime/`，并打印绝对路径。模型请求调用后，终端展示工具名称和校验后的参数：输入 `y` 或 `yes` 批准，回车或其他输入拒绝。
+示例把工作目录设为脚本所在的 `examples/runtime/`，并打印绝对路径。工作目录内写入自动批准；外部写入展示工具名称、工作目录、目标绝对路径和写入内容：输入 `y` 或 `yes` 批准，回车或其他输入拒绝。
 
-批准后工具会创建或覆盖 `approval-demo.txt`，内容为 `hello`。拒绝后本次调用不会修改文件，原因交回 Agent。通过 Conda 运行时使用 `conda run --no-capture-output -n bumblehive_env python examples/runtime/tool_approval.py`，以保留输入输出。
+模型依次写入目录内的 `approval-demo.txt`（内容为 `hello inside`）和目录外的 `../approval-outside-demo.txt`（内容为 `hello outside`）。外部写入批准后才执行，拒绝后本次调用不会修改文件，原因交回 Agent。通过 Conda 运行时使用 `conda run --no-capture-output -n bumblehive_env python examples/runtime/tool_approval.py`，以保留输入输出。
 
 ## 执行顺序
 
@@ -25,7 +25,7 @@ python examples/runtime/tool_approval.py
                                   → 拒绝：返回拒绝原因
 ```
 
-参数校验通过后，SDK 将工具名称和校验后的参数交给审批处理器，路径参数保持调用时的相对或绝对路径形式。处理器抛出异常时，本次工具不会执行，错误以 `tool_approval_error` 交回 Agent。拒绝使用 `tool_approval_denied`；这不一定使整个运行失败。未配置 `approval_handler` 时，SDK 直接进入工具执行阶段。
+参数校验通过后，SDK 将工具名称、校验后的参数和本次调用的 `workspace` 交给审批处理器。`request.workspace` 是绝对路径 `Path`；路径参数保持调用时的相对或绝对路径形式，示例中的 `resolve_path(path, workspace)` 函数负责解析。处理器抛出异常时，本次工具不会执行，错误以 `tool_approval_error` 交回 Agent。拒绝使用 `tool_approval_denied`；这不一定使整个运行失败。未配置 `approval_handler` 时，SDK 直接进入工具执行阶段。
 
 ## 按规则自动拒绝
 

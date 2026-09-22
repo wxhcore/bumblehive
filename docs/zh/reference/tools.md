@@ -9,7 +9,7 @@
 | 接口 | 用途 |
 | --- | --- |
 | [`ToolManager`](#bumblehive.tools.ToolManager) | 注册、选择和执行工具，管理内置工具与 MCP 连接。 |
-| [`ToolApprovalRequest`](#bumblehive.ToolApprovalRequest) | 处理器读取 call_id、name 和校验后的 arguments。 |
+| [`ToolApprovalRequest`](#bumblehive.ToolApprovalRequest) | 处理器读取 call_id、name、校验后的 arguments，以及本次调用的 workspace（绝对路径 Path）。 |
 | [`ToolApprovalDecision`](#bumblehive.ToolApprovalDecision) | approve() 批准；reject(reason) 拒绝并把原因交给 Agent。 |
 
 ## 注册与执行

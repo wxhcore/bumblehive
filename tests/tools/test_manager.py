@@ -97,8 +97,10 @@ async def test_concurrent_manager_calls_keep_workspaces_isolated(tmp_path) -> No
 
     async def approve(request):
         before = current_tool_workspace()
+        expected = {"first": first_root, "second": second_root}[request.call_id].resolve()
+        assert request.workspace == before == expected
         await asyncio.sleep(0)
-        assert current_tool_workspace() == before
+        assert request.workspace == current_tool_workspace() == before
         return ToolApprovalDecision.approve()
 
     results = await asyncio.gather(*(
@@ -139,6 +141,7 @@ async def test_approval_controls_writing_outside_workspace(tmp_path, approved, r
     )
 
     assert len(requests) == 1
+    assert requests[0].workspace == workspace.resolve()
     assert requests[0].arguments == {"path": path, "content": "approved"}
     assert current_tool_workspace() is None
     if approved:

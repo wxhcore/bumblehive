@@ -8,6 +8,7 @@ from ..observability.emitters import ToolEvents
 from ..protocols.errors import AgentError
 from ..protocols.tool_approval import ToolApprovalHandler, ToolApprovalRequest
 from ..protocols.tool_calls import ToolCall, ToolResult
+from .builtins.workspace import current_workspace_access
 from .file_changes import FileChangeTracker
 from .registry import PreparedToolCall, ToolRegistry
 
@@ -83,6 +84,7 @@ class ToolExecutor:
             call_id=call.id,
             name=call.name,
             arguments=deepcopy(prepared.arguments),
+            workspace=current_workspace_access().workspace,
         )
         await tool_events.approval_started(request.call_id)
 

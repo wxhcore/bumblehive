@@ -451,7 +451,12 @@ async def test_runtime_run_and_stream_propagate_approval_handler(
         return bumblehive.ToolApprovalDecision.approve()
 
     result = await runtime.run("run", approval_handler=approve)
-    stream = runtime.stream("stream", approval_handler=approve)
+    stream_workspace = tmp_path / "stream-workspace"
+    stream = runtime.stream(
+        "stream",
+        config={"runtime": {"workspace": str(stream_workspace)}},
+        approval_handler=approve,
+    )
     events = [event async for event in stream]
     streamed_result = await stream.result()
 
@@ -460,6 +465,10 @@ async def test_runtime_run_and_stream_propagate_approval_handler(
     assert [request.name for request in approvals] == [
         "protected_tool",
         "protected_tool",
+    ]
+    assert [request.workspace for request in approvals] == [
+        (tmp_path / "workspace").resolve(),
+        stream_workspace.resolve(),
     ]
     assert executions == [1, 3]
     assert [

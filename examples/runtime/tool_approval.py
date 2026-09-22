@@ -4,7 +4,12 @@ from pathlib import Path
 
 import bumblehive
 from bumblehive.console import ConsoleStreamRenderer
-from bumblehive.tools.builtins.workspace import current_workspace_access
+
+
+def resolve_path(path: str | Path, workspace: Path) -> Path:
+    """Resolve a local path relative to the tool call's workspace."""
+    raw = Path(path).expanduser()
+    return raw.resolve() if raw.is_absolute() else (workspace / raw).resolve()
 
 
 async def main() -> None:
@@ -15,14 +20,13 @@ async def main() -> None:
     async def approve_tool(
         request: bumblehive.ToolApprovalRequest,
     ) -> bumblehive.ToolApprovalDecision:
-        access = current_workspace_access()
-        target = access.resolve_path(request.arguments["path"])
-        if target.is_relative_to(access.workspace):
+        target = resolve_path(request.arguments["path"], request.workspace)
+        if target.is_relative_to(request.workspace):
             return bumblehive.ToolApprovalDecision.approve()
 
         with renderer.pause():
             print(f"工具：{request.name}")
-            print(f"工作目录：{access.workspace}")
+            print(f"工作目录：{request.workspace}")
             print(f"目标路径：{target}")
             print(f"写入内容：\n{request.arguments['content']}")
             answer = await asyncio.to_thread(

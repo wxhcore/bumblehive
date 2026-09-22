@@ -46,7 +46,7 @@ async def test_executor_returns_structured_results_for_all_call_outcomes() -> No
 
 
 @pytest.mark.asyncio
-async def test_executor_approves_prepared_arguments_without_sharing_mutations() -> None:
+async def test_executor_approves_prepared_arguments_without_sharing_mutations(tmp_path) -> None:
     registry = ToolRegistry()
     executed: list[dict[str, Any]] = []
     parameters = {
@@ -83,6 +83,7 @@ async def test_executor_approves_prepared_arguments_without_sharing_mutations() 
     )
 
     async def approve(request):
+        assert request.workspace == (tmp_path / "bumblehive-workspace").resolve()
         assert request.arguments["value"] == 2
         nested = request.arguments["nested"]
         assert isinstance(nested, dict)

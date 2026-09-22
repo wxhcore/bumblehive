@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -10,6 +11,7 @@ class ToolApprovalRequest:
     call_id: str
     name: str
     arguments: Mapping[str, Any]
+    workspace: Path
 
 
 @dataclass(frozen=True, slots=True)
