@@ -6,6 +6,7 @@
 .assistant-iteration {
   width: 100%;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
 }
 
@@ -74,6 +75,7 @@
   margin: 10px 0 4px 7px;
   padding-left: 14px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
   border-left: 2px solid rgba(23, 24, 26, 0.08);
 }
@@ -140,6 +142,7 @@
 
 .markdown-body {
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .markdown-body > :last-child {
@@ -303,6 +306,7 @@
   width: 100%;
   padding: 0 4px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
 }
 
