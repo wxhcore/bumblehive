@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import ToolPathPolicy, ToolManager
+from bumblehive.tools import ToolApprovalDecision, ToolManager
 from bumblehive.tools.builtins.shell import (
     ExecSession,
     _build_env,
@@ -67,14 +67,12 @@ async def _execute(
     arguments=None,
     *,
     session_id=None,
-    policy=ToolPathPolicy(),
 ):
     token = bind_tool_session(session_id)
     try:
         return await manager.execute_call(
             ToolCall(f"call-{name}", name, arguments or {}),
             workspace=workspace,
-            path_policy=policy,
         )
     finally:
         reset_tool_session(token)
@@ -210,160 +208,67 @@ async def test_windows_spawn_uses_prepared_shell_programs(monkeypatch, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_exec_runs_commands_from_readable_working_directories(tmp_path) -> None:
-    workspace = tmp_path / "workspace"
-    extra = tmp_path / "skills"
-    read_only = tmp_path / "reference"
-    workspace.mkdir()
-    extra.mkdir()
-    read_only.mkdir()
-    if sys.platform == "win32":
-        script = extra / "run.cmd"
-        script.write_text("@echo from skills\r\n", encoding="utf-8")
-    else:
-        script = extra / "run.sh"
-        script.write_text("#!/bin/sh\nprintf 'from skills\\n'\n", encoding="utf-8")
-        script.chmod(0o500)
-    manager = _manager(timeout=10)
-    restricted_policy = ToolPathPolicy(restrict_exec_paths=True)
-    policy = ToolPathPolicy.from_roots(
-        extra_read_roots=[extra, read_only],
-        restrict_exec_paths=True,
-    )
-    cwd_command = _shell_command(
-        [Path(sys.executable).name, "-c", "import os; print(os.getcwd())"]
-    )
-
-    normal = await _execute(
-        manager,
-        workspace,
-        "exec",
-        {"command": "echo hello"},
-        policy=restricted_policy,
-    )
-    skill_script = await _execute(
-        manager,
-        workspace,
-        "exec",
-        {"command": str(script), "working_dir": str(extra)},
-        policy=policy,
-    )
-    outside = await _execute(
-        manager,
-        workspace,
-        "exec",
-        {"command": cwd_command, "working_dir": str(tmp_path)},
-        policy=restricted_policy,
-    )
-    read_only_cwd = await _execute(
-        manager,
-        workspace,
-        "exec",
-        {"command": cwd_command, "working_dir": str(read_only)},
-        policy=policy,
-    )
-    blocked = await _execute(manager, workspace, "exec", {"command": "sudo ls"})
-
-    assert normal.content["exit_code"] == 0
-    assert normal.content["stdout"].strip() == "hello"
-    assert skill_script.content.get("timed_out") is False, skill_script.content
-    assert skill_script.content["exit_code"] == 0, skill_script.content
-    assert skill_script.content["stdout"].strip() == "from skills"
-    assert outside.content == {"error": "working_dir is outside readable roots"}
-    assert read_only_cwd.content["exit_code"] == 0
-    assert Path(read_only_cwd.content["stdout"].strip()).resolve() == read_only.resolve()
-    assert blocked.content == {"error": "command blocked by safety policy"}
-
-
-@pytest.mark.asyncio
-async def test_exec_accepts_unrestricted_working_directories_and_paths(tmp_path) -> None:
-    workspace = tmp_path / "workspace"
-    skills = tmp_path / "skills"
-    workspace.mkdir()
-    skills.mkdir()
-    script = skills / "run.py"
-    script.write_text("print('from parent path')\n", encoding="utf-8")
-    command = _shell_command(
-        [sys.executable, str(Path("..") / "skills" / "run.py")]
-    )
-
-    policy = ToolPathPolicy()
-    result = await _execute(
-        _manager(timeout=10),
-        workspace,
-        "exec",
-        {"command": command},
-        policy=policy,
-    )
-    cwd_result = await _execute(
-        _manager(timeout=10),
-        workspace,
-        "exec",
-        {
-            "command": _shell_command(
-                [Path(sys.executable).name, "-c", "import os; print(os.getcwd())"]
-            ),
-            "working_dir": str(skills),
-        },
-        policy=policy,
-    )
-
-    assert result.content["exit_code"] == 0, result.content
-    assert result.content["stdout"].strip() == "from parent path"
-    assert cwd_result.content["exit_code"] == 0, cwd_result.content
-    assert Path(cwd_result.content["stdout"].strip()).resolve() == skills.resolve()
-
-
-@pytest.mark.asyncio
-async def test_exec_restricted_policy_blocks_parent_and_outside_absolute_paths(
-    tmp_path,
-) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    outside = tmp_path / "outside.txt"
-    outside.write_text("outside", encoding="utf-8")
-    policy = ToolPathPolicy(restrict_exec_paths=True)
-
-    parent = await _execute(
-        _manager(timeout=10),
-        workspace,
-        "exec",
-        {"command": "echo ../outside.txt"},
-        policy=policy,
-    )
-    absolute = await _execute(
-        _manager(timeout=10),
-        workspace,
-        "exec",
-        {"command": f"echo {outside}"},
-        policy=policy,
-    )
-
-    assert parent.content == {
-        "error": "command blocked by safety policy: path traversal"
-    }
-    assert absolute.content == {
-        "error": "command blocked by safety policy: path outside working_dir"
-    }
-
-
-@pytest.mark.asyncio
-async def test_exec_unrestricted_policy_keeps_dangerous_command_filter(tmp_path) -> None:
+@pytest.mark.parametrize("working_dir", [None, "../outside", "absolute"])
+async def test_exec_resolves_default_and_external_working_directories(tmp_path, working_dir):
     workspace = tmp_path / "workspace"
     outside = tmp_path / "outside"
     workspace.mkdir()
     outside.mkdir()
-    policy = ToolPathPolicy()
+    arguments = {
+        "command": _shell_command([sys.executable, "-c", "import os; print(os.getcwd())"]),
+    }
+    if working_dir is not None:
+        arguments["working_dir"] = str(outside) if working_dir == "absolute" else working_dir
+    async with _manager(timeout=10) as manager:
+        result = await _execute(manager, workspace, "exec", arguments)
 
-    result = await _execute(
-        _manager(timeout=10),
-        workspace,
-        "exec",
-        {"command": "sudo ls", "working_dir": str(outside)},
-        policy=policy,
-    )
+    assert result.content["exit_code"] == 0, result.content
+    expected = workspace if working_dir is None else outside
+    assert Path(result.content["stdout"].strip()).resolve() == expected.resolve()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relative", [True, False])
+async def test_exec_accepts_parent_and_external_absolute_paths(tmp_path, relative):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    script = tmp_path / "outside.py"
+    script.write_text("print('outside workspace')\n", encoding="utf-8")
+    command = _shell_command([sys.executable, "../outside.py" if relative else str(script)])
+    async with _manager(timeout=10) as manager:
+        result = await _execute(
+            manager, workspace, "exec", {"command": command}
+        )
+    assert result.content["exit_code"] == 0, result.content
+    assert result.content["stdout"].strip() == "outside workspace"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_approval", [True, False])
+async def test_exec_rejects_denied_commands_with_or_without_approval(tmp_path, monkeypatch, with_approval):
+    spawned = False
+    approvals = []
+
+    async def unexpected_spawn(*args, **kwargs):
+        nonlocal spawned
+        spawned = True
+        raise AssertionError("blocked command must not be started")
+
+    async def approve(request):
+        approvals.append(request.call_id)
+        return ToolApprovalDecision.approve()
+
+    monkeypatch.setattr("bumblehive.tools.builtins.shell._spawn", unexpected_spawn)
+    async with _manager(timeout=10) as manager:
+        result = await manager.execute_call(
+            ToolCall("blocked", "exec", {"command": "sudo ls", "working_dir": str(tmp_path)}),
+            workspace=tmp_path / "workspace",
+            approval_handler=approve if with_approval else None,
+        )
 
     assert result.content == {"error": "command blocked by safety policy"}
+    assert approvals == (["blocked"] if with_approval else [])
+    assert spawned is False
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX PATH semantics")

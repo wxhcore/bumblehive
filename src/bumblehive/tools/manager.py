@@ -14,7 +14,7 @@ from .builtins.state import BuiltinToolState
 from .executor import ToolExecutor
 from .mcp.manager import MCPManager, MCPServerStatus
 from .registry import ToolRegistry
-from .scope import ToolPathPolicy, bind_tool_path_scope, reset_tool_path_scope
+from .scope import bind_tool_workspace, reset_tool_workspace
 
 
 class ToolManager:
@@ -189,21 +189,15 @@ class ToolManager:
         *,
         tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
-        path_policy: ToolPathPolicy = ToolPathPolicy(),
         approval_handler: ToolApprovalHandler | None = None,
         emitter: EventEmitter | None = None,
     ) -> ToolResult:
-        """Execute one tool call with a run-scoped built-in path policy.
-
-        Custom Python and MCP tools are responsible for enforcing their own
-        filesystem access rules.
-        """
+        """Execute one tool call with a run-scoped workspace and optional approval."""
         allowed = None if tool_names is None else frozenset(tool_names)
         return await self._execute_call(
             call,
             allowed=allowed,
             workspace=workspace,
-            path_policy=path_policy,
             approval_handler=approval_handler,
             emitter=emitter,
         )
@@ -214,7 +208,6 @@ class ToolManager:
         *,
         allowed: frozenset[str] | None,
         workspace: Path | str | None,
-        path_policy: ToolPathPolicy,
         approval_handler: ToolApprovalHandler | None,
         emitter: EventEmitter | None,
     ) -> ToolResult:
@@ -231,7 +224,7 @@ class ToolManager:
             )
 
         try:
-            token = bind_tool_path_scope(workspace, path_policy)
+            token = bind_tool_workspace(workspace)
         except Exception as exc:
             return ToolResult(
                 call_id=call.id,
@@ -249,7 +242,7 @@ class ToolManager:
                 emitter=emitter,
             )
         finally:
-            reset_tool_path_scope(token)
+            reset_tool_workspace(token)
 
     async def execute_many(
         self,
@@ -257,15 +250,10 @@ class ToolManager:
         *,
         tool_names: list[str] | None = None,
         workspace: Path | str | None = None,
-        path_policy: ToolPathPolicy = ToolPathPolicy(),
         approval_handler: ToolApprovalHandler | None = None,
         emitter: EventEmitter | None = None,
     ) -> list[ToolResult]:
-        """Execute tool calls with one run-scoped built-in path policy.
-
-        Custom Python and MCP tools are responsible for enforcing their own
-        filesystem access rules.
-        """
+        """Execute tool calls with a run-scoped workspace and optional approval."""
         emitter = emitter or EventEmitter.noop()
         allowed = None if tool_names is None else frozenset(tool_names)
 
@@ -274,7 +262,6 @@ class ToolManager:
                 call,
                 allowed=allowed,
                 workspace=workspace,
-                path_policy=path_policy,
                 approval_handler=approval_handler,
                 emitter=emitter,
             )

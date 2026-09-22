@@ -36,8 +36,8 @@ _APPLY_PATCH_PARAMETERS: dict[str, Any] = {
                     "path": {
                         "type": "string",
                         "description": (
-                            "File to edit. Relative paths resolve from the workspace; "
-                            "absolute paths must be inside a writable root."
+                            "File to edit, specified as an absolute path "
+                            "or a path relative to the workspace."
                         ),
                     },
                     "action": {
@@ -188,9 +188,7 @@ class StructuredPatch:
         if action not in {"add", "replace"}:
             raise PatchError(f"unknown action for {path}: {action}")
 
-        resolved = access.resolve_write(path)
-        if isinstance(resolved, str):
-            raise PatchError(f"{path}: {resolved}")
+        resolved = access.resolve_path(path)
 
         if action == "add":
             return self._prepare_add(path, resolved, edit, writes)
@@ -294,8 +292,6 @@ def _validate_path(path: str) -> str:
         return normalized
     if normalized.startswith("\\") or _ABSOLUTE_WINDOWS_RE.match(normalized):
         raise PatchError(f"patch path uses unsupported absolute path syntax: {path}")
-    if any(part in ("", ".", "..") for part in re.split(r"[\\/]+", normalized)):
-        raise PatchError(f"patch path must not contain empty or parent segments: {path}")
     return normalized
 
 

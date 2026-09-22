@@ -193,3 +193,32 @@ async def test_large_diff_keeps_stats_without_emitting_malformed_diff(
             "truncated": True,
         }
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["write_file", "edit_file", "apply_patch"])
+async def test_external_file_mutations_emit_diff(tmp_path, tool_name):
+    target = tmp_path / "outside.txt"
+    target.write_text("before\n", encoding="utf-8")
+    path = "../outside.txt"
+    if tool_name == "write_file":
+        arguments = {"path": path, "content": "after\n"}
+    elif tool_name == "edit_file":
+        arguments = {"path": path, "old_text": "before", "new_text": "after"}
+    else:
+        arguments = {
+            "edits": [
+                {"path": path, "action": "replace", "old_text": "before", "new_text": "after"}
+            ]
+        }
+
+    result, event = await _execute(
+        _manager(), tmp_path / "workspace", tool_name, arguments
+    )
+
+    assert result.content["success"] is True
+    assert target.read_text(encoding="utf-8") == "after\n"
+    changes = event.payload["file_changes"]
+    assert len(changes) == 1
+    assert changes[0]["path"] == target.as_posix()
+    assert "-before\n+after" in changes[0]["unified_diff"]

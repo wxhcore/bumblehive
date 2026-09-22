@@ -11,7 +11,6 @@
 | [`ToolManager`](#bumblehive.tools.ToolManager) | 注册、选择和执行工具，管理内置工具与 MCP 连接。 |
 | [`ToolApprovalRequest`](#bumblehive.ToolApprovalRequest) | 处理器读取 call_id、name 和校验后的 arguments。 |
 | [`ToolApprovalDecision`](#bumblehive.ToolApprovalDecision) | approve() 批准；reject(reason) 拒绝并把原因交给 Agent。 |
-| [`ToolPathPolicy`](#bumblehive.tools.ToolPathPolicy) | 为路径感知的内置工具设置额外读写根目录和命令路径检查。 |
 
 ## 注册与执行
 
@@ -107,16 +106,6 @@ approve() 批准；reject(reason) 拒绝并把原因交给 Agent。
       show_root_heading: true
       show_root_full_path: false
 
-
-## 路径策略
-
-为路径感知的内置工具设置额外读写根目录和命令路径检查。它不是操作系统沙箱。
-
-::: bumblehive.tools.ToolPathPolicy
-    options:
-      heading_level: 3
-      show_root_heading: true
-      show_root_full_path: false
 
 ## 相关类型
 

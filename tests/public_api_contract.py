@@ -122,7 +122,6 @@ PUBLIC_API = {
         "ToolApprovalDecision",
         "ToolApprovalHandler",
         "ToolApprovalRequest",
-        "ToolPathPolicy",
         "Tool",
         "ToolManager",
         "ToolRegistry",

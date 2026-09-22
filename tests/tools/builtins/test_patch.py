@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import ToolPathPolicy, ToolManager
+from bumblehive.tools import ToolManager
 
 
 def _manager():
@@ -12,11 +12,10 @@ def _manager():
     return manager
 
 
-async def _patch(manager, workspace, edits, *, dry_run=False, policy=ToolPathPolicy()):
+async def _patch(manager, workspace, edits, *, dry_run=False):
     return await manager.execute_call(
         ToolCall("patch", "apply_patch", {"edits": edits, "dry_run": dry_run}),
         workspace=workspace,
-        path_policy=policy,
     )
 
 
@@ -50,33 +49,17 @@ async def test_apply_patch_previews_then_commits_a_multi_file_change(tmp_path) -
 
 
 @pytest.mark.asyncio
-async def test_apply_patch_accepts_absolute_paths_only_in_write_roots(tmp_path) -> None:
+@pytest.mark.parametrize("relative", [True, False])
+async def test_apply_patch_accepts_paths_outside_workspace(tmp_path, relative):
     workspace = tmp_path / "workspace"
-    write_root = tmp_path / "write"
-    outside = tmp_path / "outside"
-    workspace.mkdir()
-    write_root.mkdir()
-    outside.mkdir()
-    manager = _manager()
-    policy = ToolPathPolicy.from_roots(extra_write_roots=[write_root])
-
-    allowed = await _patch(
-        manager,
-        workspace,
-        [{"path": str(write_root / "created.txt"), "action": "add", "new_text": "yes"}],
-        policy=policy,
+    target = tmp_path / "outside.txt"
+    path = "./../outside.txt" if relative else str(target)
+    result = await _patch(
+        _manager(), workspace,
+        [{"path": path, "action": "add", "new_text": "created"}],
     )
-    blocked = await _patch(
-        manager,
-        workspace,
-        [{"path": str(outside / "blocked.txt"), "action": "add", "new_text": "no"}],
-        policy=policy,
-    )
-
-    assert allowed.content["success"] is True
-    assert (write_root / "created.txt").read_text(encoding="utf-8") == "yes\n"
-    assert "outside writable roots" in blocked.content["error"]
-    assert not (outside / "blocked.txt").exists()
+    assert result.content["success"] is True
+    assert target.read_text(encoding="utf-8") == "created\n"
 
 
 @pytest.mark.asyncio

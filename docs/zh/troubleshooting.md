@@ -138,19 +138,11 @@ for status in runtime.tools.list_mcp_server_statuses():
 
 `mcp_servers` 不能通过单次 `run(config=...)` 修改。
 
-## 文件路径被拒绝
+## 文件或命令执行失败
 
-出现 `outside readable roots` 或 `outside writable roots` 时：
+根据工具返回的错误，检查路径是否正确、目标文件类型和操作系统权限是否满足要求。相对路径以本次 `workspace` 为基准；读取目标必须存在，写入时则按工具要求创建文件。
 
-- 相对路径应相对于 `workspace`；
-- 额外读取目录加入 `extra_read_roots`；
-- 额外写入目录加入 `extra_write_roots`。
-
-`exec` 默认不限制 `working_dir`、`../` 和绝对路径。需要限制时，设置
-`restrict_exec_paths=True`；此时 `working_dir` 必须位于可读目录中，命令也会拒绝
-`../` 和当前 `working_dir` 外的绝对路径。这个开关不会关闭危险命令正则。
-
-不要为了省事开放整个主目录。路径限制也不会自动约束自定义工具、MCP 和子进程。
+`exec` 的 `working_dir` 必须是存在的目录。返回 `command blocked by safety policy` 表示命中了命令禁止规则，即使审批通过也不会执行该命令。
 
 ## Agent 没有记住上一轮
 

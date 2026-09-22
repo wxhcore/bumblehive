@@ -12,8 +12,8 @@ from bumblehive.protocols import GenerationConfig, ToolCall
 from bumblehive.protocols.errors import AgentError
 from bumblehive.providers import ModelProvider, ModelRequest, ModelResponse
 from bumblehive.skills import SkillsManager
-from bumblehive.tools import ToolPathPolicy, ToolManager
-from bumblehive.tools.scope import current_tool_path_scope, current_tool_session_id
+from bumblehive.tools import ToolManager
+from bumblehive.tools.scope import current_tool_workspace, current_tool_session_id
 
 
 class SequenceProvider(ModelProvider):
@@ -62,14 +62,13 @@ async def test_run_turn_composes_context_capabilities_and_execution_scope(
     @tools.tool
     def scope_info() -> dict[str, Any]:
         """Return the current execution scope."""
-        scope = current_tool_path_scope()
-        assert scope is not None
+        workspace = current_tool_workspace()
+        assert workspace is not None
         observed.update(
-            workspace=scope.workspace,
-            policy=scope.policy,
+            workspace=workspace,
             session_id=current_tool_session_id(),
         )
-        return {"workspace": scope.workspace.as_posix()}
+        return {"workspace": workspace.as_posix()}
 
     @tools.tool
     def hidden() -> str:
@@ -87,7 +86,6 @@ async def test_run_turn_composes_context_capabilities_and_execution_scope(
         ]
     )
     generation = GenerationConfig(max_completion_tokens=123, temperature=0.2)
-    policy = ToolPathPolicy.from_roots(extra_write_roots=[skills_dir])
 
     result = await _loop(tmp_path, tools, skills).run_turn(
         "inspect",
@@ -95,7 +93,6 @@ async def test_run_turn_composes_context_capabilities_and_execution_scope(
         model="test-model",
         generation=generation,
         workspace=tmp_path,
-        path_policy=policy,
         timezone="Asia/Shanghai",
         dynamic_context={"active_file": "src/bumblehive/agent/loop.py"},
         skill_names=["audit"],
@@ -116,7 +113,6 @@ async def test_run_turn_composes_context_capabilities_and_execution_scope(
     )
     assert observed == {
         "workspace": tmp_path.resolve(),
-        "policy": policy,
         "session_id": "session-a",
     }
     assert current_tool_session_id() is None

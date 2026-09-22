@@ -25,7 +25,7 @@ from .providers import ModelProvider
 from .providers.manager import ProviderManager
 from .session.manager import SessionManager
 from .skills import SkillsManager
-from .tools import ToolPathPolicy, ToolManager
+from .tools import ToolManager
 
 
 class BumblehiveRuntime:
@@ -311,14 +311,6 @@ class BumblehiveRuntime:
         await self.initialize_tools()
         provider = await self._get_provider(run_config.provider)
         loop = self._build_loop()
-        path_policy = ToolPathPolicy.from_roots(
-            extra_read_roots=(
-                *run_config.runtime.extra_read_roots,
-                self.skills.skills_dir,
-            ),
-            extra_write_roots=run_config.runtime.extra_write_roots,
-            restrict_exec_paths=run_config.runtime.restrict_exec_paths,
-        )
         return await loop.run_turn(
             message,
             provider=provider,
@@ -327,7 +319,6 @@ class BumblehiveRuntime:
             history_messages=history_messages,
             generation=run_config.generation,
             workspace=run_config.runtime.workspace,
-            path_policy=path_policy,
             timezone=run_config.runtime.timezone,
             dynamic_context=run_config.agent.dynamic_context,
             skill_names=_list_or_none(run_config.agent.skill_names),

@@ -28,8 +28,8 @@ _FIND_FILES_PARAMETERS: dict[str, Any] = {
         "path": {
             "type": "string",
             "description": (
-                "Directory or file to search. Relative paths resolve from the workspace; "
-                "absolute paths must be inside a readable root. Default '.'."
+                "Directory or file to search, specified as an absolute path "
+                "or a path relative to the workspace. Default '.'."
             ),
         },
         "query": {
@@ -97,8 +97,8 @@ _GREP_PARAMETERS: dict[str, Any] = {
         "path": {
             "type": "string",
             "description": (
-                "File or directory to search. Relative paths resolve from the workspace; "
-                "absolute paths must be inside a readable root. Default '.'."
+                "File or directory to search, specified as an absolute path "
+                "or a path relative to the workspace. Default '.'."
             ),
         },
         "glob": {
@@ -202,9 +202,7 @@ class WorkspaceSearch:
         offset: int = 0,
     ) -> dict[str, Any]:
         access = self._access()
-        resolved = access.resolve_read(path or ".")
-        if isinstance(resolved, str):
-            return {"error": resolved}
+        resolved = access.resolve_path(path or ".")
         if not resolved.exists():
             return {"error": "path does not exist", "path": str(resolved)}
         if not resolved.is_dir() and not resolved.is_file():
@@ -215,9 +213,7 @@ class WorkspaceSearch:
         root = resolved if resolved.is_dir() else resolved.parent
         matches: list[tuple[str, float]] = []
         for candidate in self._iter_paths(resolved, include_dirs=include_dirs):
-            checked = access.resolve_read(candidate)
-            if isinstance(checked, str):
-                continue
+            checked = access.resolve_path(candidate)
             is_dir = checked.is_dir()
             is_file = checked.is_file()
             if is_dir and not include_dirs:
@@ -273,9 +269,7 @@ class WorkspaceSearch:
         if output_mode not in {"content", "files_with_matches", "count"}:
             return {"error": "output_mode must be content, files_with_matches, or count"}
         access = self._access()
-        resolved = access.resolve_read(path or ".")
-        if isinstance(resolved, str):
-            return {"error": resolved}
+        resolved = access.resolve_path(path or ".")
         if not resolved.exists():
             return {"error": "path does not exist", "path": str(resolved)}
 
@@ -303,10 +297,7 @@ class WorkspaceSearch:
 
         root = resolved if resolved.is_dir() else resolved.parent
         for candidate in files:
-            checked = access.resolve_read(candidate)
-            if isinstance(checked, str):
-                skipped_unreadable += 1
-                continue
+            checked = access.resolve_path(candidate)
             if WorkspaceAccess.is_ignored(candidate.relative_to(root)):
                 continue
             rel_path = candidate.relative_to(root).as_posix()

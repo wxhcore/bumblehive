@@ -49,7 +49,7 @@ Runtime 会注册内置工具，但是否向模型开放取决于 `tool_names`�
 --8<-- "examples/tools/builtins.py"
 ```
 
-从仓库根目录执行 `python examples/tools/builtins.py`，检查读取结果是否包含 `hello`。这也展示了额外可写目录的配置。
+从仓库根目录执行 `python examples/tools/builtins.py`，检查读取结果是否包含 `hello`。
 
 ## 持续运行的命令
 
@@ -64,8 +64,10 @@ Runtime 会注册内置工具，但是否向模型开放取决于 `tool_names`�
 
 默认命令超时为 60 秒。关闭 Runtime 会清理其管理的执行会话；应用应及时释放不再需要的资源。
 
-## 文件访问范围
+## 路径与工作目录
 
-`workspace` 默认可读写，`extra_read_roots` 增加只读目录，`extra_write_roots` 增加可读写目录。`restrict_exec_paths=True` 增加命令路径检查，但不是操作系统沙箱；自定义工具、MCP 和子进程需要应用自行约束。
+文件工具的 `path` 接受绝对路径和相对于 `workspace` 的路径。Shell 的 `working_dir` 省略时使用 workspace，也可以指定其他目录。
+
+执行审批和 Shell 命令规则见[工具审批与执行](../concepts/tool-safety.md)。
 
 [工具与审批 API](../reference/tools.md) · [文件与代码助手](../examples/file-assistant.md)

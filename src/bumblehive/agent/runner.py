@@ -15,7 +15,6 @@ from ..providers.base import (
     ModelStreamCallbacks,
 )
 from ..tools.manager import ToolManager
-from ..tools.scope import ToolPathPolicy
 from .context import ContextGovernanceConfig, ContextGovernor
 
 CheckpointCallback = Callable[[list[Message]], Awaitable[None]]
@@ -52,7 +51,6 @@ class ToolCallingRunner:
         model: str,
         generation: GenerationConfig | None = None,
         workspace: Path | str | None = None,
-        path_policy: ToolPathPolicy = ToolPathPolicy(),
         tool_names: list[str] | None = None,
         approval_handler: ToolApprovalHandler | None = None,
         context_window_tokens: int | None = None,
@@ -88,7 +86,6 @@ class ToolCallingRunner:
                 model=model,
                 generation=generation,
                 workspace=workspace,
-                path_policy=path_policy,
                 tool_names=tool_names,
                 approval_handler=approval_handler,
                 context_window_tokens=context_window_tokens,
@@ -114,7 +111,6 @@ class ToolCallingRunner:
         model: str,
         generation: GenerationConfig | None,
         workspace: Path | str | None,
-        path_policy: ToolPathPolicy,
         tool_names: list[str] | None,
         approval_handler: ToolApprovalHandler | None,
         context_window_tokens: int | None,
@@ -215,7 +211,6 @@ class ToolCallingRunner:
                     response.tool_calls,
                     tool_names=tool_names,
                     workspace=workspace,
-                    path_policy=path_policy,
                     approval_handler=approval_handler,
                     emitter=iteration_emitter,
                 )

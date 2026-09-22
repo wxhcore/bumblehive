@@ -1,6 +1,6 @@
-# 工具审批与访问范围
+# 工具审批与执行
 
-通过 `approval_handler` 在工具执行前批准或拒绝调用。工具白名单控制模型能调用什么，文件路径规则控制内置工具能访问哪里。
+通过 `tool_names` 选择可用工具，通过 `approval_handler` 在工具执行前批准或拒绝调用。
 
 ## 等待用户确认
 
@@ -25,7 +25,7 @@ python examples/runtime/tool_approval.py
                                   → 拒绝：返回拒绝原因
 ```
 
-只有参数校验通过后才调用审批处理器。处理器抛出异常时，本次工具不会执行，错误以 `tool_approval_error` 交回 Agent。拒绝使用 `tool_approval_denied`；这不一定使整个运行失败。
+参数校验通过后，SDK 将工具名称和校验后的参数交给审批处理器，路径参数保持调用时的相对或绝对路径形式。处理器抛出异常时，本次工具不会执行，错误以 `tool_approval_error` 交回 Agent。拒绝使用 `tool_approval_denied`；这不一定使整个运行失败。未配置 `approval_handler` 时，SDK 直接进入工具执行阶段。
 
 ## 按规则自动拒绝
 
@@ -46,7 +46,7 @@ result = await runtime.run(
 )
 ```
 
-用审批输出或事件确认处理器确实被调用。工具白名单与明确的提示词仍不能强制模型发起调用。
+通过审批输出或事件确认处理器是否被调用；模型根据任务决定是否调用已开放的工具。
 
 ## 在界面中显示审批
 
@@ -86,47 +86,15 @@ config = bumblehive.RuntimeArguments(
 
 注册不等于开放。模型最终能否看到并执行某个工具，仍由 `tool_names` 决定。
 
-## 文件访问范围
+## 路径与工作目录
 
-内置文件工具默认可以：
+文件工具接受绝对路径和相对路径。相对路径以本次 `workspace` 为基准，`~` 展开为用户主目录。例如，workspace 为 `/project/app` 时，`notes.txt` 解析为 `/project/app/notes.txt`，`../data.txt` 解析为 `/project/data.txt`。
 
-- 在 `workspace` 中读写；
-- 在 `extra_read_roots` 中读取；
-- 在 `extra_write_roots` 中读写。
+`exec` 的 `working_dir` 指定命令执行目录，相对路径以 workspace 为基准，省略时使用 workspace。该目录必须存在。
 
-`readable roots` 是 `workspace`、`extra_read_roots` 和
-`extra_write_roots` 合并后的有效可读目录集合；可写目录同时也是可读目录。相对路径从
-`workspace` 解析。额外目录应尽量小，不要直接开放用户主目录或磁盘根目录。
-
-默认 `restrict_exec_paths=False`：`working_dir` 可以是任意存在的目录，
-不检查命令中的 `../` 和绝对路径。设为 `True` 后，`working_dir`
-必须位于 `readable roots`，命令中的 `../` 会被拒绝，绝对路径必须位于
-当前 `working_dir`。无论开关状态如何，内置危险命令正则都会执行。
+Shell 在启动命令前检查 `deny_patterns`，匹配禁止规则时返回 `command blocked by safety policy`。这项检查在审批通过和未配置审批处理器时都会执行。
 
 子进程的 `PATH` 优先包含当前 Python 解释器所在目录，然后继承父进程中有效的绝对路径，因此当前 Python 环境可以直接使用；如果父进程的 `PATH` 包含 Conda，子进程也可以直接调用 `conda`。
-
-```python
-config = bumblehive.RuntimeArguments(
-    workspace="./project",
-    extra_read_roots=["./shared-docs"],
-    extra_write_roots=["./output"],
-    restrict_exec_paths=True,
-    tool_names=["read_file", "write_file"],
-)
-```
-
-### 路径策略的边界
-
-路径策略只约束 Bumblehive 中了解该规则的内置工具。
-
-它不会自动限制：
-
-- 自定义 Python 工具；
-- MCP Server；
-- `exec` 启动的子进程对文件系统的访问。
-
-`exec` 的命令路径检查只是对命令字符串的尽力而为检查，不会解析 Shell
-变量、脚本内部访问或所有间接路径。即使开启 `restrict_exec_paths`，也不代表子进程受到操作系统沙箱限制。
 
 ## 相关接口
 

@@ -1,9 +1,9 @@
-import asyncio
+import os
 
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import ToolPathPolicy, ToolManager
+from bumblehive.tools import ToolManager
 from bumblehive.tools.builtins.workspace import WorkspaceAccess
 
 
@@ -13,11 +13,10 @@ def _manager():
     return manager
 
 
-async def _execute(manager, workspace, name, arguments, *, policy=ToolPathPolicy()):
+async def _execute(manager, workspace, name, arguments):
     return await manager.execute_call(
         ToolCall(f"call-{name}", name, arguments),
         workspace=workspace,
-        path_policy=policy,
     )
 
 
@@ -134,7 +133,7 @@ async def test_read_file_extracts_pdf_and_office_documents(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_file_tools_use_policyed_roots_for_read_list_write_and_edit(tmp_path) -> None:
+async def test_file_tools_read_list_write_and_edit_outside_workspace(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     skills = tmp_path / "skills"
     workspace.mkdir()
@@ -142,31 +141,27 @@ async def test_file_tools_use_policyed_roots_for_read_list_write_and_edit(tmp_pa
     skill_dir.mkdir(parents=True)
     skill_file = skill_dir / "SKILL.md"
     skill_file.write_text("original\n", encoding="utf-8")
-    policy = ToolPathPolicy.from_roots(extra_write_roots=[skills])
     manager = _manager()
 
-    read = await _execute(manager, workspace, "read_file", {"path": str(skill_file)}, policy=policy)
-    listed = await _execute(manager, workspace, "list_dir", {"path": str(skill_dir)}, policy=policy)
+    read = await _execute(manager, workspace, "read_file", {"path": str(skill_file)})
+    listed = await _execute(manager, workspace, "list_dir", {"path": str(skill_dir)})
     written = await _execute(
         manager,
         workspace,
         "write_file",
         {"path": str(skill_file), "content": "replaced\n"},
-        policy=policy,
     )
     edited = await _execute(
         manager,
         workspace,
         "edit_file",
         {"path": str(skill_file), "old_text": "replaced", "new_text": "edited"},
-        policy=policy,
     )
-    blocked = await _execute(
+    outside_write = await _execute(
         manager,
         workspace,
         "write_file",
         {"path": str(tmp_path / "outside.txt"), "content": "no"},
-        policy=policy,
     )
 
     assert "original" in read.content["content"]
@@ -174,71 +169,42 @@ async def test_file_tools_use_policyed_roots_for_read_list_write_and_edit(tmp_pa
     assert written.content["success"] is True
     assert edited.content["success"] is True
     assert skill_file.read_text(encoding="utf-8") == "edited\n"
-    assert blocked.content == {"error": "path is outside writable roots"}
+    assert outside_write.content["success"] is True
+    assert (tmp_path / "outside.txt").read_text(encoding="utf-8") == "no"
 
 
-def test_workspace_access_enforces_the_path_permission_matrix(tmp_path) -> None:
+def test_workspace_access_resolves_absolute_relative_and_home_paths(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
-    read_root = tmp_path / "read"
-    write_root = tmp_path / "write"
-    outside = tmp_path / "outside"
-    for root in (workspace, read_root, write_root, outside):
-        root.mkdir()
-    access = WorkspaceAccess(
-        workspace,
-        ToolPathPolicy.from_roots(
-            extra_read_roots=[read_root],
-            extra_write_roots=[write_root],
-        ),
-    )
+    workspace.mkdir()
+    monkeypatch.setenv("USERPROFILE" if os.name == "nt" else "HOME", str(tmp_path))
+    access = WorkspaceAccess(workspace)
 
-    assert access.resolve_read("inside.txt") == workspace / "inside.txt"
-    assert access.resolve_write("nested/../inside.txt") == workspace / "inside.txt"
-    assert access.resolve_read(read_root / "read.txt") == read_root / "read.txt"
-    assert access.resolve_write(read_root / "blocked.txt") == "path is outside writable roots"
-    assert access.resolve_read(write_root / "shared.txt") == write_root / "shared.txt"
-    assert access.resolve_write(write_root / "shared.txt") == write_root / "shared.txt"
-    assert access.resolve_read(workspace / ".." / "outside" / "secret.txt") == (
-        "path is outside readable roots"
-    )
-
-    escape = workspace / "escape"
-    try:
-        escape.symlink_to(outside, target_is_directory=True)
-    except OSError as exc:
-        pytest.skip(f"symlinks are not supported: {exc}")
-    assert access.resolve_read(escape / "secret.txt") == "path is outside readable roots"
-    assert access.resolve_write(escape / "created.txt") == "path is outside writable roots"
+    assert access.resolve_path("inside.txt") == workspace / "inside.txt"
+    assert access.resolve_path("nested/../inside.txt") == workspace / "inside.txt"
+    assert access.resolve_path("../outside.txt") == tmp_path / "outside.txt"
+    assert access.resolve_path(tmp_path / "outside.txt") == tmp_path / "outside.txt"
+    assert access.resolve_path("~/outside.txt") == tmp_path / "outside.txt"
 
 
 @pytest.mark.asyncio
-async def test_read_only_policy_is_readable_but_not_writable(tmp_path) -> None:
+async def test_file_tools_follow_symlinks_outside_workspace(tmp_path):
     workspace = tmp_path / "workspace"
-    read_root = tmp_path / "reference"
     workspace.mkdir()
-    read_root.mkdir()
-    target = read_root / "notes.txt"
-    target.write_text("reference\n", encoding="utf-8")
-    policy = ToolPathPolicy.from_roots(extra_read_roots=[read_root])
+    target = tmp_path / "outside.txt"
+    target.write_text("original", encoding="utf-8")
+    link = workspace / "link.txt"
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"symlinks are not supported: {exc}")
     manager = _manager()
 
-    read, write = await asyncio.gather(
-        _execute(
-            manager,
-            workspace,
-            "read_file",
-            {"path": str(target)},
-            policy=policy,
-        ),
-        _execute(
-            manager,
-            workspace,
-            "write_file",
-            {"path": str(target), "content": "changed\n"},
-            policy=policy,
-        ),
+    read = await _execute(manager, workspace, "read_file", {"path": "link.txt"})
+    write = await _execute(
+        manager, workspace, "write_file", {"path": "link.txt", "content": "changed"}
     )
 
-    assert "reference" in read.content["content"]
-    assert write.content == {"error": "path is outside writable roots"}
-    assert target.read_text(encoding="utf-8") == "reference\n"
+    assert read.content["content"] == "1| original"
+    assert write.content["success"] is True
+    assert target.read_text(encoding="utf-8") == "changed"
+    assert link.is_symlink()

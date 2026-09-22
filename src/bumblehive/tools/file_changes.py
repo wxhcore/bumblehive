@@ -120,8 +120,8 @@ def _resolve_target_paths(
     for raw_path in raw_paths:
         if not isinstance(raw_path, str) or not raw_path.strip():
             continue
-        resolved = access.resolve_write(raw_path)
-        if isinstance(resolved, str) or resolved in seen:
+        resolved = access.resolve_path(raw_path)
+        if resolved in seen:
             continue
         seen.add(resolved)
         paths.append(resolved)

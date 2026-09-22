@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import Lock
 
 from ...paths import get_workspace_path
-from ..scope import ToolPathPolicy, current_tool_path_scope
+from ..scope import current_tool_workspace
 
 
 _DEFAULT_IGNORE_DIRS = frozenset(
@@ -185,56 +185,13 @@ def current_file_states(default: FileStates) -> FileStates:
 class WorkspaceAccess:
     """Shared workspace path handling for built-in local tools."""
 
-    def __init__(
-        self,
-        workspace: str | Path,
-        policy: ToolPathPolicy = ToolPathPolicy(),
-    ) -> None:
+    def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
-        self.policy = policy
-        self.allowed_write_roots = self._merge_roots(
-            self.workspace,
-            *policy.extra_write_roots,
-        )
-        self.allowed_read_roots = self._merge_roots(
-            self.workspace,
-            *policy.extra_read_roots,
-            *policy.extra_write_roots,
-        )
 
-    def resolve_read(self, path: str | Path) -> Path | str:
-        resolved = self._resolve(path)
-        if not any(
-            self._is_within(resolved, root)
-            for root in self.allowed_read_roots
-        ):
-            return "path is outside readable roots"
-        return resolved
-
-    def resolve_write(self, path: str | Path) -> Path | str:
-        resolved = self._resolve(path)
-        if not any(
-            self._is_within(resolved, root)
-            for root in self.allowed_write_roots
-        ):
-            return "path is outside writable roots"
-        return resolved
-
-    def resolve_unchecked(self, path: str | Path) -> Path:
-        """Resolve a path without applying the configured root policy."""
-        return self._resolve(path)
-
-    def _resolve(self, path: str | Path) -> Path:
+    def resolve_path(self, path: str | Path) -> Path:
+        """Resolve a local path relative to the current workspace."""
         raw = Path(path).expanduser()
         return raw.resolve() if raw.is_absolute() else (self.workspace / raw).resolve()
-
-    @staticmethod
-    def _is_within(path: Path, root: Path) -> bool:
-        return path == root or root in path.parents
-
-    @staticmethod
-    def _merge_roots(*roots: Path) -> tuple[Path, ...]:
-        return tuple(dict.fromkeys(roots))
 
     def relative_display_path(self, path: Path, *, root: Path | None = None) -> str:
         try:
@@ -250,10 +207,8 @@ class WorkspaceAccess:
 
 
 def current_workspace_access() -> WorkspaceAccess:
-    scope = current_tool_path_scope()
-    workspace = scope.workspace if scope is not None else get_workspace_path()
-    policy = scope.policy if scope is not None else ToolPathPolicy()
-    return WorkspaceAccess(workspace, policy)
+    workspace = current_tool_workspace()
+    return WorkspaceAccess(workspace if workspace is not None else get_workspace_path())
 
 
 def is_binary_bytes(raw: bytes) -> bool:

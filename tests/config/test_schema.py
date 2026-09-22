@@ -12,15 +12,6 @@ from bumblehive.config.schema import (
 from bumblehive.protocols import GenerationConfig, MCPServerConfig
 
 
-def test_exec_path_restriction_is_opt_in() -> None:
-    assert RuntimeConfig().restrict_exec_paths is False
-    assert (
-        BumblehiveConfig.from_dict({"provider": {"model": "demo-model"}})
-        .runtime.restrict_exec_paths
-        is False
-    )
-
-
 def test_config_round_trips_all_public_sections(tmp_path) -> None:
     config = BumblehiveConfig(
         provider=ProviderConfig(
@@ -46,9 +37,6 @@ def test_config_round_trips_all_public_sections(tmp_path) -> None:
             context_window_tokens=4096,
             max_tool_result_chars=2048,
             max_iterations=12,
-            extra_read_roots=(str(tmp_path / "read"),),
-            extra_write_roots=(str(tmp_path / "write"),),
-            restrict_exec_paths=True,
         ),
         mcp_servers=(
             MCPServerConfig(
@@ -65,8 +53,6 @@ def test_config_round_trips_all_public_sections(tmp_path) -> None:
     data = config.to_dict()
 
     assert BumblehiveConfig.from_dict(data) == config
-    assert data["runtime"]["extra_read_roots"] == [str(tmp_path / "read")]
-    assert data["runtime"]["restrict_exec_paths"] is True
     assert data["mcp_servers"][0]["enabled_tools"] == ["search"]
     assert data["skills_dir"] == str(tmp_path / "skills")
 
@@ -77,9 +63,6 @@ def test_runtime_arguments_build_the_same_structured_config(tmp_path) -> None:
         api_key="secret",
         workspace=Path(tmp_path),
         timezone="UTC",
-        extra_read_roots=[tmp_path / "read"],
-        extra_write_roots=[tmp_path / "write"],
-        restrict_exec_paths=True,
         agent_instructions="Be concise.",
         skill_names=["audit"],
         tool_names=["read_file"],
@@ -89,9 +72,6 @@ def test_runtime_arguments_build_the_same_structured_config(tmp_path) -> None:
     assert config.provider.model == "demo-model"
     assert config.generation.max_completion_tokens is None
     assert config.runtime.workspace == str(tmp_path)
-    assert config.runtime.extra_read_roots == (str(tmp_path / "read"),)
-    assert config.runtime.extra_write_roots == (str(tmp_path / "write"),)
-    assert config.runtime.restrict_exec_paths is True
     assert config.agent.instructions == "Be concise."
     assert config.agent.skill_names == ("audit",)
     assert config.agent.tool_names == ("read_file",)
@@ -113,20 +93,6 @@ def test_provider_config_preserves_an_unset_model(model) -> None:
                 "agent": {"dynamic_context": []},
             },
             "dynamic_context must be a mapping",
-        ),
-        (
-            {
-                "provider": {"model": "test-model"},
-                "runtime": {"extra_read_roots": "/tmp"},
-            },
-            "must be a sequence",
-        ),
-        (
-            {
-                "provider": {"model": "test-model"},
-                "runtime": {"restrict_exec_paths": "false"},
-            },
-            "must be a bool",
         ),
         (
             {

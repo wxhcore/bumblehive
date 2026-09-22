@@ -1,34 +1,25 @@
-from dataclasses import FrozenInstanceError
-from pathlib import Path
-
 import pytest
 
-from bumblehive.tools import ToolPathPolicy
-
-
-def test_path_policy_is_a_normalized_immutable_snapshot(tmp_path) -> None:
-    root = tmp_path / "root"
-    policy = ToolPathPolicy.from_roots(
-        extra_read_roots=[root, root],
-        extra_write_roots=[tmp_path / "write"],
-    )
-
-    assert policy.extra_read_roots == (root.resolve(),)
-    assert policy.extra_write_roots == ((tmp_path / "write").resolve(),)
-    assert policy.restrict_exec_paths is False
-    with pytest.raises(FrozenInstanceError):
-        policy.extra_read_roots = ()
-
-
-@pytest.mark.parametrize(
-    "factory",
-    [
-        lambda path: ToolPathPolicy.from_roots(extra_read_roots=path),
-        lambda path: ToolPathPolicy(extra_read_roots=(str(path),)),
-        lambda path: ToolPathPolicy(extra_write_roots=(Path("relative"),)),
-        lambda path: ToolPathPolicy(restrict_exec_paths=path),
-    ],
+from bumblehive.tools.scope import (
+    bind_tool_workspace,
+    current_tool_workspace,
+    reset_tool_workspace,
 )
-def test_path_policy_rejects_ambiguous_or_unnormalized_inputs(tmp_path, factory) -> None:
-    with pytest.raises((TypeError, ValueError)):
-        factory(tmp_path)
+
+
+def test_workspace_context_restores_nested_bindings_on_error(tmp_path):
+    assert current_tool_workspace() is None
+    outer = bind_tool_workspace(tmp_path / "outer")
+    try:
+        assert current_tool_workspace() == (tmp_path / "outer").resolve()
+        with pytest.raises(RuntimeError, match="failed"):
+            inner = bind_tool_workspace(tmp_path / "inner")
+            try:
+                assert current_tool_workspace() == (tmp_path / "inner").resolve()
+                raise RuntimeError("failed")
+            finally:
+                reset_tool_workspace(inner)
+        assert current_tool_workspace() == (tmp_path / "outer").resolve()
+    finally:
+        reset_tool_workspace(outer)
+    assert current_tool_workspace() is None

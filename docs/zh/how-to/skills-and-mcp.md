@@ -66,7 +66,7 @@ config = bumblehive.RuntimeArguments(
 
 `skills_dir` 指向包含各个 Skill 子目录的根目录。省略时默认使用 `~/.bumblehive/skills/`；目录会在首次安装 Skill 时创建，单纯创建 Runtime 或列出空目录不会创建它。
 
-`SkillsManager` 也保留运行前切换目录的能力；切换时会清空旧目录的加载缓存，但不会立即创建新目录：
+`SkillsManager.set_skills_dir()` 可在运行前切换目录，并清空之前的加载缓存；目标目录会在首次安装 Skill 时创建：
 
 ```python
 manager = bumblehive.SkillsManager()
@@ -83,7 +83,7 @@ runtime.skills.install_skills([Path("./downloaded/course-summary")])
 
 目标目录已存在同名 Skill 时，默认不会覆盖；需要替换时传入 `replace=True`。已直接放在 `skills_dir` 中的 Skill 无需重复安装。
 
-模型最初只会看到 Skill 的名称、描述和文件路径。Runtime 会将安装目录作为只读目录提供给路径感知的内置文件工具；模型需要使用 `read_file` 打开 `SKILL.md`，因此启用 Skill 时通常也要开放 `read_file`。启用 `exec` 后可以直接运行其中的脚本，但当前没有子进程沙箱，输出位置仍应明确设为 workspace 或 `extra_write_roots`。
+模型最初只会看到 Skill 的名称、描述和文件路径。模型需要使用 `read_file` 打开 `SKILL.md`，因此启用 Skill 时通常也要开放 `read_file`。启用 `exec` 后可以运行其中的脚本，输出位置应明确指定。
 
 在工作目录准备 `notes.md`，写入需要整理的课程笔记。该 Skill 已位于 `skills_dir` 下，可以直接加载；在 `async main()` 中创建 Runtime 并运行：
 
@@ -164,7 +164,7 @@ MCP 有两层限制：
 - MCP 配置不能通过单次 `run(config=...)` 修改；
 - Header 只适用于 HTTP 或 SSE 传输；
 - 默认工具超时为 30 秒；
-- `ToolPathPolicy` 不会限制 MCP Server 的文件访问能力。
+- MCP Server 的文件访问能力由服务端自身控制。
 
 连接失败时，Runtime 初始化会直接抛出异常。请检查 URL、鉴权 Header 和 Server 是否可用。
 

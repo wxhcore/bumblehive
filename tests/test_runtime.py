@@ -206,14 +206,14 @@ async def test_runtime_does_not_update_caller_history_when_run_fails(
 
 
 @pytest.mark.asyncio
-async def test_runtime_applies_run_roots_and_exposes_skills_as_read_only(
+async def test_runtime_reads_and_writes_external_files_and_skills(
     monkeypatch,
     tmp_path,
 ) -> None:
     read_root = tmp_path / "read"
     read_root.mkdir()
     source = read_root / "notes.txt"
-    source.write_text("allowlisted content", encoding="utf-8")
+    source.write_text("external content", encoding="utf-8")
 
     class PathProvider(FakeProvider):
         async def generate(self, request: ModelRequest) -> ModelResponse:
@@ -252,11 +252,8 @@ async def test_runtime_applies_run_roots_and_exposes_skills_as_read_only(
     skill_source.write_text("skill content", encoding="utf-8")
     skill_target = runtime.skills.skills_dir / "generated.txt"
 
-    allowed = await runtime.run(
-        "allowed",
-        config={"runtime": {"extra_read_roots": [str(read_root)]}},
-    )
-    blocked = await runtime.run("blocked")
+    first = await runtime.run("first")
+    second = await runtime.run("second")
 
     provider = PathProvider.instances[0]
     first_tool_messages = [
@@ -265,7 +262,7 @@ async def test_runtime_applies_run_roots_and_exposes_skills_as_read_only(
     second_tool_messages = [
         message for message in provider.requests[3].messages if message["role"] == "tool"
     ]
-    assert allowed.tools_used == ["read_file", "read_file", "write_file"]
+    assert first.tools_used == ["read_file", "read_file", "write_file"]
     assert [message["tool_call_id"] for message in first_tool_messages] == [
         "read",
         "read-skill",
@@ -277,12 +274,11 @@ async def test_runtime_applies_run_roots_and_exposes_skills_as_read_only(
         "tool",
         "tool",
     ]
-    assert any("allowlisted content" in message["content"] for message in first_tool_messages)
+    assert any("external content" in message["content"] for message in first_tool_messages)
     assert any("skill content" in message["content"] for message in first_tool_messages)
-    assert any("outside writable roots" in message["content"] for message in first_tool_messages)
-    assert not skill_target.exists()
-    assert blocked.tools_used == ["read_file"]
-    assert "outside readable roots" in second_tool_messages[0]["content"]
+    assert skill_target.read_text(encoding="utf-8") == "generated"
+    assert second.tools_used == ["read_file"]
+    assert "external content" in second_tool_messages[0]["content"]
 
 
 @pytest.mark.asyncio

@@ -3,7 +3,7 @@ import os
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import ToolPathPolicy, ToolManager
+from bumblehive.tools import ToolManager
 
 
 def _manager():
@@ -12,11 +12,10 @@ def _manager():
     return manager
 
 
-async def _execute(manager, workspace, name, arguments, *, policy=ToolPathPolicy()):
+async def _execute(manager, workspace, name, arguments):
     return await manager.execute_call(
         ToolCall(f"call-{name}", name, arguments),
         workspace=workspace,
-        path_policy=policy,
     )
 
 
@@ -99,7 +98,8 @@ async def test_grep_supports_file_count_and_content_modes(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_search_reads_policyed_roots_but_not_escaping_symlinks(tmp_path) -> None:
+@pytest.mark.parametrize("relative", [True, False])
+async def test_search_reads_external_directories_and_symlinks(tmp_path, relative) -> None:
     workspace = tmp_path / "workspace"
     read_root = tmp_path / "skills"
     outside = tmp_path / "outside"
@@ -114,27 +114,24 @@ async def test_search_reads_policyed_roots_but_not_escaping_symlinks(tmp_path) -
         link.symlink_to(secret)
     except OSError as exc:
         pytest.skip(f"symlinks are not supported: {exc}")
-    policy = ToolPathPolicy.from_roots(extra_read_roots=[read_root])
     manager = _manager()
 
     grep = await _execute(
         manager,
         workspace,
         "grep",
-        {"pattern": "needle|outside-secret", "path": str(read_root)},
-        policy=policy,
+        {"pattern": "needle|outside-secret", "path": "../skills" if relative else str(read_root)},
     )
     found = await _execute(
         manager,
         workspace,
         "find_files",
-        {"path": str(read_root)},
-        policy=policy,
+        {"path": "../skills" if relative else str(read_root)},
     )
 
-    assert grep.content["files"] == ["SKILL.md"]
-    assert grep.content["skipped_unreadable"] == 1
-    assert found.content["matches"] == ["SKILL.md"]
+    assert set(grep.content["files"]) == {"SKILL.md", "linked-secret.txt"}
+    assert grep.content["skipped_unreadable"] == 0
+    assert found.content["matches"] == ["SKILL.md", "linked-secret.txt"]
 
 
 @pytest.mark.asyncio

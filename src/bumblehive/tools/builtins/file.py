@@ -104,8 +104,7 @@ _READ_FILE_PARAMETERS: dict[str, Any] = {
         "path": {
             "type": "string",
             "description": (
-                "File to read. Relative paths resolve from the workspace; absolute "
-                "paths must be inside a readable root."
+                "File to read, specified as an absolute path or a path relative to the workspace."
             ),
         },
         "offset": {
@@ -150,8 +149,8 @@ _WRITE_FILE_PARAMETERS: dict[str, Any] = {
         "path": {
             "type": "string",
             "description": (
-                "File to create or replace. Relative paths resolve from the workspace; "
-                "absolute paths must be inside a writable root."
+                "File to create or replace, specified as an absolute path "
+                "or a path relative to the workspace."
             ),
         },
         "content": {
@@ -175,8 +174,7 @@ _LIST_DIR_PARAMETERS: dict[str, Any] = {
         "path": {
             "type": "string",
             "description": (
-                "Directory to list. Relative paths resolve from the workspace; absolute "
-                "paths must be inside a readable root."
+                "Directory to list, specified as an absolute path or a path relative to the workspace."
             ),
         },
         "recursive": {
@@ -206,8 +204,7 @@ _EDIT_FILE_PARAMETERS: dict[str, Any] = {
         "path": {
             "type": "string",
             "description": (
-                "File to edit. Relative paths resolve from the workspace; absolute "
-                "paths must be inside a writable root."
+                "File to edit, specified as an absolute path or a path relative to the workspace."
             ),
         },
         "old_text": {
@@ -282,9 +279,7 @@ class WorkspaceFiles:
         if _is_blocked_device(path):
             return {"error": "reading device paths is blocked", "path": path}
         access = self._access()
-        resolved = access.resolve_read(path)
-        if isinstance(resolved, str):
-            return {"error": resolved}
+        resolved = access.resolve_path(path)
         if _is_blocked_device(resolved):
             return {"error": "reading device paths is blocked", "path": str(resolved)}
         if not resolved.exists() or not resolved.is_file():
@@ -528,9 +523,7 @@ class WorkspaceFiles:
 
     def write_file(self, path: str, content: str) -> dict[str, Any]:
         access = self._access()
-        resolved = access.resolve_write(path)
-        if isinstance(resolved, str):
-            return {"error": resolved}
+        resolved = access.resolve_path(path)
         if len(content) > self._MAX_WRITE_CHARS:
             return {"error": f"content is too large; max {self._MAX_WRITE_CHARS} chars"}
 
@@ -550,9 +543,7 @@ class WorkspaceFiles:
         max_entries: int | None = None,
     ) -> dict[str, Any]:
         access = self._access()
-        resolved = access.resolve_read(path)
-        if isinstance(resolved, str):
-            return {"error": resolved}
+        resolved = access.resolve_path(path)
         if not resolved.exists():
             return {"error": "directory does not exist", "path": str(resolved)}
         if not resolved.is_dir():
@@ -609,9 +600,7 @@ class WorkspaceFiles:
         expected_replacements: int | None = None,
     ) -> dict[str, Any]:
         access = self._access()
-        resolved = access.resolve_write(path)
-        if isinstance(resolved, str):
-            return {"error": resolved}
+        resolved = access.resolve_path(path)
         if replace_all and occurrence is not None:
             return {"error": "occurrence cannot be used with replace_all=true"}
         if replace_all and line_hint is not None:

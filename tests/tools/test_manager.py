@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from bumblehive.protocols import ToolCall
-from bumblehive.tools import ToolApprovalDecision, ToolPathPolicy, ToolManager
+from bumblehive.tools import ToolApprovalDecision, ToolManager
 
 
 BUILTINS = [
@@ -84,68 +84,67 @@ async def test_manager_does_not_approve_unexposed_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_manager_applies_workspace_read_and_write_roots_to_builtins(tmp_path) -> None:
-    workspace = tmp_path / "workspace"
-    read_root = tmp_path / "read"
-    write_root = tmp_path / "write"
-    for path in (workspace, read_root, write_root):
-        path.mkdir()
-    (workspace / "workspace.txt").write_text("workspace", encoding="utf-8")
-    source = read_root / "source.txt"
-    source.write_text("read-only", encoding="utf-8")
-    target = write_root / "target.txt"
+async def test_concurrent_manager_calls_keep_workspaces_isolated(tmp_path) -> None:
+    from bumblehive.tools.scope import current_tool_workspace
+
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    for directory, content in ((first_root, "first"), (second_root, "second")):
+        directory.mkdir()
+        (directory / "notes.txt").write_text(content, encoding="utf-8")
     manager = ToolManager()
     manager.register_builtin_tools()
-    policy = ToolPathPolicy.from_roots(
-        extra_read_roots=[read_root],
-        extra_write_roots=[write_root],
-    )
 
-    results = await manager.execute_many(
-        [
-            _call("workspace", "read_file", {"path": "workspace.txt"}),
-            _call("read", "read_file", {"path": str(source)}),
-            _call("blocked", "write_file", {"path": str(read_root / "blocked.txt"), "content": "no"}),
-            _call("write", "write_file", {"path": str(target), "content": "yes"}),
-            _call("read-write", "read_file", {"path": str(target)}),
-        ],
-        workspace=workspace,
-        path_policy=policy,
-    )
+    async def approve(request):
+        before = current_tool_workspace()
+        await asyncio.sleep(0)
+        assert current_tool_workspace() == before
+        return ToolApprovalDecision.approve()
 
-    assert "workspace" in results[0].content["content"]
-    assert "read-only" in results[1].content["content"]
-    assert results[2].content == {"error": "path is outside writable roots"}
-    assert target.read_text(encoding="utf-8") == "yes"
-    assert "yes" in results[4].content["content"]
+    results = await asyncio.gather(*(
+        manager.execute_call(
+            _call(label, "read_file", {"path": "notes.txt"}),
+            workspace=directory,
+            approval_handler=approve,
+        )
+        for label, directory in (("first", first_root), ("second", second_root))
+    ))
+
+    assert results[0].content["content"] == "1| first"
+    assert results[1].content["content"] == "1| second"
+    assert current_tool_workspace() is None
 
 
 @pytest.mark.asyncio
-async def test_concurrent_manager_calls_keep_run_scopes_isolated(tmp_path) -> None:
+@pytest.mark.parametrize("approved", [True, False])
+@pytest.mark.parametrize("relative", [True, False])
+async def test_approval_controls_writing_outside_workspace(tmp_path, approved, relative):
+    from bumblehive.tools.scope import current_tool_workspace
+
     workspace = tmp_path / "workspace"
-    first_root = tmp_path / "first"
-    second_root = tmp_path / "second"
-    for path in (workspace, first_root, second_root):
-        path.mkdir()
-    first = first_root / "notes.txt"
-    second = second_root / "notes.txt"
-    first.write_text("first root", encoding="utf-8")
-    second.write_text("second root", encoding="utf-8")
+    target = tmp_path / "outside.txt"
+    path = "../outside.txt" if relative else str(target)
     manager = ToolManager()
     manager.register_builtin_tools()
+    requests = []
 
-    first_result, second_result = await asyncio.gather(
-        manager.execute_call(
-            _call("first", "read_file", {"path": str(first)}),
-            workspace=workspace,
-            path_policy=ToolPathPolicy.from_roots(extra_read_roots=[first_root]),
-        ),
-        manager.execute_call(
-            _call("second", "read_file", {"path": str(second)}),
-            workspace=workspace,
-            path_policy=ToolPathPolicy.from_roots(extra_read_roots=[second_root]),
-        ),
+    async def decide(request):
+        requests.append(request)
+        return ToolApprovalDecision.approve() if approved else ToolApprovalDecision.reject()
+
+    result = await manager.execute_call(
+        _call("write", "write_file", {"path": path, "content": "approved"}),
+        workspace=workspace,
+        approval_handler=decide,
     )
 
-    assert "first root" in first_result.content["content"]
-    assert "second root" in second_result.content["content"]
+    assert len(requests) == 1
+    assert requests[0].arguments == {"path": path, "content": "approved"}
+    assert current_tool_workspace() is None
+    if approved:
+        assert result.error is None
+        assert result.content["success"] is True
+        assert target.read_text(encoding="utf-8") == "approved"
+    else:
+        assert result.error.code == "tool_approval_denied"
+        assert not target.exists()
