@@ -76,7 +76,8 @@ function storedToolCalls(value: unknown, messageIndex: number): ToolActivity[] {
             : `history-tool-${messageIndex}-${toolIndex}`,
         name,
         arguments: parseArguments(fn.arguments),
-        status: "running",
+        // Recorded results below replace this fallback for interrupted calls.
+        status: "cancelled",
       } satisfies ToolActivity,
     ];
   });

@@ -673,6 +673,37 @@ test("history restores rejected tool calls", () => {
   assert.equal(allTools(messages)[0].status, "rejected");
 });
 
+test("history shows interrupted calls as stopped while preserving recorded results", () => {
+  const messages = chatEvents.historyMessages([
+    { role: "user", content: "Write files" },
+    {
+      role: "assistant",
+      tool_calls: ["finished", "failed", "interrupted"].map((id) => ({
+        id,
+        function: {
+          name: "write_file",
+          arguments: JSON.stringify({ path: `${id}.txt`, content: "hello" }),
+        },
+      })),
+    },
+    { role: "tool", tool_call_id: "finished", content: { success: true } },
+    { role: "tool", tool_call_id: "failed", content: { error: "Permission denied" } },
+    { role: "user", content: "Continue after reconnecting" },
+    { role: "assistant", content: "Ready" },
+  ]);
+  const tools = messages[1].iterations[0].tools;
+  assert.deepEqual(tools.map((tool) => [tool.id, tool.status]), [
+    ["finished", "completed"],
+    ["failed", "error"],
+    ["interrupted", "cancelled"],
+  ]);
+  const html = renderToStaticMarkup(
+    createElement(toolActivityList.ToolSteps, { tools: [tools[2]] }),
+  );
+  assert.match(html, /写入文件已停止/);
+  assert.doesNotMatch(html, /正在写入文件/);
+});
+
 test("pending and rejected terminal input stays separate from the running process", () => {
   for (const status of ["waiting_approval", "rejected"]) {
     const iterations = [{ id: "iteration", iteration: 0, content: "", tools: [
