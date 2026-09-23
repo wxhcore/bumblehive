@@ -30,7 +30,7 @@ async def main() -> None:
             )
         if answer.strip().lower() in {"y", "yes"}:
             return bumblehive.ToolApprovalDecision.approve()
-        return bumblehive.ToolApprovalDecision.reject("用户拒绝了这次操作。")
+        return bumblehive.ToolApprovalDecision.reject("The user rejected this operation.")
 
     config = bumblehive.RuntimeArguments(
         model=os.environ["BUMBLEHIVE_MODEL"],

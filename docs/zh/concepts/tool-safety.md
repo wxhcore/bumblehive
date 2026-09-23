@@ -36,7 +36,7 @@ from bumblehive import ToolApprovalDecision, ToolApprovalRequest
 
 async def approve_tool(request: ToolApprovalRequest) -> ToolApprovalDecision:
     print("已拒绝工具调用：", request.name)
-    return ToolApprovalDecision.reject("当前任务不允许写入文件。")
+    return ToolApprovalDecision.reject("File writes are not allowed for this task.")
 
 result = await runtime.run(
     "请调用 write_file 创建 approval-demo.txt，内容为 hello。"

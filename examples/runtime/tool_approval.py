@@ -37,7 +37,7 @@ async def main() -> None:
             print("已批准工具调用：" if approved else "已拒绝工具调用：", request.name)
         if approved:
             return bumblehive.ToolApprovalDecision.approve()
-        return bumblehive.ToolApprovalDecision.reject("用户拒绝了这次文件写入。")
+        return bumblehive.ToolApprovalDecision.reject("The user rejected this file write.")
 
     config = bumblehive.RuntimeArguments(
         model=os.environ["BUMBLEHIVE_MODEL"],
