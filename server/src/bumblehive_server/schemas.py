@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 class ChatRequest(BaseModel):
     type: Literal["message"] = "message"
     content: str = Field(min_length=1)
+    approval_mode: Literal["request", "full_access"] = "request"
     config: dict[str, Any] | None = None
 
     @field_validator("content")
@@ -18,6 +19,12 @@ class ChatRequest(BaseModel):
 
 class CancelRequest(BaseModel):
     type: Literal["cancel"]
+
+
+class ApprovalDecisionRequest(BaseModel):
+    type: Literal["approval_decision"]
+    approval_id: str = Field(min_length=1)
+    approved: bool = Field(strict=True)
 
 
 class CreateSessionRequest(BaseModel):

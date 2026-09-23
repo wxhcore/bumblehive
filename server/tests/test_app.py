@@ -94,7 +94,7 @@ class RecordingWebSocket:
 async def test_subagent_observer_reuses_existing_websocket_frames() -> None:
     websocket = RecordingWebSocket()
     observer = _WebSocketSubagentObserver(
-        websocket,  # type: ignore[arg-type]
+        websocket.send_json,
         SimpleNamespace(),
     )
 
@@ -1124,3 +1124,139 @@ def test_agent_error_result_logs_code_without_error_message(caplog: Any) -> None
     assert "[agent] failed | session_id=session-1" in caplog.text
     assert "stop_reason=model_error | error_code=model_error" in caplog.text
     assert "do-not-log-this-error-message" not in caplog.text
+
+
+class ApprovalFakeStream(FakeStream):
+    def __init__(self, handler, workspace, target):
+        super().__init__()
+        self.handler = handler
+        self.workspace = workspace
+        self.target = target
+        self.closed = False
+        self.outcome = None
+
+    async def _iterate(self):
+        from bumblehive.protocols import ToolCall
+        from bumblehive.tools import ToolManager
+
+        async with ToolManager() as tools:
+            tools.register_builtin_tools()
+            self.outcome = await tools.execute_call(
+                ToolCall(
+                    "write-1",
+                    "write_file",
+                    {"path": str(self.target), "content": "approved"},
+                ),
+                workspace=self.workspace,
+                approval_handler=self.handler,
+            )
+        yield make_event(
+            "model.stream.content_delta",
+            run_id="run-1",
+            session_id="session-1",
+            delta="Done",
+        )
+
+    async def aclose(self):
+        self.closed = True
+
+
+class ApprovalFakeRuntime:
+    def __init__(self, workspace, target):
+        self.workspace = workspace
+        self.target = target
+        self.streams = []
+
+    def stream(self, *_args, approval_handler, **_kwargs):
+        stream = ApprovalFakeStream(approval_handler, self.workspace, self.target)
+        self.streams.append(stream)
+        return stream
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_websocket_approval_controls_actual_file_write(tmp_path, approved):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = tmp_path / "outside.txt"
+    service = FakeService()
+    runtime = ApprovalFakeRuntime(workspace, target)
+    service.runtime = runtime
+    app = create_app(runtime_service=service, session_reader=FakeSessionReader())
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/ws/v1/chat/session-1") as websocket,
+    ):
+        assert websocket.receive_json()["type"] == "ready"
+        websocket.send_json({"type": "message", "content": "Write"})
+        approval = websocket.receive_json()
+        assert approval["type"] == "approval_request"
+        assert not target.exists()
+        websocket.send_json(
+            {
+                "type": "approval_decision",
+                "approval_id": approval["approval_id"],
+                "approved": approved,
+            }
+        )
+        assert websocket.receive_json()["type"] == "approval_resolved"
+        assert websocket.receive_json()["type"] == "event"
+        assert websocket.receive_json()["type"] == "result"
+        assert target.exists() is approved
+    if not approved:
+        assert runtime.streams[0].outcome.error.code == "tool_approval_denied"
+
+
+def test_websocket_cancel_and_disconnect_clear_approval(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = tmp_path / "outside.txt"
+    service = FakeService()
+    runtime = ApprovalFakeRuntime(workspace, target)
+    service.runtime = runtime
+    app = create_app(runtime_service=service, session_reader=FakeSessionReader())
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/v1/chat/session-1") as websocket:
+            websocket.receive_json()
+            websocket.send_json({"type": "message", "content": "Write"})
+            approval = websocket.receive_json()
+            websocket.send_json({"type": "cancel"})
+            assert websocket.receive_json()["type"] == "cancelled"
+            assert not target.exists() and runtime.streams[0].closed
+            websocket.send_json(
+                {
+                    "type": "approval_decision",
+                    "approval_id": approval["approval_id"],
+                    "approved": True,
+                }
+            )
+            websocket.send_json({"type": "message", "content": "Write again"})
+            assert websocket.receive_json()["type"] == "approval_request"
+        assert not target.exists()
+        assert runtime.streams[1].closed
+        assert not runtime.streams[1].handler.pending
+
+
+def test_websocket_full_access_is_scoped_to_one_run(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = tmp_path / "outside.txt"
+    service = FakeService()
+    runtime = ApprovalFakeRuntime(workspace, target)
+    service.runtime = runtime
+    app = create_app(runtime_service=service, session_reader=FakeSessionReader())
+    with TestClient(app) as client, client.websocket_connect("/ws/v1/chat/session-1") as websocket:
+        websocket.receive_json()
+        websocket.send_json({"type": "message", "content": "Write", "approval_mode": "full_access"})
+        assert websocket.receive_json()["type"] == "event"
+        assert websocket.receive_json()["type"] == "result"
+        assert target.read_text() == "approved"
+        target.unlink()
+        websocket.send_json({"type": "message", "content": "Write again", "approval_mode": "request"})
+        approval = websocket.receive_json()
+        assert approval["type"] == "approval_request"
+        assert not target.exists()
+        websocket.send_json({"type": "approval_decision", "approval_id": approval["approval_id"], "approved": False})
+        assert websocket.receive_json()["type"] == "approval_resolved"
+        assert websocket.receive_json()["type"] == "event"
+        assert websocket.receive_json()["type"] == "result"
+        assert not target.exists()

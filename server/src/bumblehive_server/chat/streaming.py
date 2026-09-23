@@ -4,8 +4,7 @@ from collections.abc import Mapping
 from time import perf_counter
 from typing import Any
 
-from fastapi import WebSocket, WebSocketDisconnect
-from fastapi.encoders import jsonable_encoder
+from fastapi import WebSocketDisconnect
 
 from bumblehive.agent import AgentRunResult
 from bumblehive.observability import AgentEvent
@@ -14,6 +13,7 @@ from ..logging_utils import elapsed_since, format_token_usage, safe_log_value
 from ..runtime_service import RuntimeService
 from ..schemas import ChatRequest
 from ..subagents import SubagentRunObserver, observe_subagents
+from .approval import SendFrame, ToolApprovals
 from .frames import result_frame, ui_event_frame
 
 
@@ -21,10 +21,9 @@ logger = logging.getLogger("uvicorn.error.bumblehive")
 
 
 class WebSocketSubagentObserver(SubagentRunObserver):
-    def __init__(self, websocket: WebSocket, runtime: Any) -> None:
-        self._websocket = websocket
+    def __init__(self, send: SendFrame, runtime: Any) -> None:
+        self._send = send
         self._runtime = runtime
-        self._send_lock = asyncio.Lock()
 
     async def on_created(
         self,
@@ -72,34 +71,33 @@ class WebSocketSubagentObserver(SubagentRunObserver):
     async def on_cancelled(self, *, session_id: str) -> None:
         await self._send({"type": "cancelled", "session_id": session_id})
 
-    async def _send(self, frame: dict[str, Any]) -> None:
-        async with self._send_lock:
-            await self._websocket.send_json(jsonable_encoder(frame))
-
 
 async def stream_turn(
-    websocket: WebSocket,
+    send: SendFrame,
     service: RuntimeService,
     session_id: str,
     request: ChatRequest,
+    approvals: ToolApprovals,
 ) -> None:
     started_at = perf_counter()
     session_label = safe_log_value(session_id)
     logger.info("[agent] started | session_id=%s", session_label)
     try:
         async with service.lease() as runtime:
-            observer = WebSocketSubagentObserver(websocket, runtime)
+            observer = WebSocketSubagentObserver(send, runtime)
             with observe_subagents(observer):
                 stream = runtime.stream(
                     request.content,
                     session_id=session_id,
                     config=request.config,
+                    approval_handler=approvals,
                 )
                 try:
                     async for event in stream:
                         await observer.on_event(event)
                     result = await stream.result()
                 finally:
+                    approvals.clear()
                     await stream.aclose()
     except asyncio.CancelledError:
         logger.info(
@@ -146,9 +144,7 @@ async def stream_turn(
         )
 
     await persist_run_duration(runtime, session_id, duration_s)
-    await websocket.send_json(
-        jsonable_encoder(result_frame(session_id, result, duration_s))
-    )
+    await send(result_frame(session_id, result, duration_s))
 
 
 async def persist_run_duration(

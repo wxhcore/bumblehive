@@ -4,12 +4,14 @@ from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
 
+from ..chat.approval import SendFrame, ToolApprovals
 from ..chat.streaming import stream_turn
 from ..logging_utils import elapsed_since, safe_log_value
 from ..runtime_service import RuntimeService
-from ..schemas import CancelRequest, ChatRequest
+from ..schemas import ApprovalDecisionRequest, CancelRequest, ChatRequest
 
 
 router = APIRouter(tags=["chat"])
@@ -30,8 +32,16 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
     active_task: asyncio.Task[None] | None = None
     receive_task: asyncio.Task[Any] | None = None
 
+    send_lock = asyncio.Lock()
+
+    async def send(frame: dict[str, Any]) -> None:
+        async with send_lock:
+            await websocket.send_json(jsonable_encoder(frame))
+
+    approvals = ToolApprovals(session_id, send)
+
     try:
-        await websocket.send_json({"type": "ready", "session_id": session_id})
+        await send({"type": "ready", "session_id": session_id})
         receive_task = asyncio.create_task(websocket.receive_json())
         while True:
             assert receive_task is not None
@@ -46,7 +56,7 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
             if active_task is not None and active_task in done:
                 finished_task = active_task
                 active_task = None
-                if not await _report_turn_completion(websocket, finished_task):
+                if not await _report_turn_completion(send, finished_task):
                     return
 
             if receive_task not in done:
@@ -59,20 +69,27 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
                 return
             except ValueError:
                 receive_task = asyncio.create_task(websocket.receive_json())
-                await _send_error(websocket, "invalid_message", "message must be JSON")
+                await _send_error(send, "invalid_message", "message must be JSON")
                 continue
 
             if not isinstance(payload, dict):
-                await _send_error(
-                    websocket, "invalid_message", "message must be an object"
-                )
+                await _send_error(send, "invalid_message", "message must be an object")
+                continue
+
+            if payload.get("type") == "approval_decision":
+                try:
+                    decision = ApprovalDecisionRequest.model_validate(payload)
+                except ValidationError as exc:
+                    await _send_error(send, "invalid_message", str(exc))
+                    continue
+                await approvals.decide(decision.approval_id, decision.approved)
                 continue
 
             if payload.get("type") == "cancel":
                 try:
                     CancelRequest.model_validate(payload)
                 except ValidationError as exc:
-                    await _send_error(websocket, "invalid_message", str(exc))
+                    await _send_error(send, "invalid_message", str(exc))
                     continue
 
                 if active_task is None:
@@ -80,7 +97,7 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
                 if active_task.done():
                     finished_task = active_task
                     active_task = None
-                    if not await _report_turn_completion(websocket, finished_task):
+                    if not await _report_turn_completion(send, finished_task):
                         return
                     continue
 
@@ -88,29 +105,29 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
                 active_task = None
                 cancelling_task.cancel()
                 await asyncio.gather(cancelling_task, return_exceptions=True)
-                await websocket.send_json(
-                    {"type": "cancelled", "session_id": session_id}
-                )
+                await send({"type": "cancelled", "session_id": session_id})
                 continue
 
             try:
                 request = ChatRequest.model_validate(payload)
             except ValidationError as exc:
-                await _send_error(websocket, "invalid_message", str(exc))
+                await _send_error(send, "invalid_message", str(exc))
                 continue
 
             if active_task is not None:
                 await _send_error(
-                    websocket,
+                    send,
                     "run_in_progress",
                     "an agent run is already active for this session",
                 )
                 continue
 
+            approvals = ToolApprovals(session_id, send, request.approval_mode)
             active_task = asyncio.create_task(
-                stream_turn(websocket, service, session_id, request)
+                stream_turn(send, service, session_id, request, approvals)
             )
     finally:
+        approvals.clear()
         if receive_task is not None:
             receive_task.cancel()
             await asyncio.gather(receive_task, return_exceptions=True)
@@ -125,7 +142,7 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
 
 
 async def _report_turn_completion(
-    websocket: WebSocket,
+    send: SendFrame,
     task: asyncio.Task[None],
 ) -> bool:
     try:
@@ -136,18 +153,18 @@ async def _report_turn_completion(
         return False
     except Exception as exc:
         try:
-            await _send_error(websocket, "runtime_error", str(exc))
+            await _send_error(send, "runtime_error", str(exc))
         except WebSocketDisconnect:
             return False
     return True
 
 
 async def _send_error(
-    websocket: WebSocket,
+    send: SendFrame,
     code: str,
     message: str,
 ) -> None:
-    await websocket.send_json(
+    await send(
         {
             "type": "error",
             "code": code,
