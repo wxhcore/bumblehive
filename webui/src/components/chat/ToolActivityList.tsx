@@ -91,7 +91,10 @@ export function consolidateShellIterations(
         shellBySession.set(sessionId, { iterationIndex, toolIndex });
         return;
       }
-      if (tool.name !== "write_stdin" || !sessionId) return;
+      if (
+        tool.name !== "write_stdin" || !sessionId ||
+        tool.status === "waiting_approval" || tool.status === "rejected"
+      ) return;
 
       const owner = shellBySession.get(sessionId);
       if (!owner) return;

@@ -339,6 +339,10 @@ export function detailFromStoredToolResult(
   return undefined;
 }
 
+export function toolResultRejected(value: unknown): boolean {
+  return asRecord(parseDocument(value)?.error)?.code === "tool_approval_denied";
+}
+
 export function toolResultError(value: unknown): string | null {
   const document = parseDocument(value);
   if (!document) return null;
@@ -364,6 +368,8 @@ export function normalizeToolActivityOutcome(
   tool: ToolActivity,
 ): ToolActivity {
   if (
+    tool.status === "waiting_approval" ||
+    tool.status === "rejected" ||
     (tool.name !== "exec" && tool.name !== "write_stdin") ||
     tool.detail?.kind !== "shell"
   ) {

@@ -7,6 +7,8 @@ import type {
 const BEE_LOGO_PATH = "/brand/bumblehive-bee.png";
 
 interface BeeCounts {
+  waiting_approval: number;
+  rejected: number;
   preparing: number;
   running: number;
   completed: number;
@@ -64,6 +66,10 @@ function isActive(status: ToolActivityStatus): boolean {
 
 function singleLabel(status: ToolActivityStatus): string {
   switch (status) {
+    case "waiting_approval":
+      return "等待审批";
+    case "rejected":
+      return "已拒绝";
     case "preparing":
       return "正在派出 Bee";
     case "running":
@@ -79,6 +85,10 @@ function singleLabel(status: ToolActivityStatus): string {
 
 function itemStatus(tool: ToolActivity): string {
   switch (tool.status) {
+    case "waiting_approval":
+      return "等待审批";
+    case "rejected":
+      return "已拒绝";
     case "preparing":
       return "准备中";
     case "running":
@@ -101,6 +111,8 @@ function statusMark(status: ToolActivityStatus): string {
 
 function beeCounts(tools: ToolActivity[]): BeeCounts {
   const counts: BeeCounts = {
+    waiting_approval: 0,
+    rejected: 0,
     preparing: 0,
     running: 0,
     completed: 0,
@@ -115,6 +127,8 @@ function beeCounts(tools: ToolActivity[]): BeeCounts {
 
 function hiveLabel(counts: BeeCounts, total: number): string {
   const active = counts.preparing + counts.running;
+  if (counts.waiting_approval) return "Hive 等待审批";
+  if (counts.rejected === total) return "Hive 已拒绝";
   if (counts.preparing === total) return "正在调度 Hive";
   if (active) return "Hive 正在协作";
   if (counts.completed === total) return "Hive 协作完成";
@@ -131,6 +145,8 @@ function hiveSummary(counts: BeeCounts, total: number): string {
   if (counts.cancelled === total) return `${total} 个任务已停止`;
 
   return [
+    counts.waiting_approval ? `${counts.waiting_approval} 等待审批` : "",
+    counts.rejected ? `${counts.rejected} 已拒绝` : "",
     counts.running ? `${counts.running} 工作中` : "",
     counts.preparing ? `${counts.preparing} 准备中` : "",
     counts.completed ? `${counts.completed} 完成` : "",
@@ -142,6 +158,8 @@ function hiveSummary(counts: BeeCounts, total: number): string {
 }
 
 function groupStatus(counts: BeeCounts, total: number): ToolActivityStatus {
+  if (counts.waiting_approval) return "waiting_approval";
+  if (counts.rejected === total) return "rejected";
   if (counts.running) return "running";
   if (counts.preparing) return "preparing";
   if (counts.completed === total) return "completed";

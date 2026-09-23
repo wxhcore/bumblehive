@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
 let server;
+let approvalCard;
+let toolActivityList;
 let assistantMessage;
 let chatEvents;
 let markdownContent;
@@ -23,6 +25,8 @@ before(async () => {
     server: { middlewareMode: true },
   });
   [
+    approvalCard,
+    toolActivityList,
     assistantMessage,
     chatEvents,
     markdownContent,
@@ -35,6 +39,8 @@ before(async () => {
     workspaces,
   ] =
     await Promise.all([
+      server.ssrLoadModule("/src/components/ApprovalCard.tsx"),
+      server.ssrLoadModule("/src/components/chat/ToolActivityList.tsx"),
       server.ssrLoadModule("/src/components/chat/AssistantMessage.tsx"),
       server.ssrLoadModule("/src/lib/chat-events.ts"),
       server.ssrLoadModule("/src/components/chat/MarkdownContent.tsx"),
@@ -590,4 +596,172 @@ test("buildWorkspaceGroups nests children and preserves matching ancestors", () 
   assert.equal(groups[0].sessions.length, 1);
   assert.equal(groups[0].sessions[0].id, "parent");
   assert.equal(groups[0].sessions[0].children[0].id, "child");
+});
+
+
+function approvalFrame(callId = "call-1", name = "write_file") {
+  return {
+    type: "approval_request",
+    approval_id: `approval-${callId}`,
+    session_id: "session-1",
+    call_id: callId,
+    name,
+    reason: name,
+    workspace: "/workspace",
+    paths: ["/outside.txt"],
+    outside_paths: ["/outside.txt"],
+    arguments: { path: "/outside.txt", content: "hello" },
+  };
+}
+
+function toolEvent(kind, callId = "call-1", error) {
+  return {
+    type: "event", kind, run_id: "run-1", session_id: "session-1",
+    iteration: 0, timestamp: 1,
+    payload: kind === "tool.call.started"
+      ? { tool_call: { call_id: callId, name: "write_file", arguments: { path: "/outside.txt", content: "hello" } } }
+      : { tool_result: { tool_call_id: callId, name: "write_file" }, ok: !error, error },
+  };
+}
+
+function emptyAssistant() {
+  return [{ id: "assistant", role: "assistant", content: "", iterations: [] }];
+}
+
+function allTools(messages) {
+  return messages[0].iterations.flatMap((item) => item.tools ?? []);
+}
+
+test("approval survives a delayed start and rejection remains terminal", () => {
+  const request = approvalFrame();
+  let messages = chatEvents.applyApprovalFrame(emptyAssistant(), "assistant", request);
+  messages = chatEvents.applyAgentEventFrames(messages, "assistant", [toolEvent("tool.call.started")]);
+  assert.equal(allTools(messages).length, 1);
+  assert.equal(allTools(messages)[0].status, "waiting_approval");
+  messages = chatEvents.applyApprovalFrame(messages, "assistant", { ...request, type: "approval_resolved", approved: false });
+  messages = chatEvents.applyAgentEventFrames(messages, "assistant", [
+    toolEvent("tool.call.finished", "call-1", { code: "tool_approval_denied", message: "拒绝" }),
+    toolEvent("tool.call.started"),
+  ]);
+  assert.equal(allTools(messages)[0].status, "rejected");
+  assert.equal(chatEvents.completeIterationTools(messages[0].iterations, "completed")[0].tools[0].status, "rejected");
+  const html = renderToStaticMarkup(createElement(toolActivityList.ToolSteps, { tools: allTools(messages) }));
+  assert.match(html, /已拒绝/);
+});
+
+test("approvals correlate parallel calls by id and fast completion wins over acknowledgement", () => {
+  let messages = chatEvents.applyAgentEventFrames(emptyAssistant(), "assistant", [toolEvent("tool.call.started", "call-1")]);
+  messages = chatEvents.applyApprovalFrame(messages, "assistant", approvalFrame("call-2"));
+  messages = chatEvents.applyApprovalFrame(messages, "assistant", approvalFrame("call-1"));
+  assert.deepEqual(allTools(messages).map((tool) => [tool.id, tool.status]), [
+    ["call-1", "waiting_approval"], ["call-2", "waiting_approval"],
+  ]);
+  messages = chatEvents.applyApprovalFrame(messages, "assistant", { ...approvalFrame("call-1"), type: "approval_resolved", approved: true });
+  assert.equal(allTools(messages)[0].status, "running");
+  messages = chatEvents.applyAgentEventFrames(messages, "assistant", [toolEvent("tool.call.finished", "call-1")]);
+  messages = chatEvents.applyApprovalFrame(messages, "assistant", { ...approvalFrame("call-1"), type: "approval_resolved", approved: true });
+  assert.equal(allTools(messages)[0].status, "completed");
+  assert.equal(allTools(messages)[1].status, "waiting_approval");
+  assert.equal(chatEvents.completeIterationTools(messages[0].iterations, "cancelled")[0].tools[1].status, "cancelled");
+});
+
+test("history restores rejected tool calls", () => {
+  const messages = chatEvents.historyMessages([
+    { role: "assistant", tool_calls: [{ id: "call-1", function: { name: "write_file", arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "call-1", content: JSON.stringify({ error: { code: "tool_approval_denied", message: "用户拒绝" } }) },
+  ]);
+  assert.equal(allTools(messages)[0].status, "rejected");
+});
+
+test("pending and rejected terminal input stays separate from the running process", () => {
+  for (const status of ["waiting_approval", "rejected"]) {
+    const iterations = [{ id: "iteration", iteration: 0, content: "", tools: [
+      { id: "exec", name: "exec", status: "running", detail: { kind: "shell", sessionId: "terminal", running: true } },
+      { id: "input", name: "write_stdin", status, arguments: { session_id: "terminal", chars: "exit" } },
+    ] }];
+    const normalized = toolActivityList.consolidateShellIterations(iterations);
+    assert.equal(normalized[0].tools.length, 2);
+    assert.equal(normalized[0].tools[1].status, status);
+  }
+});
+
+test("approval card displays actual operation, decision controls, and submitting state", () => {
+  const props = { count: 2, isStopping: false, onDecide() {}, onStop() {} };
+  const html = renderToStaticMarkup(createElement(approvalCard.ApprovalCard, {
+    ...props,
+    approval: { ...approvalFrame(), submitting: false, sourceSessionId: "session-1" },
+  }));
+  for (const text of ["/outside.txt", "/workspace", "hello", "拒绝", "允许一次", "停止任务", "2 项待确认"]) assert.ok(html.includes(text));
+  const shellHtml = renderToStaticMarkup(createElement(approvalCard.ApprovalCard, {
+    ...props,
+    approval: { ...approvalFrame("shell", "exec"), command: "echo <hello> > /tmp/outside", working_dir: "/workspace", submitting: true },
+  }));
+  assert.match(shellHtml, /echo &lt;hello&gt; &gt; \/tmp\/outside/);
+  assert.match(shellHtml, /处理中/);
+  assert.match(shellHtml, /disabled=""[^>]*>允许一次/);
+});
+
+
+test("approval preference persists and defaults to requesting approval", async () => {
+  const preference = await server.ssrLoadModule("/src/lib/approval-mode.ts");
+  const previousWindow = globalThis.window;
+  const storage = new Map();
+  globalThis.window = { localStorage: {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+  } };
+  try {
+    assert.equal(preference.readApprovalMode(), "request");
+    preference.writeApprovalMode("full_access");
+    assert.equal(preference.readApprovalMode(), "full_access");
+    preference.writeApprovalMode("request");
+    assert.equal(preference.readApprovalMode(), "request");
+    storage.set("bumblehive.approval-mode.v1", "invalid");
+    assert.equal(preference.readApprovalMode(), "request");
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test("composer places approval mode after workspace and disables changes during a run", async () => {
+  const { Composer } = await server.ssrLoadModule("/src/components/Composer.tsx");
+  const props = {
+    value: "", model: "model", models: [], workspace: "demo", disabled: false,
+    isStreaming: false, isStopping: false, modelSwitchDisabled: false,
+    approvalMode: "request", onSelectApprovalMode() {}, onChange() {},
+    onSubmit() {}, onStop() {}, onAddWorkspace() {}, async onSelectModel() {},
+  };
+  const html = renderToStaticMarkup(createElement(Composer, props));
+  assert.ok(html.indexOf(">demo</span>") < html.indexOf("审批模式：请求批准"));
+  const running = renderToStaticMarkup(createElement(Composer, {
+    ...props, approvalMode: "full_access", isStreaming: true,
+  }));
+  assert.match(running, /aria-label="审批模式：完全访问"[^>]*disabled=""/);
+});
+
+test("chat socket sends the selected approval mode with each task", async () => {
+  const { ChatSocket } = await server.ssrLoadModule("/src/api/chat-socket.ts");
+  const previous = globalThis.WebSocket;
+  const sent = [];
+  globalThis.WebSocket = class {
+    static OPEN = 1;
+    readyState = 1;
+    constructor() {
+      queueMicrotask(() => this.onmessage({ data: JSON.stringify({ type: "ready", session_id: "session" }) }));
+    }
+    send(message) { sent.push(JSON.parse(message)); }
+    close() {}
+  };
+  const socket = new ChatSocket("session", { onFrame() {}, onDisconnect() {} });
+  try {
+    await socket.connect();
+    socket.send("one", "/workspace", "full_access");
+    socket.send("two", "/workspace", "request");
+    assert.deepEqual(sent.map((message) => message.approval_mode), ["full_access", "request"]);
+    assert.equal(sent[0].config.runtime.workspace, "/workspace");
+  } finally {
+    socket.close();
+    globalThis.WebSocket = previous;
+  }
 });

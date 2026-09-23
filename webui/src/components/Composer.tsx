@@ -4,9 +4,13 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import type { ApprovalMode } from "../types/api";
+import { ApprovalModeSelect } from "./ApprovalModeSelect";
 import { ModelOptions } from "./ModelOptions";
 
 interface ComposerProps {
+  approvalMode: ApprovalMode;
+  onSelectApprovalMode: (mode: ApprovalMode) => void;
   value: string;
   model: string;
   models: string[];
@@ -23,6 +27,8 @@ interface ComposerProps {
 }
 
 export const Composer = memo(function Composer({
+  approvalMode,
+  onSelectApprovalMode,
   value,
   model,
   models,
@@ -84,6 +90,11 @@ export const Composer = memo(function Composer({
           <span className="folder-icon" aria-hidden="true" />
           <span>{workspace}</span>
         </button>
+        <ApprovalModeSelect
+          mode={approvalMode}
+          disabled={disabled || isStreaming}
+          onSelect={onSelectApprovalMode}
+        />
         <span className="toolbar-spacer" />
         <div
           className="composer-model-field"

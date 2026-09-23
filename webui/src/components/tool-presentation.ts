@@ -3,7 +3,10 @@ import type {
   ToolActivityStatus,
 } from "../types/api";
 
-type ToolCopy = Record<ToolActivityStatus, string>;
+type ToolCopy = Record<
+  Exclude<ToolActivityStatus, "waiting_approval" | "rejected">,
+  string
+>;
 
 interface ToolPresentation {
   label: string;
@@ -321,7 +324,9 @@ function durationLabel(duration: number | undefined): string {
 export function getToolPresentation(tool: ToolActivity): ToolPresentation {
   const copy = BUILTIN_TOOL_COPY[tool.name] ?? inferredCopy(tool.name);
   return {
-    label: copy[tool.status],
+    label:
+      tool.status === "waiting_approval" ? "等待审批"
+        : tool.status === "rejected" ? "已拒绝" : copy[tool.status],
     summary: toolSummary(tool),
     duration: durationLabel(tool.durationSeconds),
     technicalName: tool.name,

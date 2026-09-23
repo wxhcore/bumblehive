@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatSocket } from "../api/chat-socket";
 import {
+  applyApprovalFrame,
   completeIterationTools,
   createMessageId,
   frameSessionId,
 } from "../lib/chat-events";
 import type { PendingSessionInfo } from "../lib/session-tree";
 import type {
+  ApprovalMode,
   ChatFrame,
+  PendingApproval,
   ToolActivity,
   UiMessage,
 } from "../types/api";
@@ -17,6 +20,7 @@ import { useStableCallback } from "./useStableCallback";
 interface StartRunOptions {
   sessionId: string;
   task: string;
+  approvalMode: ApprovalMode;
   workspace: string | null;
   fallbackMessages: UiMessage[];
 }
@@ -42,6 +46,7 @@ export function useChatRuntime({
   const [stoppingSessionIds, setStoppingSessionIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const notify = useStableCallback(onNotify);
   const reportSessionCreated = useStableCallback(handleSessionCreated);
@@ -99,7 +104,12 @@ export function useChatRuntime({
     (sessionId: string, running: boolean) => {
       const next = new Set(runningSessionIdsRef.current);
       if (running) next.add(sessionId);
-      else next.delete(sessionId);
+      else {
+        next.delete(sessionId);
+        setApprovals((current) =>
+          current.filter((item) => item.session_id !== sessionId),
+        );
+      }
       runningSessionIdsRef.current = next;
       setRunningSessionIds(next);
     },
@@ -216,6 +226,26 @@ export function useChatRuntime({
     }
 
     flushPendingAgentFrames(sessionId);
+
+    if (frame.type === "approval_request" || frame.type === "approval_resolved") {
+      const assistantId = assistantIdsRef.current.get(sessionId);
+      if (!assistantId || !runningSessionIdsRef.current.has(sessionId)) return;
+      updateSessionMessages(sessionId, (current) =>
+        applyApprovalFrame(current, assistantId, frame),
+      );
+      if (frame.type === "approval_request") {
+        setApprovals((current) =>
+          current.some((item) => item.approval_id === frame.approval_id)
+            ? current
+            : [...current, { ...frame, sourceSessionId, submitting: false }],
+        );
+      } else {
+        setApprovals((current) =>
+          current.filter((item) => item.approval_id !== frame.approval_id),
+        );
+      }
+      return;
+    }
 
     if (frame.type === "result") {
       const assistantId = assistantIdsRef.current.get(sessionId);
@@ -401,6 +431,9 @@ export function useChatRuntime({
         messagesBySessionRef.current.delete(sessionId);
         assistantIdsRef.current.delete(sessionId);
       }
+      setApprovals((current) =>
+        current.filter((item) => !ids.includes(item.session_id)),
+      );
       forgetPendingAgentFrames(ids);
     },
     [forgetPendingAgentFrames],
@@ -410,6 +443,7 @@ export function useChatRuntime({
     async ({
       sessionId,
       task,
+      approvalMode,
       workspace,
       fallbackMessages,
     }: StartRunOptions) => {
@@ -436,7 +470,7 @@ export function useChatRuntime({
 
       try {
         const socket = await connectSocket(sessionId);
-        socket.send(task, workspace);
+        socket.send(task, workspace, approvalMode);
       } catch (error) {
         failRun(
           sessionId,
@@ -467,6 +501,27 @@ export function useChatRuntime({
     }
   }, [notify, setSessionStopping, stoppingSessionIds]);
 
+  const decideApproval = useCallback(
+    (approval: PendingApproval, approved: boolean) => {
+      if (approval.submitting) return;
+      try {
+        const socket = socketsRef.current.get(approval.sourceSessionId);
+        if (!socket?.connected) throw new Error("聊天连接不可用");
+        socket.decideApproval(approval.approval_id, approved);
+        setApprovals((current) =>
+          current.map((item) =>
+            item.approval_id === approval.approval_id
+              ? { ...item, submitting: true }
+              : item,
+          ),
+        );
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "提交审批失败");
+      }
+    },
+    [notify],
+  );
+
   useEffect(
     () => () => {
       socketsRef.current.forEach((socket) => socket.close());
@@ -477,6 +532,8 @@ export function useChatRuntime({
 
   return {
     activeSessionId,
+    pendingApprovals: approvals.filter((item) => item.session_id === activeSessionId),
+    decideApproval,
     displaySession,
     forgetSessions,
     getSessionMessages,

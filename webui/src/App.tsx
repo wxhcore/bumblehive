@@ -1,3 +1,5 @@
+import { readApprovalMode, writeApprovalMode } from "./lib/approval-mode";
+import type { ApprovalMode } from "./types/api";
 import {
   useCallback,
   useEffect,
@@ -12,6 +14,7 @@ import {
   updateSettings,
 } from "./api/http";
 import { ChatView } from "./components/ChatView";
+import { ApprovalCard } from "./components/ApprovalCard";
 import { Composer } from "./components/Composer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DesktopTitlebar } from "./components/DesktopTitlebar";
@@ -76,6 +79,8 @@ export default function App() {
     ReadonlyMap<string, PendingSessionInfo>
   >(() => new Map());
   const [input, setInput] = useState("");
+  const [approvalMode, setApprovalMode] = useState(readApprovalMode);
+
   const [showSettings, setShowSettings] = useState(false);
   const [focusSettingsWorkspace, setFocusSettingsWorkspace] =
     useState(false);
@@ -112,6 +117,8 @@ export default function App() {
 
   const {
     activeSessionId,
+    pendingApprovals,
+    decideApproval,
     displaySession,
     forgetSessions,
     getSessionMessages,
@@ -482,6 +489,7 @@ export default function App() {
         sessionId,
         task,
         workspace: taskWorkspace,
+        approvalMode,
         fallbackMessages: messages,
       });
     } catch (error) {
@@ -584,6 +592,15 @@ export default function App() {
     setFocusSettingsWorkspace(false);
     setShowSettings(true);
   });
+  function selectApprovalMode(mode: ApprovalMode) {
+    try {
+      writeApprovalMode(mode);
+      setApprovalMode(mode);
+    } catch {
+      notify("审批模式保存失败，请重试");
+    }
+  }
+
   const handleComposerSubmit = useStableCallback(() => void sendMessage());
   const handleComposerStop = useStableCallback(stopActiveRun);
   const handleComposerSelectModel = useStableCallback(selectModel);
@@ -696,21 +713,34 @@ export default function App() {
                 ) : (
                   <HomeView onSelectPrompt={setInput} />
                 )}
-                <Composer
-                  value={input}
-                  model={settings.provider.model ?? ""}
-                  models={selectableModels}
-                  workspace={workspaceLabel(activeWorkspace)}
-                  disabled={bootstrapStatus !== "ready"}
-                  isStreaming={isViewingRunningSession}
-                  isStopping={isViewingStoppingSession}
-                  modelSwitchDisabled={hasRunningSessions || modelSwitching}
-                  onChange={setInput}
-                  onSubmit={handleComposerSubmit}
-                  onStop={handleComposerStop}
-                  onSelectModel={handleComposerSelectModel}
-                  onAddWorkspace={handleSidebarAddWorkspace}
-                />
+                {pendingApprovals[0] ? (
+                  <ApprovalCard
+                    key={pendingApprovals[0].approval_id}
+                    approval={pendingApprovals[0]}
+                    count={pendingApprovals.length}
+                    isStopping={isViewingStoppingSession}
+                    onDecide={decideApproval}
+                    onStop={handleComposerStop}
+                  />
+                ) : (
+                  <Composer
+                    approvalMode={approvalMode}
+                    onSelectApprovalMode={selectApprovalMode}
+                    value={input}
+                    model={settings.provider.model ?? ""}
+                    models={selectableModels}
+                    workspace={workspaceLabel(activeWorkspace)}
+                    disabled={bootstrapStatus !== "ready"}
+                    isStreaming={isViewingRunningSession}
+                    isStopping={isViewingStoppingSession}
+                    modelSwitchDisabled={hasRunningSessions || modelSwitching}
+                    onChange={setInput}
+                    onSubmit={handleComposerSubmit}
+                    onStop={handleComposerStop}
+                    onSelectModel={handleComposerSelectModel}
+                    onAddWorkspace={handleSidebarAddWorkspace}
+                  />
+                )}
               </>
             ) : null}
           </section>

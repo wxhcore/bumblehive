@@ -1,3 +1,5 @@
+export type ApprovalMode = "request" | "full_access";
+
 export interface HealthResponse {
   status: string;
   runtime: "ready" | "unavailable";
@@ -176,7 +178,37 @@ export interface CancelledFrame {
   session_id: string;
 }
 
+export interface ApprovalRequestFrame {
+  type: "approval_request";
+  approval_id: string;
+  session_id: string;
+  call_id: string;
+  name: string;
+  reason: "write_file" | "edit_file" | "apply_patch" | "exec" | "write_stdin" | "tool";
+  workspace: string;
+  arguments: Record<string, unknown>;
+  paths?: string[];
+  outside_paths?: string[];
+  command?: string;
+  working_dir?: string;
+}
+
+export interface ApprovalResolvedFrame {
+  type: "approval_resolved";
+  approval_id: string;
+  session_id: string;
+  call_id: string;
+  approved: boolean;
+}
+
+export interface PendingApproval extends ApprovalRequestFrame {
+  sourceSessionId: string;
+  submitting: boolean;
+}
+
 export type ChatFrame =
+  | ApprovalRequestFrame
+  | ApprovalResolvedFrame
   | ReadyFrame
   | SessionCreatedFrame
   | AgentEventFrame
@@ -185,6 +217,8 @@ export type ChatFrame =
   | CancelledFrame;
 
 export type ToolActivityStatus =
+  | "waiting_approval"
+  | "rejected"
   | "preparing"
   | "running"
   | "completed"

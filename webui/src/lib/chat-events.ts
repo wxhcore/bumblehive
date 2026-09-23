@@ -3,9 +3,12 @@ import {
   normalizeToolActivityOutcome,
   parseToolActivityDetail,
   toolResultError,
+  toolResultRejected,
 } from "../tool-details";
 import type {
   AgentEventFrame,
+  ApprovalRequestFrame,
+  ApprovalResolvedFrame,
   AssistantIteration,
   ChatFrame,
   StoredMessage,
@@ -136,7 +139,9 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
       const tool = callId ? toolsByCallId.get(callId) : undefined;
       if (tool) {
         const errorMessage = toolResultError(message.content);
-        tool.status = errorMessage ? "error" : "completed";
+        tool.status = toolResultRejected(message.content)
+          ? "rejected"
+          : errorMessage ? "error" : "completed";
         tool.errorMessage = errorMessage || undefined;
         tool.detail = detailFromStoredToolResult(tool.name, message.content);
         Object.assign(tool, normalizeToolActivityOutcome(tool));
@@ -173,7 +178,10 @@ function finishedTool(payload: Record<string, unknown>): ToolActivity | null {
         ? result.tool_call_id
         : createMessageId(),
     name,
-    status: payload.ok === true ? "completed" : "error",
+    status:
+      error?.code === "tool_approval_denied"
+        ? "rejected"
+        : payload.ok === true ? "completed" : "error",
     durationSeconds:
       typeof payload.duration_s === "number" ? payload.duration_s : undefined,
     errorMessage:
@@ -193,7 +201,12 @@ function startTool(
       (tool.status === "preparing" && tool.name === started.name),
   );
   if (index === -1) return [...current, started];
-  current[index] = { ...current[index], ...started };
+  const existing = current[index];
+  current[index] = {
+    ...existing,
+    ...started,
+    status: existing.status === "preparing" ? started.status : existing.status,
+  };
   return current;
 }
 
@@ -233,7 +246,7 @@ function prepareTool(
     arguments: parseArguments(streamedArguments),
     streamedArguments,
     streamIndex,
-    status: "preparing",
+    status: existing?.status ?? "preparing",
   };
 
   if (index < 0) return [...current, prepared];
@@ -351,7 +364,9 @@ export function completeIterationTools(
   return (iterations ?? []).map((iteration) => ({
     ...iteration,
     tools: iteration.tools?.map((tool) =>
-      tool.status === "running" || tool.status === "preparing"
+      tool.status === "running" ||
+      tool.status === "preparing" ||
+      tool.status === "waiting_approval"
         ? { ...tool, status, errorMessage }
         : tool,
     ),
@@ -532,17 +547,22 @@ export function applyAgentEventFrames(
     if (frame.kind === "tool.call.started") {
       const tool = startedTool(frame.payload);
       if (!tool) continue;
+      const iterations = updated.iterations ?? [];
+      const owner = iterations.find((item) =>
+        item.tools?.some((entry) => entry.id === tool.id),
+      );
       updated = {
         ...updated,
-        iterations: updateAssistantIteration(
-          updated.iterations,
-          frame.iteration,
-          "tool",
-          (modelIteration) => ({
-            ...modelIteration,
-            tools: startTool(modelIteration.tools, tool),
-          }),
-        ),
+        iterations: owner
+          ? iterations.map((item) => item === owner
+            ? { ...item, tools: startTool(item.tools, tool) }
+            : item)
+          : updateAssistantIteration(
+            iterations, frame.iteration, "tool", (item) => ({
+              ...item,
+              tools: startTool(item.tools, tool),
+            }),
+          ),
       };
       continue;
     }
@@ -584,4 +604,55 @@ export function applyAgentEventFrames(
   const next = [...messages];
   next[assistantIndex] = updated;
   return next;
+}
+
+export function applyApprovalFrame(
+  messages: UiMessage[],
+  assistantId: string,
+  frame: ApprovalRequestFrame | ApprovalResolvedFrame,
+): UiMessage[] {
+  return messages.map((message) => {
+    if (message.id !== assistantId) return message;
+    const existing = message.iterations
+      ?.flatMap((item) => item.tools ?? [])
+      .find((tool) => tool.id === frame.call_id);
+
+    if (frame.type === "approval_resolved") {
+      if (!existing || existing.status !== "waiting_approval") return message;
+      return {
+        ...message,
+        iterations: finishIterationTool(message.iterations, null, {
+          ...existing,
+          status: frame.approved ? "running" : "rejected",
+        }),
+      };
+    }
+
+    if (existing) {
+      if (existing.status !== "preparing" && existing.status !== "running") {
+        return message;
+      }
+      return {
+        ...message,
+        iterations: finishIterationTool(message.iterations, null, {
+          ...existing,
+          status: "waiting_approval",
+        }),
+      };
+    }
+
+    // Approval may arrive before the streamed tool-start event.
+    return {
+      ...message,
+      iterations: updateAssistantIteration(message.iterations, null, "tool", (item) => ({
+        ...item,
+        tools: [...(item.tools ?? []), {
+          id: frame.call_id,
+          name: frame.name,
+          arguments: frame.arguments,
+          status: "waiting_approval",
+        }],
+      })),
+    };
+  });
 }

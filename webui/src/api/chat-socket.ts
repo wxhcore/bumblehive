@@ -1,5 +1,5 @@
 import { WS_URL } from "./config";
-import type { ChatFrame } from "../types/api";
+import type { ApprovalMode, ChatFrame } from "../types/api";
 
 interface ChatSocketCallbacks {
   onFrame: (frame: ChatFrame) => void;
@@ -65,7 +65,7 @@ export class ChatSocket {
     return this.connectPromise;
   }
 
-  send(content: string, workspace?: string | null): void {
+  send(content: string, workspace: string | null, approvalMode: ApprovalMode): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error("聊天服务尚未连接");
     }
@@ -73,11 +73,23 @@ export class ChatSocket {
       JSON.stringify({
         type: "message",
         content,
+        approval_mode: approvalMode,
         ...(workspace?.trim()
           ? { config: { runtime: { workspace: workspace.trim() } } }
           : {}),
       }),
     );
+  }
+
+  decideApproval(approvalId: string, approved: boolean): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error("聊天服务尚未连接");
+    }
+    this.socket.send(JSON.stringify({
+      type: "approval_decision",
+      approval_id: approvalId,
+      approved,
+    }));
   }
 
   cancel(): void {
