@@ -127,13 +127,13 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
                 stream_turn(send, service, session_id, request, approvals)
             )
     finally:
-        approvals.clear()
         if receive_task is not None:
             receive_task.cancel()
             await asyncio.gather(receive_task, return_exceptions=True)
         if active_task is not None:
             active_task.cancel()
             await asyncio.gather(active_task, return_exceptions=True)
+        approvals.clear()
         logger.info(
             "[websocket] disconnected | session_id=%s | duration=%s",
             session_label,

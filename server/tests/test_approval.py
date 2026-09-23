@@ -35,8 +35,14 @@ def test_file_scope_matches_resolved_paths(tmp_path, name):
     for path in ["../outside.txt", str(outside), "link"]:
         details = approval_details(request(workspace, name, path=path))
         assert details["outside_paths"] == [str(outside)]
-    # Unlike apply_patch, file tools preserve path whitespace.
-    assert approval_details(request(workspace, name, path=" ../outside.txt ")) is None
+    # Keep whitespace and follow the platform's path resolution semantics.
+    raw_path = " ../outside.txt "
+    resolved = (workspace / raw_path).resolve()
+    details = approval_details(request(workspace, name, path=raw_path))
+    if resolved.is_relative_to(workspace.resolve()):
+        assert details is None
+    else:
+        assert details["outside_paths"] == [str(resolved)]
 
 
 def test_patch_strips_paths_and_approves_dry_run(tmp_path):

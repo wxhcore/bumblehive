@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -1158,6 +1159,8 @@ class ApprovalFakeStream(FakeStream):
         )
 
     async def aclose(self):
+        # Exercise disconnects while asynchronous cleanup is still in progress.
+        await asyncio.sleep(0.01)
         self.closed = True
 
 
@@ -1214,7 +1217,16 @@ def test_websocket_cancel_and_disconnect_clear_approval(tmp_path):
     runtime = ApprovalFakeRuntime(workspace, target)
     service.runtime = runtime
     app = create_app(runtime_service=service, session_reader=FakeSessionReader())
-    with TestClient(app) as client:
+    disconnected = threading.Event()
+
+    async def observed_app(scope, receive, send):
+        try:
+            await app(scope, receive, send)
+        finally:
+            if scope["type"] == "websocket":
+                disconnected.set()
+
+    with TestClient(observed_app) as client:
         with client.websocket_connect("/ws/v1/chat/session-1") as websocket:
             websocket.receive_json()
             websocket.send_json({"type": "message", "content": "Write"})
@@ -1231,6 +1243,9 @@ def test_websocket_cancel_and_disconnect_clear_approval(tmp_path):
             )
             websocket.send_json({"type": "message", "content": "Write again"})
             assert websocket.receive_json()["type"] == "approval_request"
+            # Let disconnect cleanup finish before TestClient cancels its scope.
+            websocket.close()
+            assert disconnected.wait(timeout=5)
         assert not target.exists()
         assert runtime.streams[1].closed
         assert not runtime.streams[1].handler.pending
