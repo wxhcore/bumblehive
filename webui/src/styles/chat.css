@@ -149,8 +149,8 @@
   white-space: normal;
 }
 
-.message-assistant .execution-process-content .markdown-body p,
-.message-assistant .execution-process-content .markdown-body li {
+/* Preserve prose line breaks without exposing nested-list formatting whitespace. */
+.message-assistant .execution-process-content .markdown-body p {
   white-space: pre-wrap;
 }
 
