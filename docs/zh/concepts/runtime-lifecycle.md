@@ -47,7 +47,31 @@ finally:
     await runtime.close()
 ```
 
-`run()` 和 `stream()` 会自动初始化工具。只有在第一次运行前就要查看或使用已注册工具时，才需要显式调用 `initialize_tools()`。
+`run()` 和 `run_console()` 在等待或调度后、`stream()` 在首次迭代后自动初始化工具；只创建运行对象不会初始化。只有在第一次运行前就要查看或使用已注册工具时，才需要显式调用 `initialize_tools()`。
+
+<span id="run-lifecycle"></span>
+
+## 运行对象的生命周期
+
+`run()` 和 `run_console()` 返回的对象在等待或调度后执行。退出 Runtime 上下文前，应完成运行或取消并等待清理：
+
+```python
+import asyncio
+
+async with bumblehive.from_config(config) as runtime:
+    run = runtime.run("分析项目")
+    task = asyncio.create_task(run)
+    try:
+        result = await task
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+```
+
+创建后决定不执行的运行对象可用 `run.close()` 丢弃。流式对象使用 `await stream.aclose()`，尚未启动时也可以关闭；关闭后不能再次启动。
+
+引导输入的关闭和取回规则见 [Runtime 参考](../reference/runtime.md#steering-rules)。
 
 ## Runtime 应该创建几次
 

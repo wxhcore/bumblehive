@@ -43,6 +43,16 @@
 
 ## 相关类型
 
+<span id="bumblehive.agent.AgentRun"></span>
+
+[`AgentRun`](runtime.md#bumblehive.AgentRun) 是 `runtime.run()` 和 `runtime.run_console()` 返回的可引导协程对象。
+
+<span id="bumblehive.agent.AgentRunStream"></span>
+
+[`AgentRunStream`](runtime.md#bumblehive.AgentRunStream) 是 `runtime.stream()` 返回的可引导事件流。
+
+需要引导运行时，使用 Runtime 返回的运行对象。Loop 和 Runner 的 `control` 参数供内部传递；直接调用底层方法仍通过 `await` 获取 `AgentRunResult`。
+
 <span id="bumblehive.agent.AgentRunResult"></span>
 
 [`AgentRunResult`](runtime.md#bumblehive.AgentRunResult) 的完整定义已集中到对应主题。

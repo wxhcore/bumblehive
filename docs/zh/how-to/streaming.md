@@ -52,6 +52,31 @@ result = await stream.result()
 
 提前调用 `result()` 会抛出 `RuntimeError`。
 
+## 运行期间引导
+
+保存 `stream`，在用户输入事件中调用 `steer()`。回调与事件消费须在同一个 asyncio 事件循环中执行：
+
+```python
+stream = runtime.stream("修改登录页面")
+
+# 将此回调接到应用的 WebSocket 或界面输入事件。
+def on_user_input(text: str) -> None:
+    stream.steer(text)
+
+try:
+    async for event in stream:
+        ...  # 展示事件。
+    result = await stream.result()
+finally:
+    await stream.aclose()
+```
+
+流在首次迭代时启动，启动前也可以提交引导。输入按顺序进入下一轮模型请求，当前响应和整批工具执行继续完成。
+
+后台可能已经结束，而界面仍在展示缓冲事件。此时 `steer()` 会抛出 `RuntimeError`；`FINAL_RESULT` 表示整次运行结束，不是某一次模型响应结束。
+
+关闭后可用 `stream.take_pending()` 取回尚未消费的输入。消息插入位置、迭代限制和取回规则见[输入处理规则](../reference/runtime.md#steering-rules)。
+
 ## 显示工具进度
 
 在上面的事件循环中，根据事件类型更新界面。工具开始事件包含 `tool_call`，完成事件包含 `tool_result` 和 `ok`：
@@ -89,12 +114,24 @@ await stream.aclose()
 
 提前关闭会取消后台任务，因此之后不能取得最终结果。一个 Stream 也只能消费一次。
 
+在其他协程中关闭流时，未读事件会被丢弃，等待事件的消费任务会被唤醒。应用应等待消费任务退出，并处理可能传播的 `asyncio.CancelledError`。
+
 ## 只需要终端显示
 
-`run_console()` 会处理事件并返回同一个 `AgentRunResult`：
+`run_console()` 自动展示流式输出，等待完成后得到 `AgentRunResult`：
 
 ```python
 result = await runtime.run_console("解释当前项目")
 ```
+
+需要引导时，保存运行对象，使用与 `run()` 相同的方式：
+
+```python
+run = runtime.run_console("修改登录页面")
+run.steer("背景改成蓝色")
+result = await run
+```
+
+上例在启动前提交输入。运行期间接收新消息的方式见[运行期间追加输入](../reference/runtime.md#steering)。此接口不自动读取键盘；取消并等待运行 Task 后，SDK 会完成流和控制台的收尾。
 
 [聊天界面集成](../examples/chat-interface.md) · [事件与 Hooks API](../reference/observability.md)
