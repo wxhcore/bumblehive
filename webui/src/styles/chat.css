@@ -181,7 +181,7 @@
 }
 
 .main-panel.chat-active .message-scroll-anchor {
-  height: calc(var(--composer-height) + 26px);
+  height: calc(var(--composer-space, var(--composer-height)) + 26px);
 }
 
 .markdown-body pre {

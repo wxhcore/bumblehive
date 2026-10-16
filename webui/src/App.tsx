@@ -118,6 +118,9 @@ export default function App() {
   const {
     activeSessionId,
     pendingApprovals,
+    pendingMessages,
+    actOnPending,
+    isDisconnected,
     decideApproval,
     displaySession,
     forgetSessions,
@@ -459,7 +462,6 @@ export default function App() {
       selectedWorkspace ??
       settings.runtime.workspace ??
       null;
-    if (sessionId && isSessionRunning(sessionId)) return;
     try {
       if (!sessionId) {
         const workspace = newChatWorkspace();
@@ -713,34 +715,37 @@ export default function App() {
                 ) : (
                   <HomeView onSelectPrompt={setInput} />
                 )}
-                {pendingApprovals[0] ? (
-                  <ApprovalCard
-                    key={pendingApprovals[0].approval_id}
-                    approval={pendingApprovals[0]}
-                    count={pendingApprovals.length}
-                    isStopping={isViewingStoppingSession}
-                    onDecide={decideApproval}
-                    onStop={handleComposerStop}
-                  />
-                ) : (
-                  <Composer
-                    approvalMode={approvalMode}
-                    onSelectApprovalMode={selectApprovalMode}
-                    value={input}
-                    model={settings.provider.model ?? ""}
-                    models={selectableModels}
-                    workspace={workspaceLabel(activeWorkspace)}
-                    disabled={bootstrapStatus !== "ready"}
-                    isStreaming={isViewingRunningSession}
-                    isStopping={isViewingStoppingSession}
-                    modelSwitchDisabled={hasRunningSessions || modelSwitching}
-                    onChange={setInput}
-                    onSubmit={handleComposerSubmit}
-                    onStop={handleComposerStop}
-                    onSelectModel={handleComposerSelectModel}
-                    onAddWorkspace={handleSidebarAddWorkspace}
-                  />
-                )}
+                <Composer
+                  pendingMessages={pendingMessages}
+                  disconnected={isDisconnected}
+                  onPendingAction={actOnPending}
+                  approvalSlot={pendingApprovals[0] ? (
+                    <ApprovalCard
+                      embedded
+                      key={pendingApprovals[0].approval_id}
+                      approval={pendingApprovals[0]}
+                      count={pendingApprovals.length}
+                      isStopping={isViewingStoppingSession}
+                      onDecide={decideApproval}
+                      onStop={handleComposerStop}
+                    />
+                  ) : null}
+                  approvalMode={approvalMode}
+                  onSelectApprovalMode={selectApprovalMode}
+                  value={input}
+                  model={settings.provider.model ?? ""}
+                  models={selectableModels}
+                  workspace={workspaceLabel(activeWorkspace)}
+                  disabled={bootstrapStatus !== "ready"}
+                  isStreaming={isViewingRunningSession}
+                  isStopping={isViewingStoppingSession}
+                  modelSwitchDisabled={hasRunningSessions || modelSwitching}
+                  onChange={setInput}
+                  onSubmit={handleComposerSubmit}
+                  onStop={handleComposerStop}
+                  onSelectModel={handleComposerSelectModel}
+                  onAddWorkspace={handleSidebarAddWorkspace}
+                />
               </>
             ) : null}
           </section>

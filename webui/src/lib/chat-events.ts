@@ -11,6 +11,9 @@ import type {
   ApprovalResolvedFrame,
   AssistantIteration,
   ChatFrame,
+  MessageStatusFrame,
+  PendingChatMessage,
+  ReadyFrame,
   StoredMessage,
   ToolActivity,
   UiMessage,
@@ -32,6 +35,50 @@ export function frameSessionId(frame: ChatFrame, fallback: string): string {
     frame.session_id
     ? frame.session_id
     : fallback;
+}
+
+export function applyPendingMessageStatus(
+  items: PendingChatMessage[],
+  frame: MessageStatusFrame,
+): PendingChatMessage[] {
+  if (frame.status !== "queued") {
+    return items.filter((item) => item.message_id !== frame.message_id);
+  }
+  const message = { message_id: frame.message_id, content: frame.content };
+  if (frame.position !== undefined) {
+    const next = items.filter((item) => item.message_id !== frame.message_id);
+    next.splice(frame.position, 0, message);
+    return next;
+  }
+  return items.some((item) => item.message_id === frame.message_id)
+    ? items.map((item) => item.message_id === frame.message_id ? message : item)
+    : [...items, message];
+}
+
+export function restoreRunningMessages(messages: UiMessage[], frame: ReadyFrame): UiMessage[] {
+  const next = [...messages];
+  const active = frame.active_message;
+  if (active && !next.some((item) => item.role === "user" && item.content === active.content)) {
+    next.push({ id: active.message_id, role: "user", content: active.content });
+  }
+  const startedAt = (frame.started_at ?? Date.now() / 1000) * 1000;
+  const last = next.at(-1);
+  if (!last || last.role !== "assistant" || last.durationSeconds !== undefined) {
+    next.push({ id: createMessageId(), role: "assistant", content: "", iterations: [], startedAt });
+  } else {
+    next[next.length - 1] = {
+      ...last,
+      startedAt,
+      iterations: last.iterations?.map((iteration) => ({
+        ...iteration,
+        tools: iteration.tools?.map((tool) => tool.status === "cancelled"
+          ? { ...tool, status: "running" } : tool),
+      })),
+    };
+  }
+  return (frame.approvals ?? []).reduce(
+    (current, approval) => applyApprovalFrame(current, next.at(-1)!.id, approval), next,
+  );
 }
 
 function messageContent(content: unknown): string {

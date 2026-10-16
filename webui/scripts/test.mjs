@@ -796,3 +796,140 @@ test("chat socket sends the selected approval mode with each task", async () => 
     globalThis.WebSocket = previous;
   }
 });
+
+test("composer renders multiple pending rows with independent steer and delete controls", async () => {
+  const { Composer } = await server.ssrLoadModule("/src/components/Composer.tsx");
+  const html = renderToStaticMarkup(createElement(Composer, {
+    value: "第三条", model: "model", models: [], workspace: "demo", disabled: false,
+    isStreaming: true, isStopping: false, modelSwitchDisabled: true,
+    approvalMode: "request", onSelectApprovalMode() {}, onChange() {},
+    onSubmit() {}, onStop() {}, onAddWorkspace() {}, async onSelectModel() {},
+    pendingMessages: [{ message_id: "B", content: "只修改后端" }, { message_id: "C", content: "保留原样式", submitting: true }],
+    onPendingAction() {},
+  }));
+  assert.ok(html.indexOf("只修改后端") < html.indexOf("保留原样式"));
+  assert.equal((html.match(/class="pending-message"/g) ?? []).length, 2);
+  assert.match(html, /删除待发送消息：只修改后端/);
+  assert.match(html, /引导/);
+  assert.match(html, /排队发送/);
+  assert.doesNotMatch(html, /<textarea[^>]*disabled/);
+});
+
+test("chat socket processes ready snapshot before events and sends message IDs and pending actions", async () => {
+  const { ChatSocket } = await server.ssrLoadModule("/src/api/chat-socket.ts");
+  const previous = globalThis.WebSocket;
+  const frames = [], sent = [];
+  let instance, release;
+  const hydration = new Promise((resolve) => { release = resolve; });
+  globalThis.WebSocket = class {
+    static OPEN = 1;
+    readyState = 1;
+    constructor() {
+      instance = this;
+      queueMicrotask(() => {
+        this.onmessage({ data: JSON.stringify({ type: "ready", session_id: "one", running: true, pending: [{ message_id: "B", content: "queued" }] }) });
+        this.onmessage({ data: JSON.stringify({ type: "event", session_id: "one", kind: "model.stream.content_delta", payload: { delta: "next" } }) });
+      });
+    }
+    send(text) { sent.push(JSON.parse(text)); }
+    close() {}
+  };
+  const socket = new ChatSocket("one", {
+    async onFrame(frame) {
+      if (frame.type === "ready") await hydration;
+      frames.push(frame);
+    },
+    onDisconnect() {},
+  });
+  try {
+    const connected = socket.connect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(frames, []);
+    release();
+    await connected;
+    await socket.whenSynced();
+    assert.deepEqual(frames.map((f) => f.type), ["ready", "event"]);
+    socket.send("new", "/workspace", "request", "C");
+    socket.updatePending("steer", "B");
+    socket.updatePending("remove_pending", "C");
+    assert.equal(sent[0].message_id, "C");
+    assert.deepEqual(sent.slice(1), [{ type: "steer", message_id: "B" }, { type: "remove_pending", message_id: "C" }]);
+    assert.equal(instance.readyState, 1);
+  } finally {
+    socket.close();
+    globalThis.WebSocket = previous;
+  }
+});
+
+test("reconnect restores live tools, elapsed time and approval without duplicating the original input", () => {
+  const original = "查询课程";
+  const stored = [
+    { role: "user", content: original },
+    { role: "assistant", tool_calls: [{ id: "live", function: { name: "query", arguments: "{}" } }] },
+    { role: "user", content: "后来插入的引导" },
+  ];
+  const ready = {
+    type: "ready", session_id: "one", running: true, started_at: 123,
+    active_message: { message_id: "A", content: original }, approvals: [],
+  };
+  const restored = chatEvents.restoreRunningMessages(chatEvents.historyMessages(stored), ready);
+  assert.equal(restored.filter((message) => message.content === original).length, 1);
+  assert.equal(restored.at(-1).startedAt, 123000);
+  const waitingHistory = chatEvents.historyMessages(stored.slice(0, 2));
+  const running = chatEvents.restoreRunningMessages(waitingHistory, ready);
+  assert.equal(running.at(-1).iterations[0].tools[0].status, "running");
+  const approval = { ...approvalFrame(), call_id: "live" };
+  const waiting = chatEvents.restoreRunningMessages(waitingHistory, { ...ready, approvals: [approval] });
+  assert.equal(waiting.at(-1).iterations[0].tools[0].status, "waiting_approval");
+  assert.equal(waiting.at(-1).startedAt, 123000);
+});
+
+test("simultaneous connect calls share one handshake until the ready snapshot is restored", async () => {
+  const { ChatSocket } = await server.ssrLoadModule("/src/api/chat-socket.ts");
+  const previous = globalThis.WebSocket;
+  let instance, count = 0;
+  globalThis.WebSocket = class {
+    static OPEN = 1;
+    readyState = 1;
+    constructor() { instance = this; count++; }
+    close() {}
+  };
+  const socket = new ChatSocket("one", { onFrame() {}, onDisconnect() {} });
+  try {
+    const first = socket.connect();
+    const second = socket.connect();
+    assert.equal(first, second);
+    assert.equal(count, 1);
+    let resolved = false;
+    void second.then(() => { resolved = true; });
+    await Promise.resolve();
+    assert.equal(resolved, false);
+    instance.onmessage({ data: JSON.stringify({ type: "ready", session_id: "one" }) });
+    await first;
+    assert.equal(resolved, true);
+  } finally {
+    socket.close();
+    globalThis.WebSocket = previous;
+  }
+});
+
+test("restored steering receipts reinsert original IDs at their queue positions", () => {
+  const queued = (message_id, position) => ({ type: "message_status", session_id: "one", status: "queued", message_id, content: "same text", position });
+  let items = [
+    { message_id: "left", content: "first follow-up" },
+    { message_id: "tail", content: "last follow-up" },
+    { message_id: "new", content: "optimistic new input", submitting: true },
+  ];
+  items = chatEvents.applyPendingMessageStatus(items, queued("B", 1));
+  items = chatEvents.applyPendingMessageStatus(items, queued("C", 2));
+  assert.deepEqual(items.map((item) => item.message_id), ["left", "B", "C", "tail", "new"]);
+  assert.equal(items[1].content, items[2].content);
+  assert.equal(items[1].submitting, undefined);
+  items = chatEvents.applyPendingMessageStatus(items, queued("C", 2));
+  assert.deepEqual(items.map((item) => item.message_id), ["left", "B", "C", "tail", "new"]);
+  items = chatEvents.applyPendingMessageStatus(items, { ...queued("B"), status: "started" });
+  assert.deepEqual(items.map((item) => item.message_id), ["left", "C", "tail", "new"]);
+  items = chatEvents.applyPendingMessageStatus(items, { ...queued("new"), content: "acknowledged" });
+  assert.deepEqual(items.map((item) => item.message_id), ["left", "C", "tail", "new"]);
+  assert.equal(items.at(-1).submitting, undefined);
+});

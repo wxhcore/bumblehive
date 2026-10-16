@@ -145,6 +145,27 @@ export interface AgentEventFrame {
 export interface ReadyFrame {
   type: "ready";
   session_id: string;
+  running?: boolean;
+  active_message_id?: string | null;
+  active_message?: PendingChatMessage | null;
+  started_at?: number | null;
+  pending?: PendingChatMessage[];
+  approvals?: ApprovalRequestFrame[];
+}
+
+export interface PendingChatMessage {
+  message_id: string;
+  content: string;
+  submitting?: boolean;
+}
+
+export interface MessageStatusFrame {
+  type: "message_status";
+  session_id: string;
+  message_id: string;
+  content: string;
+  status: "queued" | "started" | "steered" | "removed";
+  position?: number;
 }
 
 export interface SessionCreatedFrame {
@@ -171,6 +192,8 @@ export interface ErrorFrame {
   session_id?: string;
   code: string;
   message: string;
+  scope?: "input";
+  message_id?: string;
 }
 
 export interface CancelledFrame {
@@ -207,6 +230,7 @@ export interface PendingApproval extends ApprovalRequestFrame {
 }
 
 export type ChatFrame =
+  | MessageStatusFrame
   | ApprovalRequestFrame
   | ApprovalResolvedFrame
   | ReadyFrame

@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import type { PendingApproval } from "../types/api";
 
 interface ApprovalCardProps {
+  embedded?: boolean;
   approval: PendingApproval;
   count: number;
   isStopping: boolean;
@@ -32,6 +33,7 @@ function approvalPrompt(approval: PendingApproval): string {
 }
 
 export function ApprovalCard({
+  embedded = false,
   approval,
   count,
   isStopping,
@@ -40,6 +42,7 @@ export function ApprovalCard({
 }: ApprovalCardProps) {
   const cardRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
+    if (embedded) return;
     const card = cardRef.current;
     const panel = card?.closest<HTMLElement>(".main-panel");
     if (!card || !panel) return;
@@ -52,12 +55,12 @@ export function ApprovalCard({
       observer.disconnect();
       panel.style.removeProperty("--composer-height");
     };
-  }, []);
+  }, [embedded]);
 
   const disabled = approval.submitting || isStopping;
   const terminal = approval.reason === "exec" || approval.reason === "write_stdin";
   return (
-    <section className="composer approval-card" ref={cardRef} aria-label="工具审批">
+    <section className={embedded ? "approval-card embedded-approval" : "composer approval-card"} ref={cardRef} aria-label="工具审批">
       <div className="approval-body">
         <div className="approval-heading">
           <span>{terminal ? "终端" : "工具审批"} · {approval.name}</span>
