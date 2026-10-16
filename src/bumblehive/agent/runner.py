@@ -16,6 +16,7 @@ from ..providers.base import (
 )
 from ..tools.manager import ToolManager
 from .context import ContextGovernanceConfig, ContextGovernor
+from .control import _RunControl
 
 CheckpointCallback = Callable[[list[Message]], Awaitable[None]]
 
@@ -59,6 +60,7 @@ class ToolCallingRunner:
         emitter: EventEmitter | None = None,
         stream: bool = False,
         checkpoint_callback: CheckpointCallback | None = None,
+        control: _RunControl | None = None,
     ) -> AgentRunResult:
         """Run model/tool iterations until a final model response is produced."""
 
@@ -94,8 +96,11 @@ class ToolCallingRunner:
                 emitter=emitter,
                 stream=stream,
                 checkpoint_callback=checkpoint_callback,
+                control=control,
             )
         except Exception as exc:
+            if control is not None:
+                control._close()
             await run_events.error(exc)
             raise
 
@@ -119,6 +124,7 @@ class ToolCallingRunner:
         emitter: EventEmitter,
         stream: bool,
         checkpoint_callback: CheckpointCallback | None,
+        control: _RunControl | None = None,
     ) -> AgentRunResult:
         for iteration in range(max_iterations):
             iteration_emitter = emitter.with_iteration(iteration)
@@ -126,6 +132,11 @@ class ToolCallingRunner:
             model_events = ModelEvents(iteration_emitter)
             tool_events = ToolEvents(iteration_emitter)
             await run_events.iteration_started(message_count=len(run_messages))
+            if control is not None:
+                pending = control._drain_all()
+                if pending:
+                    run_messages.extend(pending)
+                    await self._checkpoint(checkpoint_callback, run_messages)
             request_generation = (
                 generation if generation is not None else GenerationConfig()
             )
@@ -158,6 +169,8 @@ class ToolCallingRunner:
             self._accumulate_usage(usage, response.usage)
 
             if response.is_error:
+                if control is not None:
+                    control._close()
                 assistant_message = self._append_model_error_placeholder(run_messages)
                 await self._checkpoint(checkpoint_callback, run_messages)
                 await model_events.response_finished(
@@ -244,6 +257,14 @@ class ToolCallingRunner:
                 error=response.error,
                 message=assistant_message,
             )
+            if control is not None and not control._close_if_empty():
+                await run_events.iteration_finished(
+                    finish_reason=response.finish_reason,
+                    message_count=len(run_messages),
+                    tools_used=tools_used,
+                    usage=usage,
+                )
+                continue
             result = AgentRunResult(
                 final_content=final_content,
                 messages=run_messages,
@@ -269,6 +290,8 @@ class ToolCallingRunner:
             )
             return result
 
+        if control is not None:
+            control._close()
         final_content = _MAX_ITERATIONS_MESSAGE
         assistant_message = self._assistant_message(final_content)
         run_messages.append(assistant_message)

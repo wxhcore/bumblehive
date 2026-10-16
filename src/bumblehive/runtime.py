@@ -5,18 +5,20 @@ from typing import Any
 
 from .agent import (
     AgentLoop,
+    AgentRun,
     AgentRunResult,
+    AgentRunStream,
     ContextBuilder,
     MessageHistory,
     ToolCallingRunner,
 )
+from .agent.control import _RunControl
 from .agent.runner import CheckpointCallback
 from .config.loader import ConfigInput, load_config
 from .config.schema import BumblehiveConfig, ProviderConfig
 from .observability import (
     DEFAULT_STREAM_QUEUE_SIZE,
     AgentHook,
-    AsyncEventStream,
     HookInput,
 )
 from .observability.streaming import AsyncEventStreamHook
@@ -79,7 +81,7 @@ class BumblehiveRuntime:
             await self.tools.sync_mcp_servers(self.config.mcp_servers)
             self._tools_initialized = True
 
-    async def run(
+    def run(
         self,
         message: UserMessage,
         *,
@@ -88,8 +90,8 @@ class BumblehiveRuntime:
         history: MessageHistory | None = None,
         session_id: str | None = None,
         approval_handler: ToolApprovalHandler | None = None,
-    ) -> AgentRunResult:
-        """Run one conversation turn.
+    ) -> AgentRun:
+        """Create a steerable turn, executed when awaited or scheduled as a Task.
 
         With neither ``history`` nor ``session_id``, the turn is stateless.
         Passing ``history`` reads caller-owned in-memory history without
@@ -101,14 +103,19 @@ class BumblehiveRuntime:
         Do not share one ``MessageHistory`` across concurrent runs: await turns
         sequentially, or use separate histories for parallel conversations.
         """
-        return await self._run(
-            message,
-            config=config,
-            hooks=hooks,
-            history=history,
-            session_id=session_id,
-            approval_handler=approval_handler,
-            stream=False,
+        control = _RunControl()
+        return AgentRun(
+            self._run(
+                message,
+                config=config,
+                hooks=hooks,
+                history=history,
+                session_id=session_id,
+                approval_handler=approval_handler,
+                stream=False,
+                control=control,
+            ),
+            control,
         )
 
     def stream(
@@ -121,25 +128,30 @@ class BumblehiveRuntime:
         session_id: str | None = None,
         approval_handler: ToolApprovalHandler | None = None,
         max_queue_size: int = DEFAULT_STREAM_QUEUE_SIZE,
-    ) -> AsyncEventStream[AgentRunResult]:
+    ) -> AgentRunStream:
         """Stream one turn with stateless, in-memory, or persisted history."""
+        control = _RunControl()
 
         async def _run_with_stream_hook(
             stream_hook: AsyncEventStreamHook,
         ) -> AgentRunResult:
-            return await self._run(
-                message,
-                config=config,
-                hooks=_append_hook(hooks, stream_hook),
-                history=history,
-                session_id=session_id,
-                approval_handler=approval_handler,
-                stream=True,
-            )
+            try:
+                return await self._run(
+                    message,
+                    config=config,
+                    hooks=_append_hook(hooks, stream_hook),
+                    history=history,
+                    session_id=session_id,
+                    approval_handler=approval_handler,
+                    stream=True,
+                    control=control,
+                )
+            finally:
+                control._close()
 
-        return AsyncEventStream(_run_with_stream_hook, maxsize=max_queue_size)
+        return AgentRunStream(_run_with_stream_hook, control, maxsize=max_queue_size)
 
-    async def run_console(
+    def run_console(
         self,
         message: UserMessage,
         *,
@@ -150,14 +162,13 @@ class BumblehiveRuntime:
         approval_handler: ToolApprovalHandler | None = None,
         renderer: Any | None = None,
         max_queue_size: int = DEFAULT_STREAM_QUEUE_SIZE,
-    ) -> AgentRunResult:
-        """Run and render one turn with optional conversation history."""
+    ) -> AgentRun:
+        """Create a steerable turn that renders its stream when awaited.
 
-        if renderer is None:
-            from .console import ConsoleStreamRenderer
-
-            renderer = ConsoleStreamRenderer()
-
+        Supports the same await, Task, steering, and cancellation behavior as
+        ``run()``. Rendering consumes an internal stream; keyboard input remains
+        the application's responsibility.
+        """
         stream = self.stream(
             message,
             config=config,
@@ -167,14 +178,27 @@ class BumblehiveRuntime:
             approval_handler=approval_handler,
             max_queue_size=max_queue_size,
         )
-        renderer.start(message)
-        try:
-            async for event in stream:
-                await renderer.on_event(event)
-            return await stream.result()
-        finally:
-            await stream.aclose()
-            await renderer.finish()
+
+        async def _render() -> AgentRunResult:
+            active_renderer = renderer
+            try:
+                if active_renderer is None:
+                    from .console import ConsoleStreamRenderer
+
+                    active_renderer = ConsoleStreamRenderer()
+                active_renderer.start(message)
+                async for event in stream:
+                    await active_renderer.on_event(event)
+                return await stream.result()
+            finally:
+                try:
+                    await stream.aclose()
+                finally:
+                    if active_renderer is not None:
+                        await active_renderer.finish()
+
+        # The console handle and its producer must share one input lifecycle.
+        return AgentRun(_render(), stream._control)
 
     async def delete_session(self, session_id: str) -> bool:
         """Delete a persisted session and evict its cached state."""
@@ -190,6 +214,7 @@ class BumblehiveRuntime:
         session_id: str | None = None,
         approval_handler: ToolApprovalHandler | None = None,
         stream: bool = False,
+        control: _RunControl | None = None,
     ) -> AgentRunResult:
         """Resolve the conversation source, then run one turn."""
         self._validate_conversation_source(history, session_id)
@@ -203,6 +228,7 @@ class BumblehiveRuntime:
                 hooks=hooks,
                 approval_handler=approval_handler,
                 stream=stream,
+                control=control,
             )
 
         if session_id is not None:
@@ -213,6 +239,7 @@ class BumblehiveRuntime:
                 hooks=hooks,
                 approval_handler=approval_handler,
                 stream=stream,
+                control=control,
             )
 
         return await self._run_agent(
@@ -222,6 +249,7 @@ class BumblehiveRuntime:
             session_id=None,
             approval_handler=approval_handler,
             stream=stream,
+            control=control,
         )
 
     async def _run_with_memory_history(
@@ -233,6 +261,7 @@ class BumblehiveRuntime:
         hooks: HookInput,
         approval_handler: ToolApprovalHandler | None,
         stream: bool,
+        control: _RunControl | None = None,
     ) -> AgentRunResult:
         """Run against caller-owned history without modifying it."""
         result = await self._run_agent(
@@ -243,6 +272,7 @@ class BumblehiveRuntime:
             session_id=None,
             approval_handler=approval_handler,
             stream=stream,
+            control=control,
         )
         return result
 
@@ -255,6 +285,7 @@ class BumblehiveRuntime:
         hooks: HookInput,
         approval_handler: ToolApprovalHandler | None,
         stream: bool,
+        control: _RunControl | None = None,
     ) -> AgentRunResult:
         """Run against a locked, persisted session."""
         session = await self.sessions.get(session_id)
@@ -274,6 +305,7 @@ class BumblehiveRuntime:
                     approval_handler=approval_handler,
                     stream=stream,
                     checkpoint_callback=checkpoint,
+                    control=control,
                 )
             except Exception as exc:
                 try:
@@ -307,6 +339,7 @@ class BumblehiveRuntime:
         history: MessageHistory | None = None,
         history_messages: list[Message] | None = None,
         checkpoint_callback: CheckpointCallback | None = None,
+        control: _RunControl | None = None,
     ) -> AgentRunResult:
         await self.initialize_tools()
         provider = await self._get_provider(run_config.provider)
@@ -332,6 +365,7 @@ class BumblehiveRuntime:
             session_id=session_id,
             stream=stream,
             checkpoint_callback=checkpoint_callback,
+            control=control,
         )
 
     async def close(self) -> None:

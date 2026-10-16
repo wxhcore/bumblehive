@@ -8,6 +8,7 @@ from bumblehive.agent import (
     MessageHistory,
     ToolCallingRunner,
 )
+from bumblehive.agent.control import _RunControl
 from bumblehive.protocols import GenerationConfig, ToolCall
 from bumblehive.protocols.errors import AgentError
 from bumblehive.providers import ModelProvider, ModelRequest, ModelResponse
@@ -46,6 +47,56 @@ def _loop(tmp_path, tools, skills) -> AgentLoop:
         skills=skills,
         runner=ToolCallingRunner(),
     )
+
+
+@pytest.mark.asyncio
+async def test_loop_forwards_steering_to_runner(tmp_path) -> None:
+    control = _RunControl()
+    control.steer("extra")
+    provider = SequenceProvider([ModelResponse(content="done")])
+    result = await _loop(
+        tmp_path, ToolManager(), SkillsManager(tmp_path / "skills")
+    ).run_turn(
+        "original",
+        provider=provider,
+        model="test-model",
+        control=control,
+    )
+    assert result.messages[-2] == {"role": "user", "content": "extra"}
+    assert provider.requests[0].messages[-1]["content"].endswith("extra")
+    with pytest.raises(RuntimeError):
+        control.steer("late")
+
+
+@pytest.mark.asyncio
+async def test_context_failure_closes_input_before_turn_error_hook(
+    tmp_path, monkeypatch
+) -> None:
+    control = _RunControl()
+    control.steer("unused")
+    loop = _loop(tmp_path, ToolManager(), SkillsManager(tmp_path / "skills"))
+    errors = []
+
+    def fail(**kwargs):
+        raise ValueError("context failed")
+
+    async def hook(event):
+        if event.kind == "turn.error":
+            errors.append(event)
+            with pytest.raises(RuntimeError):
+                control.steer("late")
+
+    monkeypatch.setattr(loop.context, "build", fail)
+    with pytest.raises(ValueError, match="context failed"):
+        await loop.run_turn(
+            "original",
+            provider=SequenceProvider([]),
+            model="test-model",
+            control=control,
+            hooks=hook,
+        )
+    assert len(errors) == 1
+    assert control.take_pending() == [{"role": "user", "content": "unused"}]
 
 
 @pytest.mark.asyncio

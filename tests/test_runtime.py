@@ -85,6 +85,395 @@ def _runtime(tmp_path, **overrides) -> bumblehive.BumblehiveRuntime:
     return bumblehive.from_config(config)
 
 
+class RecordingRenderer:
+    def __init__(self):
+        self.started = None
+        self.events = []
+        self.finish_count = 0
+
+    def start(self, message):
+        self.started = message
+
+    async def on_event(self, event):
+        self.events.append(event)
+
+    async def finish(self):
+        self.finish_count += 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["run", "stream", "run_console"])
+@pytest.mark.parametrize("source", ["stateless", "history", "session"])
+async def test_runtime_steering_across_history_and_output_modes(
+    monkeypatch, tmp_path, mode, source
+) -> None:
+    _install_provider(monkeypatch)
+    runtime = _runtime(tmp_path)
+    history = bumblehive.MessageHistory(
+        [
+            {"role": "user", "content": "previous"},
+            {"role": "assistant", "content": "previous answer"},
+        ]
+    )
+    original_history = history.get_history()
+    kwargs = (
+        {"history": history}
+        if source == "history"
+        else {"session_id": "review"}
+        if source == "session"
+        else {}
+    )
+    events = []
+
+    async def hook(event):
+        events.append(event)
+        if event.kind == "model.response.finished" and event.iteration == 0:
+            run.steer("after answer")
+        if event.kind in {"final_result", "run.finished", "turn.finished"}:
+            with pytest.raises(RuntimeError):
+                run.steer("late")
+
+    renderer = RecordingRenderer()
+    if mode == "run_console":
+        kwargs["renderer"] = renderer
+    run = getattr(runtime, mode)("original", hooks=hook, **kwargs)
+    assert renderer.started is None
+    assert not runtime._tools_initialized
+    assert not FakeProvider.instances
+    run.steer("before start")
+    try:
+        if mode == "stream":
+            stream_events = [event async for event in run]
+            assert [event.kind for event in stream_events] == [
+                event.kind for event in events
+            ]
+            result = await run.result()
+        else:
+            result = await asyncio.create_task(run)
+        assert result.final_content == "reply-2"
+        assert [m["content"] for m in result.messages[-4:]] == [
+            "before start",
+            "reply-1",
+            "after answer",
+            "reply-2",
+        ]
+        provider = FakeProvider.instances[0]
+        assert len(provider.requests) == 2
+        assert provider.requests[0].messages[-1]["content"].endswith("before start")
+        assert provider.requests[1].messages[-1] == {
+            "role": "user",
+            "content": "after answer",
+        }
+        assert [e.kind for e in events].count(FINAL_RESULT) == 1
+        assert history.get_history() == original_history
+        assert run.take_pending() == []
+        if mode == "run_console":
+            assert renderer.started == "original"
+            assert renderer.events == events
+            assert renderer.finish_count == 1
+        if source == "session":
+            persisted = await SessionManager().get("review")
+            assert persisted.history.get_history() == [
+                {"role": "user", "content": "original"},
+                *result.messages[-4:],
+            ]
+    finally:
+        if mode == "stream":
+            await run.aclose()
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_console_steer_during_tool_approval(monkeypatch, tmp_path):
+    _install_provider(monkeypatch, ToolCallingProvider)
+    runtime = _runtime(tmp_path, agent={"tool_names": ["protected_tool"]})
+    renderer = RecordingRenderer()
+
+    @runtime.tools.tool
+    async def protected_tool(value: int) -> str:
+        """Return the supplied test value."""
+        return str(value)
+
+    async def approve(request):
+        run.steer("correction during approval")
+        return bumblehive.ToolApprovalDecision.approve()
+
+    run = runtime.run_console(
+        "original", renderer=renderer, approval_handler=approve, max_queue_size=1
+    )
+    try:
+        result = await asyncio.wait_for(asyncio.create_task(run), timeout=2)
+        messages = ToolCallingProvider.instances[0].requests[1].messages
+        assert [m["role"] for m in messages[-3:]] == ["assistant", "tool", "user"]
+        assert messages[-1]["content"] == "correction during approval"
+        assert result.final_content == "done"
+        assert renderer.finish_count == 1
+        assert [e.kind for e in renderer.events].count(FINAL_RESULT) == 1
+        with pytest.raises(RuntimeError):
+            run.steer("late")
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["start", "event", "cancel"])
+async def test_console_failure_closes_producer_and_retains_pending(
+    monkeypatch, tmp_path, failure
+):
+    entered, stopped = asyncio.Event(), asyncio.Event()
+
+    class WaitingProvider(FakeProvider):
+        async def generate(self, request):
+            self.requests.append(request)
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+
+    _install_provider(monkeypatch, WaitingProvider)
+    runtime = _runtime(tmp_path)
+
+    class Renderer(RecordingRenderer):
+        def start(self, message):
+            super().start(message)
+            if failure == "start":
+                raise ValueError("renderer start failed")
+
+        async def on_event(self, event):
+            if failure == "event":
+                await entered.wait()
+                run.steer("pending")
+                raise ValueError("renderer event failed")
+            await super().on_event(event)
+
+    renderer = Renderer()
+    run = runtime.run_console("original", renderer=renderer)
+    if failure == "start":
+        run.steer("pending")
+    task = asyncio.create_task(run)
+    try:
+        if failure == "cancel":
+            await asyncio.wait_for(entered.wait(), timeout=2)
+            run.steer("pending")
+            task.cancel()
+        with pytest.raises(asyncio.CancelledError if failure == "cancel" else ValueError):
+            await asyncio.wait_for(task, timeout=2)
+        assert renderer.finish_count == 1
+        assert run.take_pending() == [{"role": "user", "content": "pending"}]
+        with pytest.raises(RuntimeError):
+            run.steer("late")
+        if failure != "start":
+            assert stopped.is_set()
+        else:
+            assert not WaitingProvider.instances
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_console_discard_before_start(monkeypatch, tmp_path, cancel):
+    _install_provider(monkeypatch)
+    runtime = _runtime(tmp_path)
+    renderer = RecordingRenderer()
+    run = runtime.run_console("original", renderer=renderer)
+    run.steer("pending")
+    if cancel:
+        task = asyncio.create_task(run)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        run.close()
+    assert renderer.started is None
+    assert renderer.finish_count == 0
+    assert not FakeProvider.instances
+    assert run.take_pending() == [{"role": "user", "content": "pending"}]
+    with pytest.raises(RuntimeError):
+        run.steer("late")
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_console_finish_failure_leaves_input_closed(monkeypatch, tmp_path):
+    _install_provider(monkeypatch)
+    runtime = _runtime(tmp_path)
+
+    class Renderer(RecordingRenderer):
+        async def finish(self):
+            await super().finish()
+            raise ValueError("renderer finish failed")
+
+    renderer = Renderer()
+    run = runtime.run_console("original", renderer=renderer)
+    try:
+        with pytest.raises(ValueError, match="renderer finish failed"):
+            await run
+        assert renderer.finish_count == 1
+        with pytest.raises(RuntimeError):
+            run.steer("late")
+        assert run.take_pending() == []
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_steering_isolated_while_waiting_for_session_and_mixed_concurrency(
+    monkeypatch, tmp_path
+) -> None:
+    entered = asyncio.Queue()
+    release = asyncio.Event()
+
+    class BlockingProvider(FakeProvider):
+        async def generate(self, request):
+            self.requests.append(request)
+            entered.put_nowait(request)
+            await release.wait()
+            return ModelResponse(content="done")
+
+    _install_provider(monkeypatch, BlockingProvider)
+    runtime = _runtime(tmp_path)
+    waiting = asyncio.Event()
+    original_get = runtime.sessions.get
+    same_calls = 0
+
+    async def get_session(session_id):
+        nonlocal same_calls
+        session = await original_get(session_id)
+        if session_id == "same":
+            same_calls += 1
+            if same_calls == 2:
+                waiting.set()
+        return session
+
+    monkeypatch.setattr(runtime.sessions, "get", get_session)
+    first = runtime.run("first", session_id="same")
+    second = runtime.run("second", session_id="same")
+    other = runtime.stream("other", session_id="other")
+
+    async def consume():
+        async for _event in other:
+            pass
+        return await other.result()
+
+    tasks = []
+    try:
+        tasks.append(asyncio.create_task(first))
+        await asyncio.wait_for(entered.get(), timeout=1)
+        tasks.append(asyncio.create_task(second))
+        await asyncio.wait_for(waiting.wait(), timeout=1)
+        second.steer("second only")
+        first.steer("first only")
+        tasks.append(asyncio.create_task(consume()))
+        other_request = await asyncio.wait_for(entered.get(), timeout=1)
+        assert "other" in other_request.messages[-1]["content"]
+        other.steer("other only")
+        release.set()
+        first_result, second_result, other_result = await asyncio.wait_for(
+            asyncio.gather(*tasks), timeout=2
+        )
+        first_contents = [m["content"] for m in first_result.messages]
+        second_contents = [m["content"] for m in second_result.messages]
+        other_contents = [m["content"] for m in other_result.messages]
+        assert "first only" in first_contents
+        assert "second only" not in first_contents
+        assert "other only" not in first_contents
+        assert (
+            "first only" in second_contents
+        )  # Latest committed history after acquiring the lock.
+        assert "second only" in second_contents
+        assert "other only" not in second_contents
+        assert "other only" in other_contents
+        assert "first only" not in other_contents
+        assert "second only" not in other_contents
+        persisted = await SessionManager().get("same")
+        assert [m["content"] for m in persisted.history.get_history()] == [
+            "first",
+            "done",
+            "first only",
+            "done",
+            "second",
+            "second only",
+            "done",
+        ]
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await other.aclose()
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_steering_waiting_session_cancellation_retains_pending(
+    monkeypatch, tmp_path
+) -> None:
+    _install_provider(monkeypatch)
+    runtime = _runtime(tmp_path)
+    session = await runtime.sessions.get("locked")
+    waiting = asyncio.Event()
+
+    async def get_session(_session_id):
+        waiting.set()
+        return session
+
+    monkeypatch.setattr(runtime.sessions, "get", get_session)
+    run = runtime.run("original", session_id="locked")
+    async with session.lock:
+        task = asyncio.create_task(run)
+        await asyncio.wait_for(waiting.wait(), timeout=1)
+        run.steer("pending")
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        with pytest.raises(RuntimeError):
+            run.steer("late")
+        assert run.take_pending() == [{"role": "user", "content": "pending"}]
+        assert not FakeProvider.instances
+    assert not session.lock.locked()
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("failure", ["config", "initialize", "provider"])
+async def test_steering_closes_when_runtime_setup_fails(
+    monkeypatch, tmp_path, streaming, failure
+) -> None:
+    runtime = _runtime(tmp_path)
+
+    async def fail(*args, **kwargs):
+        raise ValueError("setup failed")
+
+    kwargs = {}
+    if failure == "config":
+        kwargs["config"] = {"mcp_servers": {}}
+    elif failure == "initialize":
+        monkeypatch.setattr(runtime, "initialize_tools", fail)
+    else:
+        monkeypatch.setattr(runtime, "_get_provider", fail)
+    run = (runtime.stream if streaming else runtime.run)("original", **kwargs)
+    run.steer("pending")
+    try:
+        with pytest.raises(ValueError):
+            if streaming:
+                async for _event in run:
+                    pass
+            else:
+                await run
+        with pytest.raises(RuntimeError):
+            run.steer("late")
+        assert run.take_pending() == [{"role": "user", "content": "pending"}]
+    finally:
+        if streaming:
+            await run.aclose()
+        await runtime.close()
+
+
 def test_runtime_applies_skills_directory_without_creating_it(tmp_path) -> None:
     skills_dir = tmp_path / "custom-skills"
 

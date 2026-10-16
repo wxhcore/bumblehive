@@ -16,6 +16,7 @@ from ..skills.manager import SkillsManager
 from ..tools.manager import ToolManager
 from ..tools.scope import bind_tool_session, reset_tool_session
 from .context import ContextBuilder, DynamicValue, MessageHistory
+from .control import _RunControl
 from .runner import AgentRunResult, CheckpointCallback, ToolCallingRunner
 
 
@@ -59,6 +60,7 @@ class AgentLoop:
         session_id: str | None = None,
         stream: bool = False,
         checkpoint_callback: CheckpointCallback | None = None,
+        control: _RunControl | None = None,
     ) -> AgentRunResult:
         """Run one user turn with optional skill and tool filtering.
 
@@ -118,6 +120,7 @@ class AgentLoop:
                     emitter=emitter,
                     stream=stream,
                     checkpoint_callback=checkpoint_callback,
+                    control=control,
                 )
                 await turn_events.finished(
                     stop_reason=result.stop_reason,
@@ -125,6 +128,8 @@ class AgentLoop:
                 )
                 return result
             except Exception as exc:
+                if control is not None:
+                    control._close()
                 await turn_events.error(exc)
                 raise
         finally:

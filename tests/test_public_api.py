@@ -23,6 +23,7 @@ def test_public_api_contract() -> None:
 
 NON_PUBLIC_REEXPORTS = {
     bumblehive: {
+        "_RunControl",
         "AgentConfig",
         "AsyncEventStream",
         "AsyncEventStreamHook",
@@ -34,6 +35,7 @@ NON_PUBLIC_REEXPORTS = {
         "get_workspace_path",
     },
     bumblehive.agent: {
+        "_RunControl",
         "AgentEvent",
         "AgentHook",
         "CheckpointCallback",
@@ -73,3 +75,8 @@ NON_PUBLIC_REEXPORTS = {
 def test_internal_types_are_not_reexported() -> None:
     for module, internal_names in NON_PUBLIC_REEXPORTS.items():
         assert all(not hasattr(module, name) for name in internal_names)
+
+
+def test_run_handle_exports_are_shared() -> None:
+    assert bumblehive.AgentRun is bumblehive.agent.AgentRun
+    assert bumblehive.AgentRunStream is bumblehive.agent.AgentRunStream

@@ -1,6 +1,13 @@
 """Stable top-level entry points for the Bumblehive Python SDK."""
 
-from .agent import AgentLoop, AgentRunResult, MessageHistory, ToolCallingRunner
+from .agent import (
+    AgentLoop,
+    AgentRun,
+    AgentRunResult,
+    AgentRunStream,
+    MessageHistory,
+    ToolCallingRunner,
+)
 from .config import BumblehiveConfig, RuntimeArguments
 from .observability import (
     AgentEvent,
@@ -20,7 +27,9 @@ __all__ = [
     "AgentEvent",
     "AgentHook",
     "AgentLoop",
+    "AgentRun",
     "AgentRunResult",
+    "AgentRunStream",
     "BumblehiveConfig",
     "BumblehiveRuntime",
     "EventRecorder",

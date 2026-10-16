@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 
 from bumblehive.agent import ToolCallingRunner
+from bumblehive.agent.control import _RunControl
+from bumblehive.observability.emitter import EventEmitter
 from bumblehive.protocols import GenerationConfig, ToolCall
 from bumblehive.protocols.errors import AgentError
 from bumblehive.providers import ModelProvider, ModelRequest, ModelResponse
@@ -39,6 +41,333 @@ def _tools() -> ToolManager:
         raise RuntimeError("boom")
 
     return tools
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["iteration.started", "checkpoint", "model.request.started", "model.response.finished"])
+async def test_steering_consumes_one_snapshot_and_continues_after_text(
+    boundary,
+) -> None:
+    control = _RunControl()
+    control.steer("before")
+    original = [{"role": "user", "content": "original"}]
+    provider = SequenceProvider(
+        [
+            ModelResponse(content="first answer", usage={"completion_tokens": 2}),
+            ModelResponse(content="second answer", usage={"completion_tokens": 3}),
+        ]
+    )
+    events = []
+    checkpoints = []
+    injected = False
+
+    def inject():
+        nonlocal injected
+        if not injected:
+            control.steer("extra")
+            injected = True
+
+    async def hook(event):
+        events.append(event)
+        if event.kind == boundary:
+            inject()
+        if event.kind in {"final_result", "run.finished"}:
+            with pytest.raises(RuntimeError):
+                control.steer("too late")
+
+    async def checkpoint(messages):
+        checkpoints.append(messages)
+        if boundary == "checkpoint":
+            inject()
+
+    result = await ToolCallingRunner().run(
+        provider=provider,
+        tools=ToolManager(),
+        messages=original,
+        model="test-model",
+        control=control,
+        emitter=EventEmitter.from_hooks(hook),
+        checkpoint_callback=checkpoint,
+    )
+    first_contents = [m["content"] for m in provider.requests[0].messages]
+    # Existing context governance merges adjacent user messages for the provider.
+    assert first_contents == (
+        ["original\n\nbefore\n\nextra"]
+        if boundary == "iteration.started"
+        else ["original\n\nbefore"]
+    )
+    if boundary == "iteration.started":
+        assert len(provider.requests) == 1
+        assert result.final_content == "first answer"
+    else:
+        assert [m["content"] for m in provider.requests[1].messages] == [
+            "original\n\nbefore",
+            "first answer",
+            "extra",
+        ]
+        assert result.final_content == "second answer"
+        assert result.usage == {"completion_tokens": 5}
+    assert checkpoints[-1] == result.messages
+    assert [m["content"] for m in result.messages[:2]] == ["original", "before"]
+    assert [e.kind for e in events].count("final_result") == 1
+    assert [e.kind for e in events].count("run.finished") == 1
+    assert [e.kind for e in events].count("iteration.finished") == len(
+        provider.requests
+    )
+    assert (
+        next(e for e in events if e.kind == "iteration.started").payload[
+            "message_count"
+        ]
+        == 1
+    )
+    assert original == [{"role": "user", "content": "original"}]
+    assert control.take_pending() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("parallel", [False, True])
+async def test_steering_waits_for_approval_and_complete_tool_batch(parallel) -> None:
+    control = _RunControl()
+    tools = ToolManager()
+    approved = asyncio.Event()
+    approve_release = asyncio.Event()
+    entered = asyncio.Queue()
+    releases = [asyncio.Event(), asyncio.Event()]
+
+    @tools.tool(parallel_safe=parallel)
+    async def work(index: int) -> str:
+        """Run controlled work."""
+        entered.put_nowait(index)
+        await releases[index].wait()
+        return f"result-{index}"
+
+    async def approve(_request):
+        approved.set()
+        await approve_release.wait()
+        return ToolApprovalDecision.approve()
+
+    provider = SequenceProvider(
+        [
+            ModelResponse(
+                content="",
+                tool_calls=[
+                    ToolCall(id="a", name="work", arguments={"index": 0}),
+                    ToolCall(id="b", name="work", arguments={"index": 1}),
+                ],
+                finish_reason="tool_calls",
+            ),
+            ModelResponse(content="done"),
+        ]
+    )
+    task = asyncio.create_task(
+        ToolCallingRunner().run(
+            provider=provider,
+            tools=tools,
+            messages=[{"role": "user", "content": "start"}],
+            model="test-model",
+            control=control,
+            approval_handler=approve,
+        )
+    )
+    try:
+        await asyncio.wait_for(approved.wait(), timeout=1)
+        control.steer("during approval")
+        approve_release.set()
+        await asyncio.wait_for(entered.get(), timeout=1)
+        control.steer("during tools")
+        assert len(provider.requests) == 1
+        if parallel:
+            await asyncio.wait_for(entered.get(), timeout=1)
+            releases[1].set()
+            releases[0].set()
+        else:
+            releases[0].set()
+            await asyncio.wait_for(entered.get(), timeout=1)
+            assert len(provider.requests) == 1
+            releases[1].set()
+        result = await asyncio.wait_for(task, timeout=1)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert [m["role"] for m in provider.requests[1].messages] == [
+        "user",
+        "assistant",
+        "tool",
+        "tool",
+        "user",
+    ]
+    assert [m["content"] for m in result.messages[2:6]] == [
+        "result-0",
+        "result-1",
+        "during approval",
+        "during tools",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", ["model_error", "exception", "max_iterations"])
+async def test_steering_closes_before_terminal_events_and_keeps_pending(ending) -> None:
+    control = _RunControl()
+    observed = []
+
+    class Provider(SequenceProvider):
+        async def generate(self, request):
+            control.steer("unconsumed")
+            if ending == "exception":
+                raise ValueError("provider failed")
+            return await super().generate(request)
+
+    provider = Provider(
+        [
+            ModelResponse(
+                content="answer",
+                error=(
+                    AgentError(code="bad", message="failed", recoverable=False)
+                    if ending == "model_error"
+                    else None
+                ),
+            )
+        ]
+    )
+
+    async def hook(event):
+        if event.kind in {"final_result", "run.finished", "run.error"}:
+            with pytest.raises(RuntimeError):
+                control.steer("late")
+            observed.append(event.kind)
+
+    async def checkpoint(_messages):
+        if ending == "model_error" or (
+            ending == "max_iterations" and len(_messages) == 3
+        ):
+            with pytest.raises(RuntimeError):
+                control.steer("late checkpoint")
+
+    execution = ToolCallingRunner().run(
+        provider=provider,
+        tools=ToolManager(),
+        messages=[{"role": "user", "content": "start"}],
+        model="test-model",
+        max_iterations=1,
+        control=control,
+        emitter=EventEmitter.from_hooks(hook),
+        checkpoint_callback=checkpoint,
+    )
+    if ending == "exception":
+        with pytest.raises(ValueError, match="provider failed"):
+            await execution
+        assert observed == ["run.error"]
+    else:
+        result = await execution
+        assert result.stop_reason == ending
+        assert observed == ["final_result", "run.finished"]
+        assert len(provider.requests) == 1
+    assert control.take_pending() == [{"role": "user", "content": "unconsumed"}]
+
+
+@pytest.mark.asyncio
+async def test_steering_checkpoint_failure_does_not_requeue_consumed_input() -> None:
+    control = _RunControl()
+    control.steer("consumed")
+    provider = SequenceProvider([])
+
+    async def checkpoint(messages):
+        assert messages[-1]["content"] == "consumed"
+        control.steer("unconsumed")
+        raise OSError("save failed")
+
+    with pytest.raises(OSError, match="save failed"):
+        await ToolCallingRunner().run(
+            provider=provider,
+            tools=ToolManager(),
+            messages=[],
+            model="test-model",
+            control=control,
+            checkpoint_callback=checkpoint,
+        )
+    assert not provider.requests
+    assert control.take_pending() == [{"role": "user", "content": "unconsumed"}]
+
+
+@pytest.mark.asyncio
+async def test_steering_is_not_drained_again_during_provider_retry() -> None:
+    from bumblehive.providers import RetryConfig
+
+    control = _RunControl()
+    control.steer("before")
+
+    class RetryProvider(SequenceProvider):
+        async def generate(self, request):
+            if not self.requests:
+                control.steer("during retry")
+            return await super().generate(request)
+
+        async def generate_with_retry(self, request, *, retry=None):
+            return await super().generate_with_retry(
+                request,
+                retry=RetryConfig(max_retries=1, retry_delays=(0,)),
+            )
+
+    provider = RetryProvider(
+        [
+            ModelResponse(
+                content=None,
+                error=AgentError(code="retry", message="retry", recoverable=True),
+            ),
+            ModelResponse(content="first answer"),
+            ModelResponse(content="done"),
+        ]
+    )
+    result = await ToolCallingRunner().run(
+        provider=provider,
+        tools=ToolManager(),
+        messages=[{"role": "user", "content": "start"}],
+        model="test-model",
+        control=control,
+    )
+    assert provider.requests[0] is provider.requests[1]
+    assert [m["content"] for m in provider.requests[0].messages] == ["start\n\nbefore"]
+    assert [m["content"] for m in provider.requests[2].messages] == [
+        "start\n\nbefore",
+        "first answer",
+        "during retry",
+    ]
+    assert result.final_content == "done"
+
+
+@pytest.mark.asyncio
+async def test_control_without_steering_preserves_requests_results_and_events() -> None:
+    outputs = []
+    for control in (None, _RunControl()):
+        provider = SequenceProvider(
+            [
+                ModelResponse(
+                    content="",
+                    tool_calls=[_call("add", {"a": 1, "b": 2})],
+                    finish_reason="tool_calls",
+                ),
+                ModelResponse(content="done", usage={"completion_tokens": 4}),
+            ]
+        )
+        events = []
+
+        async def hook(event):
+            payload = dict(event.payload)
+            if event.kind == "tool.call.finished":
+                # Wall-clock duration varies between otherwise identical runs.
+                assert payload.pop("duration_s") >= 0
+            events.append((event.kind, event.iteration, payload))
+
+        result = await ToolCallingRunner().run(
+            provider=provider,
+            tools=_tools(),
+            messages=[{"role": "user", "content": "start"}],
+            model="test-model",
+            control=control,
+            emitter=EventEmitter.from_hooks(hook),
+        )
+        outputs.append((provider.requests, result, events))
+    assert outputs[0] == outputs[1]
 
 
 @pytest.mark.asyncio
