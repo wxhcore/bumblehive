@@ -54,28 +54,7 @@ result = await stream.result()
 
 ## 运行期间引导
 
-保存 `stream`，在用户输入事件中调用 `steer()`。回调与事件消费须在同一个 asyncio 事件循环中执行：
-
-```python
-stream = runtime.stream("修改登录页面")
-
-# 将此回调接到应用的 WebSocket 或界面输入事件。
-def on_user_input(text: str) -> None:
-    stream.steer(text)
-
-try:
-    async for event in stream:
-        ...  # 展示事件。
-    result = await stream.result()
-finally:
-    await stream.aclose()
-```
-
-流在首次迭代时启动，启动前也可以提交引导。输入按顺序进入下一轮模型请求，当前响应和整批工具执行继续完成。
-
-后台可能已经结束，而界面仍在展示缓冲事件。此时 `steer()` 会抛出 `RuntimeError`；`FINAL_RESULT` 表示整次运行结束，不是某一次模型响应结束。
-
-关闭后可用 `stream.take_pending()` 取回尚未消费的输入。消息插入位置、迭代限制和取回规则见[输入处理规则](../reference/runtime.md#steering-rules)。
+保存事件流对象，通过 `stream.steer(text)` 补充或纠正当前任务。输入事件的接入方式和指令生效时机，见[运行期间追加指令](steering.md)。
 
 ## 显示工具进度
 
@@ -124,14 +103,6 @@ await stream.aclose()
 result = await runtime.run_console("解释当前项目")
 ```
 
-需要引导时，保存运行对象，使用与 `run()` 相同的方式：
-
-```python
-run = runtime.run_console("修改登录页面")
-run.steer("背景改成蓝色")
-result = await run
-```
-
-上例在启动前提交输入。运行期间接收新消息的方式见[运行期间追加输入](../reference/runtime.md#steering)。此接口不自动读取键盘；取消并等待运行 Task 后，SDK 会完成流和控制台的收尾。
+此接口只负责展示，键盘输入由应用接入。运行对象的等待与取消方式见[运行对象的生命周期](../concepts/runtime-lifecycle.md#run-lifecycle)。
 
 [聊天界面集成](../examples/chat-interface.md) · [事件与 Hooks API](../reference/observability.md)

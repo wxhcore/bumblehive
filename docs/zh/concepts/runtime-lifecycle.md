@@ -71,7 +71,7 @@ async with bumblehive.from_config(config) as runtime:
 
 创建后决定不执行的运行对象可用 `run.close()` 丢弃。流式对象使用 `await stream.aclose()`，尚未启动时也可以关闭；关闭后不能再次启动。
 
-引导输入的关闭和取回规则见 [Runtime 参考](../reference/runtime.md#steering-rules)。
+引导输入的关闭和取回规则见[运行期间追加指令](../how-to/steering.md)。
 
 ## Runtime 应该创建几次
 

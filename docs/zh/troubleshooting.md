@@ -11,7 +11,7 @@ search:
 
 先区分两种失败：
 
-1. `runtime.run()` 返回了 `AgentRunResult`，检查 `result.error`；
+1. `await runtime.run(...)` 得到了 `AgentRunResult`，检查 `result.error`；
 2. 调用直接抛出异常，查看异常类型和完整 traceback。
 
 ```python

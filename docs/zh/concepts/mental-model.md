@@ -39,7 +39,7 @@ Skill 不会自动执行其中的脚本。模型需要先使用 `read_file` 读�
 
 ## 一次运行返回什么
 
-`runtime.run()` 返回 `AgentRunResult`。最常用的字段是：
+`await runtime.run(...)` 得到 `AgentRunResult`。最常用的字段是：
 
 | 字段 | 含义 |
 | --- | --- |

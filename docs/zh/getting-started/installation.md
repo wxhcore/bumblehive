@@ -75,7 +75,7 @@ python agent.py
 
 ## 理解这次运行
 
-`from_config()` 创建 Runtime，`async with` 初始化工具并在退出时释放模型和 MCP 连接。装饰器注册 Python 函数；`tool_names` 指定本次开放的工具；`run()` 驱动模型与工具循环，并返回 `AgentRunResult`。
+`from_config()` 创建 Runtime，`async with` 初始化工具并在退出时释放模型和 MCP 连接。装饰器注册 Python 函数；`tool_names` 指定本次开放的工具；`await runtime.run(...)` 驱动模型与工具循环，完成后得到 `AgentRunResult`。
 
 一个 Runtime 可以执行多次调用。每次调用默认独立；需要多轮对话时传入[会话或历史](../how-to/memory-and-sessions.md)。从源码仓库运行同一个示例：
 

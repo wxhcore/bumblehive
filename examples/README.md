@@ -59,8 +59,8 @@ model API. `tools/mcp_tools.py` additionally requires `BUMBLEHIVE_MCP_URL`.
 | 示例 | 用法 |
 | --- | --- |
 | [steering_run.py](runtime/steering_run.py) | 模型调用查询工具时追加引导，等待工具执行后继续回答 |
-| [steering_stream.py](runtime/steering_stream.py) | `stream.steer()` 追加输入，`async for` 展示输出 |
-| [steering_console.py](runtime/steering_console.py) | `run.steer()` 追加输入，由 `run_console()` 自动展示输出 |
+| [steering_stream.py](runtime/steering_stream.py) | 启动前追加指令，`async for` 展示输出 |
+| [steering_console.py](runtime/steering_console.py) | 启动前追加指令，由 `run_console()` 自动展示输出 |
 
 配置上面的模型环境变量后，从仓库根目录运行：
 
@@ -70,8 +70,4 @@ python examples/runtime/steering_stream.py
 python examples/runtime/steering_console.py
 ```
 
-`steering_run.py` 演示工具调用期间引导：模型先调用 `get_course_info` 查询课程，在第一次 `TOOL_CALL_STARTED` hook 中追加“改用中文，只说两句话”。工具照常返回课程信息，下一次模型请求的消息顺序为 `assistant(tool_calls) → tool(结果) → user(引导)`。终端会打印引导时机、工具结果和最终回答。示例只提供这个本地查询工具，不读写文件。
-
-另外两个脚本演示启动前排队：先创建运行对象，再调用 `steer()`，补充指令随首次模型请求发送。
-
-运行期间的调用方式相同：保留运行对象，在同一事件循环的用户输入回调中调用 `run.steer(text)` 或 `stream.steer(text)`。`run()` 和 `run_console()` 可交给 `asyncio.create_task(run)` 后台执行。运行关闭后不能再引导，完整规则见 [Runtime 参考](../docs/zh/reference/runtime.md)。
+`steering_run.py` 会打印引导时机、课程查询结果和最终回答，可观察回答是否改为中文两句话。完整用法和输入处理规则见[运行期间追加指令](../docs/zh/how-to/steering.md)。

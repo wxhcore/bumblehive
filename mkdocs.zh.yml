@@ -31,6 +31,7 @@ nav:
       - MCP: how-to/mcp.md
       - Skills: how-to/skills.md
       - 流式输出与运行事件: how-to/streaming.md
+      - 运行期间追加指令: how-to/steering.md
       - 会话与历史: how-to/memory-and-sessions.md
       - 工具审批与访问范围: concepts/tool-safety.md
       - 图片输入: how-to/images.md
