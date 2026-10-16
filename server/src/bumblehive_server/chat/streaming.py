@@ -1,22 +1,25 @@
+from __future__ import annotations
+
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from contextlib import AbstractAsyncContextManager
 from time import perf_counter
 from typing import Any
 
 from fastapi import WebSocketDisconnect
 
-from bumblehive.agent import AgentRunResult
+from bumblehive import BumblehiveRuntime
+from bumblehive.agent import AgentRunResult, AgentRunStream
 from bumblehive.observability import AgentEvent
 
 from ..logging_utils import elapsed_since, format_token_usage, safe_log_value
-from ..runtime_service import RuntimeService
 from ..schemas import ChatRequest
 from ..subagents import SubagentRunObserver, observe_subagents
 from .approval import SendFrame, ToolApprovals
 from .frames import result_frame, ui_event_frame
 
-
+RuntimeLease = Callable[[], AbstractAsyncContextManager[BumblehiveRuntime]]
 logger = logging.getLogger("uvicorn.error.bumblehive")
 
 
@@ -74,16 +77,18 @@ class WebSocketSubagentObserver(SubagentRunObserver):
 
 async def stream_turn(
     send: SendFrame,
-    service: RuntimeService,
+    lease: RuntimeLease,
     session_id: str,
     request: ChatRequest,
     approvals: ToolApprovals,
-) -> None:
+    *,
+    on_stream_ready: Callable[[AgentRunStream], Awaitable[None]] | None = None,
+) -> AgentRunResult:
     started_at = perf_counter()
     session_label = safe_log_value(session_id)
     logger.info("[agent] started | session_id=%s", session_label)
     try:
-        async with service.lease() as runtime:
+        async with lease() as runtime:
             observer = WebSocketSubagentObserver(send, runtime)
             with observe_subagents(observer):
                 stream = runtime.stream(
@@ -93,6 +98,8 @@ async def stream_turn(
                     approval_handler=approvals,
                 )
                 try:
+                    if on_stream_ready is not None:
+                        await on_stream_ready(stream)
                     async for event in stream:
                         await observer.on_event(event)
                     result = await stream.result()
@@ -145,6 +152,7 @@ async def stream_turn(
 
     await persist_run_duration(runtime, session_id, duration_s)
     await send(result_frame(session_id, result, duration_s))
+    return result
 
 
 async def persist_run_duration(

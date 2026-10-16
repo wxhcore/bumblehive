@@ -26,6 +26,15 @@ from bumblehive_server.chat.streaming import (
     persist_run_duration as _persist_run_duration,
 )
 from bumblehive_server.routes.chat import chat
+from bumblehive_server.chat.session import SessionController
+
+
+def _receive_frame(websocket):
+    """Existing stream tests ignore the newly added delivery receipts."""
+    while True:
+        frame = websocket.receive_json()
+        if frame["type"] != "message_status":
+            return frame
 
 
 @dataclass
@@ -539,6 +548,7 @@ class FakeService:
 
     def __init__(self) -> None:
         self.runtime = FakeRuntime()
+        self.controllers = {}
         self.workspace = Path("/tmp/workspace")
         self.model_requests: list[Any] = []
         self.mcp_test_requests: list[Any] = []
@@ -559,7 +569,12 @@ class FakeService:
         return None
 
     async def shutdown(self) -> None:
-        return None
+        await asyncio.gather(*(item.close() for item in self.controllers.values()))
+
+    def get_session_controller(self, session_id):
+        if session_id not in self.controllers:
+            self.controllers[session_id] = SessionController(self.lease, session_id)
+        return self.controllers[session_id]
 
     def public_config(self) -> dict[str, Any]:
         return self.settings
@@ -788,10 +803,10 @@ def test_health_and_websocket_stream(caplog: Any) -> None:
             )
 
             with client.websocket_connect("/ws/v1/chat/session-1") as websocket:
-                assert websocket.receive_json()["type"] == "ready"
+                assert _receive_frame(websocket)["type"] == "ready"
                 websocket.send_json({"type": "message", "content": "Hi"})
-                event = websocket.receive_json()
-                result = websocket.receive_json()
+                event = _receive_frame(websocket)
+                result = _receive_frame(websocket)
 
             deleted = client.delete("/api/v1/sessions/session-1")
 
@@ -1011,20 +1026,20 @@ def test_websocket_can_cancel_a_run_and_continue_on_the_same_connection(
     with caplog.at_level(logging.INFO, logger="uvicorn.error.bumblehive"):
         with TestClient(app) as client:
             with client.websocket_connect("/ws/v1/chat/session-1") as websocket:
-                assert websocket.receive_json()["type"] == "ready"
+                assert _receive_frame(websocket)["type"] == "ready"
                 websocket.send_json({"type": "message", "content": "Start"})
-                assert websocket.receive_json()["payload"]["delta"] == "Partial"
+                assert _receive_frame(websocket)["payload"]["delta"] == "Partial"
 
                 websocket.send_json({"type": "cancel"})
-                cancelled = websocket.receive_json()
+                cancelled = _receive_frame(websocket)
                 assert cancelled == {
                     "type": "cancelled",
                     "session_id": "session-1",
                 }
 
                 websocket.send_json({"type": "message", "content": "Continue"})
-                assert websocket.receive_json()["payload"]["delta"] == "Hello"
-                assert websocket.receive_json()["type"] == "result"
+                assert _receive_frame(websocket)["payload"]["delta"] == "Hello"
+                assert _receive_frame(websocket)["type"] == "result"
 
     assert runtime.blocking_stream.closed is True
     assert "[agent] cancelled | session_id=session-1 | duration=" in caplog.text
@@ -1041,19 +1056,19 @@ def test_different_sessions_can_stream_in_parallel() -> None:
 
     with TestClient(app) as client:
         with client.websocket_connect("/ws/v1/chat/session-1") as first:
-            assert first.receive_json()["type"] == "ready"
+            assert _receive_frame(first)["type"] == "ready"
             first.send_json({"type": "message", "content": "First"})
-            assert first.receive_json()["payload"]["delta"] == "Partial"
+            assert _receive_frame(first)["payload"]["delta"] == "Partial"
 
             with client.websocket_connect("/ws/v1/chat/session-2") as second:
-                assert second.receive_json()["type"] == "ready"
+                assert _receive_frame(second)["type"] == "ready"
                 second.send_json({"type": "message", "content": "Second"})
-                assert second.receive_json()["payload"]["delta"] == "Partial"
+                assert _receive_frame(second)["payload"]["delta"] == "Partial"
 
                 first.send_json({"type": "cancel"})
                 second.send_json({"type": "cancel"})
-                assert first.receive_json()["type"] == "cancelled"
-                assert second.receive_json()["type"] == "cancelled"
+                assert _receive_frame(first)["type"] == "cancelled"
+                assert _receive_frame(second)["type"] == "cancelled"
 
     assert set(runtime.streams) == {"session-1", "session-2"}
     assert all(stream.closed for stream in runtime.streams.values())
@@ -1070,14 +1085,14 @@ def test_agent_failure_logs_traceback_without_prompt(caplog: Any) -> None:
     with caplog.at_level(logging.INFO, logger="uvicorn.error.bumblehive"):
         with TestClient(app) as client:
             with client.websocket_connect("/ws/v1/chat/session-1") as websocket:
-                assert websocket.receive_json()["type"] == "ready"
+                assert _receive_frame(websocket)["type"] == "ready"
                 websocket.send_json(
                     {
                         "type": "message",
                         "content": "do-not-log-this-prompt",
                     }
                 )
-                error = websocket.receive_json()
+                error = _receive_frame(websocket)
 
     assert error["type"] == "error"
     assert error["code"] == "runtime_error"
@@ -1098,10 +1113,7 @@ def test_websocket_disconnect_logs_duration(caplog: Any) -> None:
         asyncio.run(chat(websocket, "session-1"))  # type: ignore[arg-type]
 
     assert "[websocket] connected | session_id=session-1" in caplog.text
-    assert (
-        "[websocket] disconnected | session_id=session-1 | duration="
-        in caplog.text
-    )
+    assert "[websocket] disconnected | session_id=session-1 | duration=" in caplog.text
 
 
 def test_agent_error_result_logs_code_without_error_message(caplog: Any) -> None:
@@ -1115,10 +1127,10 @@ def test_agent_error_result_logs_code_without_error_message(caplog: Any) -> None
     with caplog.at_level(logging.INFO, logger="uvicorn.error.bumblehive"):
         with TestClient(app) as client:
             with client.websocket_connect("/ws/v1/chat/session-1") as websocket:
-                assert websocket.receive_json()["type"] == "ready"
+                assert _receive_frame(websocket)["type"] == "ready"
                 websocket.send_json({"type": "message", "content": "Hi"})
-                assert websocket.receive_json()["type"] == "event"
-                result = websocket.receive_json()
+                assert _receive_frame(websocket)["type"] == "event"
+                result = _receive_frame(websocket)
 
     assert result["type"] == "result"
     assert result["error"]["code"] == "model_error"
@@ -1189,9 +1201,9 @@ def test_websocket_approval_controls_actual_file_write(tmp_path, approved):
         TestClient(app) as client,
         client.websocket_connect("/ws/v1/chat/session-1") as websocket,
     ):
-        assert websocket.receive_json()["type"] == "ready"
+        assert _receive_frame(websocket)["type"] == "ready"
         websocket.send_json({"type": "message", "content": "Write"})
-        approval = websocket.receive_json()
+        approval = _receive_frame(websocket)
         assert approval["type"] == "approval_request"
         assert not target.exists()
         websocket.send_json(
@@ -1201,15 +1213,15 @@ def test_websocket_approval_controls_actual_file_write(tmp_path, approved):
                 "approved": approved,
             }
         )
-        assert websocket.receive_json()["type"] == "approval_resolved"
-        assert websocket.receive_json()["type"] == "event"
-        assert websocket.receive_json()["type"] == "result"
+        assert _receive_frame(websocket)["type"] == "approval_resolved"
+        assert _receive_frame(websocket)["type"] == "event"
+        assert _receive_frame(websocket)["type"] == "result"
         assert target.exists() is approved
     if not approved:
         assert runtime.streams[0].outcome.error.code == "tool_approval_denied"
 
 
-def test_websocket_cancel_and_disconnect_clear_approval(tmp_path):
+def test_websocket_cancel_clears_and_disconnect_preserves_approval(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     target = tmp_path / "outside.txt"
@@ -1228,11 +1240,11 @@ def test_websocket_cancel_and_disconnect_clear_approval(tmp_path):
 
     with TestClient(observed_app) as client:
         with client.websocket_connect("/ws/v1/chat/session-1") as websocket:
-            websocket.receive_json()
+            _receive_frame(websocket)
             websocket.send_json({"type": "message", "content": "Write"})
-            approval = websocket.receive_json()
+            approval = _receive_frame(websocket)
             websocket.send_json({"type": "cancel"})
-            assert websocket.receive_json()["type"] == "cancelled"
+            assert _receive_frame(websocket)["type"] == "cancelled"
             assert not target.exists() and runtime.streams[0].closed
             websocket.send_json(
                 {
@@ -1242,13 +1254,27 @@ def test_websocket_cancel_and_disconnect_clear_approval(tmp_path):
                 }
             )
             websocket.send_json({"type": "message", "content": "Write again"})
-            assert websocket.receive_json()["type"] == "approval_request"
+            assert _receive_frame(websocket)["type"] == "approval_request"
             # Let disconnect cleanup finish before TestClient cancels its scope.
             websocket.close()
             assert disconnected.wait(timeout=5)
         assert not target.exists()
-        assert runtime.streams[1].closed
-        assert not runtime.streams[1].handler.pending
+        assert not runtime.streams[1].closed
+        assert runtime.streams[1].handler.pending
+        with client.websocket_connect("/ws/v1/chat/session-1") as reconnected:
+            ready = _receive_frame(reconnected)
+            assert ready["running"] is True
+            approval = ready["approvals"][0]
+            reconnected.send_json(
+                {
+                    "type": "approval_decision",
+                    "approval_id": approval["approval_id"],
+                    "approved": False,
+                }
+            )
+            assert _receive_frame(reconnected)["type"] == "approval_resolved"
+            assert _receive_frame(reconnected)["type"] == "event"
+            assert _receive_frame(reconnected)["type"] == "result"
 
 
 def test_websocket_full_access_is_scoped_to_one_run(tmp_path):
@@ -1259,19 +1285,111 @@ def test_websocket_full_access_is_scoped_to_one_run(tmp_path):
     runtime = ApprovalFakeRuntime(workspace, target)
     service.runtime = runtime
     app = create_app(runtime_service=service, session_reader=FakeSessionReader())
-    with TestClient(app) as client, client.websocket_connect("/ws/v1/chat/session-1") as websocket:
-        websocket.receive_json()
-        websocket.send_json({"type": "message", "content": "Write", "approval_mode": "full_access"})
-        assert websocket.receive_json()["type"] == "event"
-        assert websocket.receive_json()["type"] == "result"
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/ws/v1/chat/session-1") as websocket,
+    ):
+        _receive_frame(websocket)
+        websocket.send_json(
+            {"type": "message", "content": "Write", "approval_mode": "full_access"}
+        )
+        assert _receive_frame(websocket)["type"] == "event"
+        assert _receive_frame(websocket)["type"] == "result"
         assert target.read_text() == "approved"
         target.unlink()
-        websocket.send_json({"type": "message", "content": "Write again", "approval_mode": "request"})
-        approval = websocket.receive_json()
+        websocket.send_json(
+            {"type": "message", "content": "Write again", "approval_mode": "request"}
+        )
+        approval = _receive_frame(websocket)
         assert approval["type"] == "approval_request"
         assert not target.exists()
-        websocket.send_json({"type": "approval_decision", "approval_id": approval["approval_id"], "approved": False})
-        assert websocket.receive_json()["type"] == "approval_resolved"
-        assert websocket.receive_json()["type"] == "event"
-        assert websocket.receive_json()["type"] == "result"
+        websocket.send_json(
+            {
+                "type": "approval_decision",
+                "approval_id": approval["approval_id"],
+                "approved": False,
+            }
+        )
+        assert _receive_frame(websocket)["type"] == "approval_resolved"
+        assert _receive_frame(websocket)["type"] == "event"
+        assert _receive_frame(websocket)["type"] == "result"
         assert not target.exists()
+
+
+def test_real_sdk_stream_recovers_steer_after_approval_cancel_and_reconnect(tmp_path):
+    from bumblehive import AgentRunResult, AgentRunStream
+    from bumblehive.agent.control import _RunControl
+    from bumblehive.protocols.tool_approval import ToolApprovalRequest
+
+    class Runtime:
+        def __init__(self):
+            self.requests = []
+
+        def stream(self, content, *, config, approval_handler, **kwargs):
+            control = _RunControl()
+            first_turn = not self.requests
+            self.requests.append((content, config, approval_handler.mode))
+
+            async def execute(hook):
+                if first_turn:
+                    await approval_handler(
+                        ToolApprovalRequest(
+                            call_id="approval-tool",
+                            name="exec",
+                            arguments={"command": "printf test"},
+                            workspace=tmp_path,
+                        )
+                    )
+                return AgentRunResult(
+                    content,
+                    [{"role": "user", "content": content}] + control._drain_all(),
+                )
+
+            return AgentRunStream(execute, control)
+
+    service = FakeService()
+    service.runtime = runtime = Runtime()
+    app = create_app(runtime_service=service, session_reader=FakeSessionReader())
+    config = {"generation": {"temperature": 0.2}}
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/v1/chat/session-1") as websocket:
+            assert websocket.receive_json()["type"] == "ready"
+            websocket.send_json({"type": "message", "message_id": "A", "content": "A"})
+            assert _receive_frame(websocket)["type"] == "approval_request"
+            websocket.send_json(
+                {
+                    "type": "message",
+                    "message_id": "B",
+                    "content": "same",
+                    "config": config,
+                    "approval_mode": "full_access",
+                }
+            )
+            assert websocket.receive_json()["status"] == "queued"
+            websocket.send_json(
+                {"type": "message", "message_id": "C", "content": "same"}
+            )
+            assert websocket.receive_json()["status"] == "queued"
+            websocket.send_json({"type": "steer", "message_id": "B"})
+            assert websocket.receive_json()["status"] == "steered"
+            websocket.send_json({"type": "cancel"})
+            restored = websocket.receive_json()
+            assert restored["status"] == "queued" and restored["message_id"] == "B"
+            assert restored["position"] == 0
+            assert websocket.receive_json()["type"] == "cancelled"
+            assert len(runtime.requests) == 1
+            with client.websocket_connect("/ws/v1/chat/session-1") as reconnected:
+                snapshot = reconnected.receive_json()
+                assert snapshot["running"] is False and snapshot["approvals"] == []
+                assert [item["message_id"] for item in snapshot["pending"]] == [
+                    "B",
+                    "C",
+                ]
+                reconnected.send_json({"type": "steer", "message_id": "B"})
+                assert _receive_frame(reconnected)["type"] == "result"
+                assert _receive_frame(reconnected)["type"] == "result"
+            assert runtime.requests == [
+                ("A", None, "request"),
+                ("same", config, "full_access"),
+                ("same", None, "request"),
+            ]

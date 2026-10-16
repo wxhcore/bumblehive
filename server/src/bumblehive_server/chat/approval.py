@@ -1,4 +1,4 @@
-"""App approval policy and decisions waiting on the chat connection."""
+"""App approval policy and decisions waiting on a running turn."""
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -77,6 +77,25 @@ class ToolApprovals:
         self.send = send
         self.pending: dict[str, tuple[ToolApprovalRequest, asyncio.Future[bool]]] = {}
 
+    def snapshot(self) -> list[dict[str, Any]]:
+        return [
+            self._frame(approval_id, request)
+            for approval_id, (request, future) in self.pending.items()
+            if not future.done()
+        ]
+
+    def _frame(self, approval_id: str, request: ToolApprovalRequest) -> dict[str, Any]:
+        return {
+            "type": "approval_request",
+            "approval_id": approval_id,
+            "session_id": self.session_id,
+            "call_id": request.call_id,
+            "name": request.name,
+            "workspace": str(request.workspace),
+            "arguments": dict(request.arguments),
+            **(approval_details(request) or {}),
+        }
+
     async def __call__(self, request: ToolApprovalRequest) -> ToolApprovalDecision:
         if self.mode == "full_access":
             return ToolApprovalDecision.approve()
@@ -88,18 +107,7 @@ class ToolApprovals:
         future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         self.pending[approval_id] = (request, future)
         try:
-            await self.send(
-                {
-                    "type": "approval_request",
-                    "approval_id": approval_id,
-                    "session_id": self.session_id,
-                    "call_id": request.call_id,
-                    "name": request.name,
-                    "workspace": str(request.workspace),
-                    "arguments": dict(request.arguments),
-                    **details,
-                }
-            )
+            await self.send(self._frame(approval_id, request))
             approved = await future
             return (
                 ToolApprovalDecision.approve()

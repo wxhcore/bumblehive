@@ -1,10 +1,12 @@
 from typing import Any, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
 
 class ChatRequest(BaseModel):
     type: Literal["message"] = "message"
+    message_id: str = Field(default_factory=lambda: uuid4().hex, min_length=1)
     content: str = Field(min_length=1)
     approval_mode: Literal["request", "full_access"] = "request"
     config: dict[str, Any] | None = None
@@ -19,6 +21,16 @@ class ChatRequest(BaseModel):
 
 class CancelRequest(BaseModel):
     type: Literal["cancel"]
+
+
+class SteerRequest(BaseModel):
+    type: Literal["steer"]
+    message_id: str = Field(min_length=1)
+
+
+class RemovePendingRequest(BaseModel):
+    type: Literal["remove_pending"]
+    message_id: str = Field(min_length=1)
 
 
 class ApprovalDecisionRequest(BaseModel):

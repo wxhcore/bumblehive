@@ -22,6 +22,7 @@ from bumblehive.skills import SkillLoadResult
 from openai import AsyncOpenAI
 
 from .config_defaults import apply_config_defaults
+from .chat.session import SessionController
 from .logging_utils import elapsed_since, safe_log_value
 from .session_reader import SessionReader
 from .subagents import register_subagent_tool
@@ -67,6 +68,14 @@ class RuntimeService:
         self._runtime: BumblehiveRuntime | None = None
         self._active_runs = 0
         self._lock = asyncio.Lock()
+        self._session_controllers: dict[str, SessionController] = {}
+
+    def get_session_controller(self, session_id: str) -> SessionController:
+        if session_id not in self._session_controllers:
+            self._session_controllers[session_id] = SessionController(
+                self.lease, session_id
+            )
+        return self._session_controllers[session_id]
 
     @property
     def ready(self) -> bool:
@@ -107,6 +116,9 @@ class RuntimeService:
             self._runtime = runtime
 
     async def shutdown(self) -> None:
+        controllers = list(self._session_controllers.values())
+        self._session_controllers.clear()
+        await asyncio.gather(*(controller.close() for controller in controllers))
         async with self._lock:
             runtime = self._runtime
             self._runtime = None
@@ -129,8 +141,12 @@ class RuntimeService:
     async def delete_session(self, session_id: str) -> bool:
         started_at = perf_counter()
         try:
+            controller = self._session_controllers.get(session_id)
+            if controller is not None:
+                await controller.close()
             async with self.lease() as runtime:
                 deleted = await runtime.delete_session(session_id)
+            self._session_controllers.pop(session_id, None)
         except Exception:
             logger.exception(
                 "[session] delete failed | session_id=%s | duration=%s",

@@ -39,6 +39,33 @@ DELETE /api/v1/sessions/{session_id}
 WS     /ws/v1/chat/{session_id}
 ```
 
+### Chat input
+
+Send `{"type":"message","message_id":"unique-id","content":"..."}` to start a
+turn or queue a follow-up. Follow-ups run one at a time in submission order.
+Use `{"type":"steer","message_id":"..."}` to send a queued message into the
+current turn, or `{"type":"remove_pending","message_id":"..."}` to remove it.
+The server acknowledges each change with `message_status`: `queued`, `started`,
+`steered`, or `removed`.
+
+Each session owns its run, pending messages and approvals. Closing the WebSocket
+only disconnects that subscriber. On reconnect, `ready` returns the current run,
+pending messages and approvals; load saved conversation history through the
+session API. Stream events from the disconnected interval are not replayed.
+Cancellation and errors pause follow-ups; send a pending message explicitly to
+resume. Steering that the SDK has not consumed is restored with its original
+message ID and queue order. Its `queued` receipt includes a zero-based `position`
+so clients can reinsert the card at the correct place. Consumed steering is not
+requeued. Pending messages survive a connection loss, but are held in memory and
+do not survive a server restart.
+
+Backend callers can deliver input to a running turn or start one while idle:
+
+```python
+controller = service.get_session_controller(session_id)
+await controller.submit(request, steer=True)
+```
+
 ## Desktop sidecar
 
 Build the standalone binary from the repository root with the Python build
