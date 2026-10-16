@@ -913,6 +913,58 @@ test("simultaneous connect calls share one handshake until the ready snapshot is
   }
 });
 
+test("steering after tools stays in one execution process while follow-ups remain separate turns", () => {
+  const stored = [
+    { role: "user", content: "你好" },
+    { role: "assistant", content: "我先看看目录", tool_calls: [
+      { id: "dir", function: { name: "list_dir", arguments: '{"path":"."}' } },
+    ] },
+    { role: "tool", tool_call_id: "dir", content: { entries: [] } },
+    { role: "user", content: "在干嘛" },
+    { role: "user", content: "用中文简短说" },
+    { role: "assistant", content: "目录检查完成" },
+    { role: "user", content: "下一轮：继续检查" },
+    { role: "assistant", content: "下一轮完成" },
+  ];
+  const messages = chatEvents.historyMessages(stored);
+  assert.deepEqual(messages.map((message) => message.role), ["user", "assistant", "user", "assistant"]);
+  assert.equal(messages[2].content, "下一轮：继续检查");
+  const firstRun = messages[1];
+  assert.deepEqual(firstRun.iterations.map((item) => item.kind ?? "model"), ["model", "steering", "steering", "model"]);
+  assert.deepEqual(firstRun.iterations.slice(1, 3).map((item) => item.content), ["在干嘛", "用中文简短说"]);
+  const closed = renderToStaticMarkup(createElement(assistantMessage.MessageView, { message: firstRun, active: false }));
+  assert.match(closed, /已结束/);
+  assert.match(closed, /目录检查完成/);
+  assert.doesNotMatch(closed, /在干嘛|用中文简短说|我先看看目录/);
+  assert.equal((closed.match(/execution-process-toggle/g) ?? []).length, 1);
+  const opened = renderToStaticMarkup(createElement(assistantMessage.MessageView, { message: firstRun, active: true }));
+  assert.match(opened, /aria-label="引导消息"/);
+  assert.ok(opened.indexOf("我先看看目录") < opened.indexOf("在干嘛"));
+  assert.ok(opened.indexOf("在干嘛") < opened.indexOf("用中文简短说"));
+  assert.ok(opened.indexOf("用中文简短说") < opened.indexOf("目录检查完成"));
+  assert.equal(stored[3].role, "user");
+  assert.equal(stored[3].content, "在干嘛");
+});
+
+test("merged steering and repeated tool calls stay ordered across history reloads", () => {
+  const stored = [
+    { role: "user", content: "分析项目" },
+    { role: "assistant", tool_calls: [{ id: "first", function: { name: "list_dir", arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "first", content: "first result" },
+    { role: "user", content: "第一条引导\n\n第二条引导" },
+    { role: "assistant", tool_calls: [{ id: "second", function: { name: "read_file", arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "second", content: "second result" },
+    { role: "user", content: "第三条引导" },
+    { role: "assistant", content: "最终回答", _bumblehive_ui: { duration_s: 11 } },
+  ];
+  const restored = chatEvents.historyMessages(JSON.parse(JSON.stringify(stored)));
+  assert.equal(restored.length, 2);
+  assert.equal(restored[1].durationSeconds, 11);
+  assert.deepEqual(restored[1].iterations.map((item) => item.kind ?? "model"), ["model", "steering", "model", "steering", "model"]);
+  assert.equal(restored[1].iterations[0].tools[0].status, "completed");
+  assert.equal(restored[1].iterations[2].tools[0].status, "completed");
+});
+
 test("restored steering receipts reinsert original IDs at their queue positions", () => {
   const queued = (message_id, position) => ({ type: "message_status", session_id: "one", status: "queued", message_id, content: "same text", position });
   let items = [

@@ -136,6 +136,20 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
 
   messages.forEach((message, index) => {
     if (message.role === "user") {
+      const previous = result.at(-1);
+      const lastIteration = previous?.iterations?.at(-1);
+      // Input between tool execution and the next model response stays in this turn.
+      if (previous?.role === "assistant" && (
+        lastIteration?.tools?.length || lastIteration?.kind === "steering"
+      )) {
+        previous.iterations = [...(previous.iterations ?? []), {
+          id: `history-${index}`,
+          iteration: null,
+          kind: "steering",
+          content: messageContent(message.content),
+        }];
+        return;
+      }
       result.push({
         id: `history-${index}`,
         role: "user",

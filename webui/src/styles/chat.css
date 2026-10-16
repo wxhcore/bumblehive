@@ -193,3 +193,27 @@
       line-height: 1.58;
   border-radius: 10px;
 }
+
+.execution-steering {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.execution-steering-label {
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.execution-steering-content {
+  max-width: min(78%, 620px);
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(52, 45, 27, 0.055);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.62;
+}

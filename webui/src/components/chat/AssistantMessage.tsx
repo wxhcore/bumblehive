@@ -29,6 +29,14 @@ const AssistantIterationView = memo(function AssistantIterationView({
   showReasoning = true,
   streaming = false,
 }: AssistantIterationViewProps) {
+  if (modelIteration.kind === "steering") {
+    return (
+      <div className="execution-steering" aria-label="引导消息">
+        <span className="execution-steering-label">引导</span>
+        <div className="execution-steering-content">{modelIteration.content}</div>
+      </div>
+    );
+  }
   return (
     <div className="assistant-iteration">
       {showReasoning && modelIteration.reasoning ? (
@@ -196,6 +204,7 @@ export const MessageView = memo(function MessageView({
     !active &&
     !message.error &&
     !message.stopped &&
+    lastIteration?.kind !== "steering" &&
     lastIteration?.content.trim() &&
     !lastIteration.tools?.length
       ? lastIteration
@@ -206,8 +215,9 @@ export const MessageView = memo(function MessageView({
   const hasReasoning = iterations.some((iteration) =>
     Boolean(iteration.reasoning),
   );
+  const hasSteering = iterations.some((iteration) => iteration.kind === "steering");
   const executionIterations =
-    finalAnswerIteration && (hasToolCalls || hasReasoning)
+    finalAnswerIteration && (hasToolCalls || hasReasoning || hasSteering)
       ? [
           ...iterations.slice(0, -1),
           ...(finalAnswerIteration.reasoning
@@ -224,7 +234,7 @@ export const MessageView = memo(function MessageView({
           (item) =>
             item.content || item.reasoning || Boolean(item.tools?.length),
         )
-      : !active && (message.error || message.stopped)
+      : !active && (message.error || message.stopped || hasSteering)
         ? iterations
       : [];
   const processIterations = active ? iterations : executionIterations;
@@ -267,7 +277,7 @@ export const MessageView = memo(function MessageView({
                 modelIteration={modelIteration}
                 reasoningActive={reasoningActive}
                 showReasoning={
-                  !(finalAnswerIteration && (hasToolCalls || hasReasoning))
+                  !(finalAnswerIteration && (hasToolCalls || hasReasoning || hasSteering))
                 }
                 streaming={iterationActive}
                 key={modelIteration.id}

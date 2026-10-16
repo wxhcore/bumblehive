@@ -337,6 +337,7 @@ export interface ToolActivity {
 export interface AssistantIteration {
   id: string;
   iteration: number | null;
+  kind?: "steering";
   reasoning?: string;
   content: string;
   tools?: ToolActivity[];
