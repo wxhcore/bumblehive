@@ -57,3 +57,48 @@ async def test_closing_a_stream_cancels_its_background_run() -> None:
     assert cancelled.is_set()
     with pytest.raises(RuntimeError, match="closed before producing a result"):
         await stream.result()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("before_start", [False, True])
+async def test_external_close_unblocks_waiting_consumer(before_start) -> None:
+    started = asyncio.Event()
+
+    async def run(hook):
+        started.set()
+        await asyncio.Event().wait()
+
+    stream = AsyncEventStream(run, maxsize=1)
+    iterator = aiter(stream)
+    consumer = asyncio.create_task(anext(iterator))
+    try:
+        if not before_start:
+            await started.wait()
+        await stream.aclose()
+        with pytest.raises(asyncio.CancelledError):
+            async with asyncio.timeout(1):
+                await consumer
+    finally:
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+        await iterator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_close_full_queue_discards_buffer_and_wakes_reader() -> None:
+    full = asyncio.Event()
+
+    async def run(hook):
+        await hook.on_event(make_event("buffered", run_id="run"))
+        full.set()
+        await hook.on_event(make_event("blocked", run_id="run"))
+
+    stream = AsyncEventStream(run, maxsize=1)
+    iterator = aiter(stream)
+    await full.wait()
+    async with asyncio.timeout(1):
+        await stream.aclose()
+        with pytest.raises(asyncio.CancelledError):
+            await anext(iterator)
+    with pytest.raises(RuntimeError, match="closed before producing a result"):
+        await stream.result()

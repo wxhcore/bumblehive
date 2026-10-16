@@ -73,9 +73,7 @@ class AsyncEventStream(Generic[ResultT]):
                 "AsyncEventStream must be consumed before requesting its result"
             )
         if task.cancelled():
-            raise RuntimeError(
-                "AsyncEventStream was closed before producing a result"
-            )
+            raise RuntimeError("AsyncEventStream was closed before producing a result")
         if not self._exhausted:
             raise RuntimeError(
                 "AsyncEventStream must be consumed to completion before "
@@ -86,18 +84,28 @@ class AsyncEventStream(Generic[ResultT]):
         return task.result()
 
     async def aclose(self) -> None:
+        """Stop production and wake a consumer, discarding unread events."""
         if self._closed:
             return
         self._closed = True
         task = self._task
         if task is None:
             return
-        if task.done():
-            if not task.cancelled():
-                task.exception()
-            return
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        try:
+            if task.done():
+                if not task.cancelled():
+                    task.exception()
+            else:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        finally:
+            if not self._exhausted:
+                # The producer skips _put_end() after closure and may not even
+                # have started. Wake a reader blocked in queue.get(), including
+                # when the bounded output queue was full at cancellation.
+                while not self._queue.empty():
+                    self._queue.get_nowait()
+                self._queue.put_nowait(_STREAM_END)
 
     async def _put_end(self) -> None:
         if self._closed:
