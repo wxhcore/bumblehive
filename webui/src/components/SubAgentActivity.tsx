@@ -55,6 +55,10 @@ function beeTask(tool: ToolActivity): string {
   return argumentText(tool, "task");
 }
 
+function backgroundStarted(tool: ToolActivity): boolean {
+  return tool.status === "completed" && argumentRecord(tool)?.background === true;
+}
+
 function durationLabel(duration: number | undefined): string {
   if (duration === undefined) return "";
   return `${duration < 1 ? duration.toFixed(2) : duration.toFixed(1)}s`;
@@ -204,7 +208,7 @@ const HiveItem = memo(function HiveItem({ tool }: { tool: ToolActivity }) {
           <span className="hive-bee-error">{tool.errorMessage}</span>
         ) : null}
       </div>
-      <span className="hive-bee-status">{itemStatus(tool)}</span>
+      <span className="hive-bee-status">{backgroundStarted(tool) ? "后台已启动" : itemStatus(tool)}</span>
     </div>
   );
 });
@@ -225,7 +229,7 @@ export const SubAgentActivity = memo(function SubAgentActivity({
         <summary className="subagent-summary">
           <BeeLogo active={active} />
           <span className="subagent-copy">
-            <span className="subagent-label">{singleLabel(tool.status)}</span>
+            <span className="subagent-label">{backgroundStarted(tool) ? "已启动后台 Bee" : singleLabel(tool.status)}</span>
             <span className="subagent-subtitle">{beeTitle(tool)}</span>
           </span>
           <span className="subagent-duration">{duration}</span>
@@ -238,16 +242,21 @@ export const SubAgentActivity = memo(function SubAgentActivity({
 
   const counts = beeCounts(tools);
   const status = groupStatus(counts, tools.length);
+  const backgroundCount = tools.filter(backgroundStarted).length;
+  const summaryCounts = { ...counts, completed: counts.completed - backgroundCount };
   return (
     <details className={`tool-entry subagent-entry hive-entry hive-${status}`}>
       <summary className="subagent-summary">
         <BeeLogo active={isActive(status)} />
         <span className="subagent-copy">
           <span className="subagent-label">
-            {hiveLabel(counts, tools.length)}
+            {backgroundCount && counts.completed === tools.length
+              ? "Hive 任务已派发" : hiveLabel(counts, tools.length)}
           </span>
           <span className="subagent-subtitle">
-            {hiveSummary(counts, tools.length)}
+            {backgroundCount
+              ? [`${backgroundCount} 个后台已启动`, hiveSummary(summaryCounts, tools.length)].filter(Boolean).join(" · ")
+              : hiveSummary(counts, tools.length)}
           </span>
         </span>
         <span className="subagent-duration" />

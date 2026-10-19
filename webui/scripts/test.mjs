@@ -985,3 +985,45 @@ test("restored steering receipts reinsert original IDs at their queue positions"
   assert.deepEqual(items.map((item) => item.message_id), ["left", "C", "tail", "new"]);
   assert.equal(items.at(-1).submitting, undefined);
 });
+
+test("background delegation displays startup instead of falsely claiming completion", async () => {
+  const { SubAgentActivity } = await server.ssrLoadModule("/src/components/SubAgentActivity.tsx");
+  const background = { id: "bg", name: "sub_agent", arguments: { title: "Review", task: "Read files", background: true }, status: "completed" };
+  const single = renderToStaticMarkup(createElement(SubAgentActivity, { tools: [background] }));
+  assert.match(single, /已启动后台 Bee/);
+  assert.doesNotMatch(single, /Bee 已完成/);
+  const group = renderToStaticMarkup(createElement(SubAgentActivity, { tools: [background, { ...background, id: "bg2" }] }));
+  assert.match(group, /2 个后台已启动/);
+  assert.doesNotMatch(group, /全部完成|协作完成/);
+  const mixed = renderToStaticMarkup(createElement(SubAgentActivity, { tools: [background, { ...background, id: "sync", arguments: { title: "Sync", task: "Read" } }] }));
+  assert.match(mixed, /1 个后台已启动/);
+  assert.match(mixed, /1 完成/);
+});
+
+test("sub-agent history keeps task text separate from model-only handoff instructions", () => {
+  const messages = chatEvents.historyMessages([
+    { role: "user", content: "Internal instructions\nTask:\nReview", _bumblehive_ui: { content: "Review" } },
+    { role: "assistant", content: "Conclusion" },
+  ]);
+  assert.equal(messages[0].content, "Review");
+  const restored = chatEvents.restoreRunningMessages(messages.slice(0, 1), {
+    type: "ready", session_id: "child", running: true, started_at: 123,
+    active_message: { message_id: "child", content: "Review" },
+  });
+  assert.equal(restored.filter((message) => message.role === "user").length, 1);
+  assert.equal(restored.at(-1).startedAt, 123000);
+});
+
+test("running background children can be deleted while foreground branches remain protected", async () => {
+  const { SessionBranch } = await server.ssrLoadModule("/src/components/sidebar/SessionBranch.tsx");
+  const render = (blocked) => renderToStaticMarkup(createElement(SessionBranch, {
+    session: { id: "child", title: "Child", children: [] }, depth: 1,
+    activeSessionId: "child", expandedSessionIds: new Set(), runningSessionIds: new Set(["child"]),
+    blockingSessionIds: blocked, searching: false, sessionSelectionDisabled: false,
+    onToggle() {}, onSelect() {}, onDelete() {},
+  }));
+  const background = render(new Set());
+  const foreground = render(new Set(["child"]));
+  assert.doesNotMatch(background, /class="session-delete"[^>]*disabled/);
+  assert.match(foreground, /class="session-delete"[^>]*disabled/);
+});

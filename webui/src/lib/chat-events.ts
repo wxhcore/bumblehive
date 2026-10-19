@@ -153,7 +153,7 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
       result.push({
         id: `history-${index}`,
         role: "user",
-        content: messageContent(message.content),
+        content: messageContent(asRecord(message._bumblehive_ui)?.content ?? message.content),
       });
       return;
     }

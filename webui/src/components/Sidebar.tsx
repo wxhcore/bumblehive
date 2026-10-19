@@ -14,6 +14,7 @@ interface SidebarProps {
   currentWorkspace: string | null;
   pendingSessions: PendingSession[];
   runningSessionIds: ReadonlySet<string>;
+  backgroundSessionIds: ReadonlySet<string>;
   disabled: boolean;
   settingsDisabled: boolean;
   sessionSelectionDisabled: boolean;
@@ -33,6 +34,7 @@ export const Sidebar = memo(function Sidebar({
   currentWorkspace,
   pendingSessions,
   runningSessionIds,
+  backgroundSessionIds,
   disabled,
   settingsDisabled,
   sessionSelectionDisabled,
@@ -95,6 +97,7 @@ export const Sidebar = memo(function Sidebar({
   }
 
   const searching = Boolean(query.trim());
+  const blockingSessionIds = new Set([...runningSessionIds].filter((id) => !backgroundSessionIds.has(id)));
 
   return (
     <aside className="sidebar">
@@ -173,6 +176,7 @@ export const Sidebar = memo(function Sidebar({
                 activeSessionId={activeSessionId}
                 expandedSessionIds={expandedSessionIds}
                 runningSessionIds={runningSessionIds}
+                blockingSessionIds={blockingSessionIds}
                 onToggleWorkspace={toggleWorkspace}
                 onToggleSession={toggleSession}
                 onNewChat={onNewChatInWorkspace}

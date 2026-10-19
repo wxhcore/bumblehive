@@ -12,6 +12,7 @@ interface WorkspaceSectionProps {
   activeSessionId: string | null;
   expandedSessionIds: ReadonlySet<string>;
   runningSessionIds: ReadonlySet<string>;
+  blockingSessionIds: ReadonlySet<string>;
   onToggleWorkspace: (workspaceKey: string) => void;
   onToggleSession: (sessionId: string) => void;
   onNewChat: (workspace: string) => void;
@@ -30,6 +31,7 @@ export function WorkspaceSection({
   activeSessionId,
   expandedSessionIds,
   runningSessionIds,
+  blockingSessionIds,
   onToggleWorkspace,
   onToggleSession,
   onNewChat,
@@ -96,6 +98,7 @@ export function WorkspaceSection({
               activeSessionId={activeSessionId}
               expandedSessionIds={expandedSessionIds}
               runningSessionIds={runningSessionIds}
+              blockingSessionIds={blockingSessionIds}
               searching={searching}
               sessionSelectionDisabled={sessionSelectionDisabled}
               onToggle={onToggleSession}

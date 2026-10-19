@@ -20,6 +20,7 @@ interface SessionBranchProps {
   activeSessionId: string | null;
   expandedSessionIds: ReadonlySet<string>;
   runningSessionIds: ReadonlySet<string>;
+  blockingSessionIds: ReadonlySet<string>;
   searching: boolean;
   sessionSelectionDisabled: boolean;
   onToggle: (sessionId: string) => void;
@@ -33,6 +34,7 @@ export function SessionBranch({
   activeSessionId,
   expandedSessionIds,
   runningSessionIds,
+  blockingSessionIds,
   searching,
   sessionSelectionDisabled,
   onToggle,
@@ -43,7 +45,7 @@ export function SessionBranch({
   const expanded =
     hasChildren && (searching || expandedSessionIds.has(session.id));
   const running = runningSessionIds.has(session.id);
-  const branchRunning = branchIsRunning(session, runningSessionIds);
+  const branchRunning = branchIsRunning(session, blockingSessionIds);
 
   return (
     <div className="session-branch">
@@ -106,6 +108,7 @@ export function SessionBranch({
               activeSessionId={activeSessionId}
               expandedSessionIds={expandedSessionIds}
               runningSessionIds={runningSessionIds}
+              blockingSessionIds={blockingSessionIds}
               searching={searching}
               sessionSelectionDisabled={sessionSelectionDisabled}
               onToggle={onToggle}

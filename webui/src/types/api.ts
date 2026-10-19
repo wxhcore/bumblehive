@@ -151,6 +151,15 @@ export interface ReadyFrame {
   started_at?: number | null;
   pending?: PendingChatMessage[];
   approvals?: ApprovalRequestFrame[];
+  running_subagents?: RunningSubagent[];
+}
+
+export interface RunningSubagent {
+  session_id: string;
+  title: string;
+  workspace: string;
+  content: string;
+  started_at: number;
 }
 
 export interface PendingChatMessage {
@@ -174,6 +183,7 @@ export interface SessionCreatedFrame {
   workspace: string;
   title: string;
   content: string;
+  background?: boolean;
 }
 
 export interface ResultFrame {

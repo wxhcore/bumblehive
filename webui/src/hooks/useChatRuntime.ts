@@ -31,6 +31,7 @@ interface StartRunOptions {
 }
 
 interface UseChatRuntimeOptions {
+  getParentSessionId: (sessionId: string) => string | undefined;
   onNotify: (message: string) => void;
   onSessionCreated: (
     sessionId: string,
@@ -40,6 +41,7 @@ interface UseChatRuntimeOptions {
 }
 
 export function useChatRuntime({
+  getParentSessionId,
   onNotify,
   onSessionCreated: handleSessionCreated,
   onSessionSettled: handleSessionSettled,
@@ -59,12 +61,14 @@ export function useChatRuntime({
   const notify = useStableCallback(onNotify);
   const reportSessionCreated = useStableCallback(handleSessionCreated);
   const onSessionSettled = useStableCallback(handleSessionSettled);
+  const parentSessionIdFor = useStableCallback(getParentSessionId);
 
   const socketsRef = useRef(new Map<string, ChatSocket>());
   const activeSessionIdRef = useRef<string | null>(null);
   const runningSessionIdsRef = useRef(new Set<string>());
   const messagesBySessionRef = useRef(new Map<string, UiMessage[]>());
   const activeMessageIdsRef = useRef(new Map<string, string>());
+  const backgroundParentsRef = useRef(new Map<string, string>());
   const assistantIdsRef = useRef(new Map<string, string>());
   const frameHandlerRef = useRef<
     (
@@ -236,6 +240,35 @@ export function useChatRuntime({
         ...current.filter((item) => item.sourceSessionId !== sourceSessionId),
         ...(frame.approvals ?? []).map((item) => ({ ...item, sourceSessionId, submitting: false })),
       ]);
+      const children = frame.running_subagents ?? [];
+      const running = new Set(children.map((child) => child.session_id));
+      for (const [childId, parentId] of backgroundParentsRef.current) {
+        if (parentId === sessionId && !running.has(childId)) {
+          backgroundParentsRef.current.delete(childId);
+          flushPendingAgentFrames(childId);
+          setSessionRunning(childId, false);
+          assistantIdsRef.current.delete(childId);
+          await restoreHistory(childId);
+        }
+      }
+      for (const child of children) {
+        backgroundParentsRef.current.set(child.session_id, sessionId);
+        reportSessionCreated(child.session_id, {
+          workspace: child.workspace, title: child.title, parentSessionId: sessionId,
+        });
+        flushPendingAgentFrames(child.session_id);
+        await restoreHistory(child.session_id);
+        updateSessionMessages(child.session_id, (current) => {
+          const restored = restoreRunningMessages(current, {
+            type: "ready", session_id: child.session_id, running: true,
+            started_at: child.started_at,
+            active_message: { message_id: child.session_id, content: child.content },
+          });
+          assistantIdsRef.current.set(child.session_id, restored.at(-1)!.id);
+          return restored;
+        });
+        setSessionRunning(child.session_id, true);
+      }
       return;
     }
 
@@ -262,6 +295,7 @@ export function useChatRuntime({
     }
 
     if (frame.type === "session_created") {
+      if (frame.background) backgroundParentsRef.current.set(sessionId, sourceSessionId);
       if (runningSessionIdsRef.current.has(sessionId)) return;
 
       const assistantId = createMessageId();
@@ -318,6 +352,7 @@ export function useChatRuntime({
     }
 
     if (frame.type === "result") {
+      backgroundParentsRef.current.delete(sessionId);
       const assistantId = assistantIdsRef.current.get(sessionId);
       if (assistantId) {
         updateSessionMessages(sessionId, (current) =>
@@ -402,6 +437,7 @@ export function useChatRuntime({
     }
 
     if (frame.type === "cancelled") {
+      backgroundParentsRef.current.delete(sessionId);
       updatePending(sessionId, (pendingRef.current.get(sessionId) ?? []).map((item) => ({
         ...item, submitting: false,
       })));
@@ -440,6 +476,7 @@ export function useChatRuntime({
           item.message_id === frame.message_id ? { ...item, submitting: false } : item));
         notify(frame.message);
       } else {
+        backgroundParentsRef.current.delete(sessionId);
         updatePending(sessionId, (pendingRef.current.get(sessionId) ?? []).map((item) => ({
           ...item, submitting: false,
         })));
@@ -484,12 +521,16 @@ export function useChatRuntime({
 
   useEffect(() => {
     // Running subagents receive their events through the parent's connection.
-    if (activeSessionId && (
-      !runningSessionIds.has(activeSessionId) || socketsRef.current.has(activeSessionId)
-    )) {
-      void connectSocket(activeSessionId).catch(() => undefined);
-    }
-  }, [activeSessionId, connectSocket, runningSessionIds]);
+    if (!activeSessionId) return;
+    const connect = async () => {
+      const parentId = parentSessionIdFor(activeSessionId);
+      if (parentId) await connectSocket(parentId);
+      if (!runningSessionIdsRef.current.has(activeSessionId) || socketsRef.current.has(activeSessionId)) {
+        await connectSocket(activeSessionId);
+      }
+    };
+    void connect().catch(() => undefined);
+  }, [activeSessionId, connectSocket, parentSessionIdFor, runningSessionIds]);
 
   const setCachedSessionMessages = useCallback(
     (sessionId: string, sessionMessages: UiMessage[]) => {
@@ -520,6 +561,8 @@ export function useChatRuntime({
         messagesBySessionRef.current.delete(sessionId);
         assistantIdsRef.current.delete(sessionId);
         activeMessageIdsRef.current.delete(sessionId);
+        backgroundParentsRef.current.delete(sessionId);
+        setSessionRunning(sessionId, false);
         pendingRef.current.delete(sessionId);
       }
       setPendingBySession(new Map(pendingRef.current));
@@ -528,7 +571,7 @@ export function useChatRuntime({
       );
       forgetPendingAgentFrames(ids);
     },
-    [forgetPendingAgentFrames],
+    [forgetPendingAgentFrames, setSessionRunning],
   );
 
   const startRun = useCallback(
@@ -539,15 +582,19 @@ export function useChatRuntime({
       workspace,
       fallbackMessages,
     }: StartRunOptions) => {
-      if (runningSessionIdsRef.current.has(sessionId) && !socketsRef.current.has(sessionId)) {
-        notify("子任务仍在运行，请等待完成后再发送消息");
-        return;
-      }
       if (!messagesBySessionRef.current.has(sessionId)) {
         messagesBySessionRef.current.set(sessionId, fallbackMessages);
       }
       const messageId = createMessageId();
       try {
+        const parentId = parentSessionIdFor(sessionId);
+        if (parentId) await connectSocket(parentId);
+        if (runningSessionIdsRef.current.has(sessionId) && (
+          backgroundParentsRef.current.has(sessionId) || !socketsRef.current.has(sessionId)
+        )) {
+          notify("子任务仍在运行，请等待完成后再发送消息");
+          return;
+        }
         const socket = await connectSocket(sessionId);
         await socket.whenSynced();
         updatePending(sessionId, [...(pendingRef.current.get(sessionId) ?? []),
@@ -558,7 +605,7 @@ export function useChatRuntime({
         notify(error instanceof Error ? error.message : "消息发送失败");
       }
     },
-    [connectSocket, notify, updatePending],
+    [connectSocket, notify, parentSessionIdFor, updatePending],
   );
 
   const actOnPending = useCallback((messageId: string, type: "steer" | "remove_pending") => {
@@ -626,9 +673,13 @@ export function useChatRuntime({
   );
 
   return {
+    backgroundSessionIds: new Set([...runningSessionIds].filter((id) => backgroundParentsRef.current.has(id))),
     activeSessionId,
     pendingMessages: activeSessionId ? pendingBySession.get(activeSessionId) ?? [] : [],
-    isDisconnected: activeSessionId ? disconnectedSessions.has(activeSessionId) : false,
+    isDisconnected: activeSessionId ? disconnectedSessions.has(
+      runningSessionIds.has(activeSessionId)
+        ? backgroundParentsRef.current.get(activeSessionId) ?? activeSessionId : activeSessionId,
+    ) : false,
     actOnPending,
     pendingApprovals: approvals.filter((item) => item.session_id === activeSessionId),
     decideApproval,

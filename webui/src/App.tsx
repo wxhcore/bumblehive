@@ -128,11 +128,14 @@ export default function App() {
     isSessionRunning,
     messages,
     runningSessionIds,
+    backgroundSessionIds,
     setCachedSessionMessages,
     startRun,
     stopActiveRun,
     stoppingSessionIds,
   } = useChatRuntime({
+    getParentSessionId: (sessionId) => sessions.find((session) => session.session_id === sessionId)?.parent_session_id
+      ?? pendingSessionInfo.get(sessionId)?.parentSessionId,
     onNotify: notify,
     onSessionCreated: (sessionId, session) => {
       setPendingSessionInfo((current) =>
@@ -344,7 +347,7 @@ export default function App() {
     );
     if (
       [...branchIds].some((branchId) =>
-        isSessionRunning(branchId),
+        isSessionRunning(branchId) && !backgroundSessionIds.has(branchId),
       )
     ) {
       notify("请先停止这个会话及其 Bee 子会话中的任务");
@@ -654,6 +657,7 @@ export default function App() {
             currentWorkspace={activeWorkspace}
             pendingSessions={pendingSessions}
             runningSessionIds={runningSessionIds}
+            backgroundSessionIds={backgroundSessionIds}
             disabled={bootstrapStatus !== "ready"}
             settingsDisabled={bootstrapStatus !== "ready"}
             sessionSelectionDisabled={bootstrapStatus !== "ready"}
@@ -736,7 +740,7 @@ export default function App() {
                   model={settings.provider.model ?? ""}
                   models={selectableModels}
                   workspace={workspaceLabel(activeWorkspace)}
-                  disabled={bootstrapStatus !== "ready"}
+                  disabled={bootstrapStatus !== "ready" || Boolean(activeSessionId && backgroundSessionIds.has(activeSessionId))}
                   isStreaming={isViewingRunningSession}
                   isStopping={isViewingStoppingSession}
                   modelSwitchDisabled={hasRunningSessions || modelSwitching}
