@@ -25,7 +25,7 @@ from .config_defaults import apply_config_defaults
 from .chat.session import SessionController
 from .logging_utils import elapsed_since, safe_log_value
 from .session_reader import SessionReader
-from .subagents import register_subagent_tool
+from .subagents import SubagentTasks, register_subagent_tool
 
 
 RuntimeFactory = Callable[[BumblehiveConfig], BumblehiveRuntime]
@@ -69,6 +69,17 @@ class RuntimeService:
         self._active_runs = 0
         self._lock = asyncio.Lock()
         self._session_controllers: dict[str, SessionController] = {}
+        self.subagents = SubagentTasks(self.lease, self.notify_session)
+
+    async def notify_session(self, session_id: str, message_id: str, content: str) -> None:
+        controller = self._session_controllers.get(session_id)
+        if controller is not None:
+            await controller.notify(message_id, content)
+
+    async def close_session(self, session_id: str) -> None:
+        controller = self._session_controllers.get(session_id)
+        if controller is not None:
+            await controller.close()
 
     def get_session_controller(self, session_id: str) -> SessionController:
         if session_id not in self._session_controllers:
@@ -119,6 +130,7 @@ class RuntimeService:
         controllers = list(self._session_controllers.values())
         self._session_controllers.clear()
         await asyncio.gather(*(controller.close() for controller in controllers))
+        await self.subagents.cancel()
         async with self._lock:
             runtime = self._runtime
             self._runtime = None
@@ -141,9 +153,8 @@ class RuntimeService:
     async def delete_session(self, session_id: str) -> bool:
         started_at = perf_counter()
         try:
-            controller = self._session_controllers.get(session_id)
-            if controller is not None:
-                await controller.close()
+            await self.close_session(session_id)
+            await self.subagents.cancel(session_id)
             async with self.lease() as runtime:
                 deleted = await runtime.delete_session(session_id)
             self._session_controllers.pop(session_id, None)
@@ -452,7 +463,7 @@ class RuntimeService:
         runtime = self._runtime_factory(config)
         try:
             await runtime.initialize_tools()
-            register_subagent_tool(runtime, self._session_reader)
+            register_subagent_tool(runtime, self._session_reader, self.subagents)
         except BaseException:
             await runtime.close()
             raise

@@ -36,6 +36,7 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
     service: RuntimeService = websocket.app.state.runtime_service
     controller = service.get_session_controller(session_id)
     queue, snapshot = controller.subscribe()
+    snapshot["running_subagents"] = service.subagents.snapshot(session_id)
 
     async def send_frames() -> None:
         while True:
@@ -64,6 +65,11 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
                 if not isinstance(payload, dict):
                     raise InputError("invalid_message", "message must be an object")
                 kind = payload.get("type", "message")
+                if service.subagents.is_running(session_id):
+                    raise InputError(
+                        "subagent_running",
+                        "This background sub-agent is view-only while running",
+                    )
                 if kind == "message":
                     await controller.submit(ChatRequest.model_validate(payload))
                 elif kind == "steer":

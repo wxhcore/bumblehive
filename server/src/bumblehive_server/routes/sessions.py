@@ -50,6 +50,7 @@ async def delete_session(
     service: RuntimeService = Depends(get_runtime_service),
     reader: SessionReader = Depends(get_session_reader),
 ) -> dict[str, bool | list[str]]:
+    await service.close_session(session_id)
     descendant_ids = await reader.descendant_ids(session_id)
     deleted_session_ids: list[str] = []
     for target_session_id in [*reversed(descendant_ids), session_id]:

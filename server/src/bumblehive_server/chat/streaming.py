@@ -3,23 +3,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import AbstractAsyncContextManager
 from time import perf_counter
 from typing import Any
 
 from fastapi import WebSocketDisconnect
 
-from bumblehive import BumblehiveRuntime
 from bumblehive.agent import AgentRunResult, AgentRunStream
 from bumblehive.observability import AgentEvent
 
 from ..logging_utils import elapsed_since, format_token_usage, safe_log_value
 from ..schemas import ChatRequest
-from ..subagents import SubagentRunObserver, observe_subagents
+from ..subagents import RuntimeLease, SubagentRunObserver, observe_subagents
 from .approval import SendFrame, ToolApprovals
 from .frames import result_frame, ui_event_frame
 
-RuntimeLease = Callable[[], AbstractAsyncContextManager[BumblehiveRuntime]]
 logger = logging.getLogger("uvicorn.error.bumblehive")
 
 
@@ -35,6 +32,7 @@ class WebSocketSubagentObserver(SubagentRunObserver):
         workspace: str,
         title: str,
         content: str,
+        background: bool = False,
     ) -> None:
         await self._send(
             {
@@ -43,6 +41,7 @@ class WebSocketSubagentObserver(SubagentRunObserver):
                 "workspace": workspace,
                 "title": title,
                 "content": content,
+                **({"background": True} if background else {}),
             }
         )
 

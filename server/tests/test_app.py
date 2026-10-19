@@ -27,6 +27,7 @@ from bumblehive_server.chat.streaming import (
 )
 from bumblehive_server.routes.chat import chat
 from bumblehive_server.chat.session import SessionController
+from bumblehive_server.subagents import SubagentTasks
 
 
 def _receive_frame(websocket):
@@ -549,6 +550,7 @@ class FakeService:
     def __init__(self) -> None:
         self.runtime = FakeRuntime()
         self.controllers = {}
+        self.subagents = SubagentTasks(self.lease, self.notify_session)
         self.workspace = Path("/tmp/workspace")
         self.model_requests: list[Any] = []
         self.mcp_test_requests: list[Any] = []
@@ -570,6 +572,17 @@ class FakeService:
 
     async def shutdown(self) -> None:
         await asyncio.gather(*(item.close() for item in self.controllers.values()))
+        await self.subagents.cancel()
+
+    async def notify_session(self, session_id, message_id, content):
+        controller = self.controllers.get(session_id)
+        if controller is not None:
+            await controller.notify(message_id, content)
+
+    async def close_session(self, session_id):
+        controller = self.controllers.get(session_id)
+        if controller is not None:
+            await controller.close()
 
     def get_session_controller(self, session_id):
         if session_id not in self.controllers:

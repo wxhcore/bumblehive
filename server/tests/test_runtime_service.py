@@ -19,7 +19,7 @@ from bumblehive.tools.scope import (
     reset_tool_workspace,
 )
 from bumblehive_server.runtime_service import RuntimeBusyError, RuntimeService
-from bumblehive_server.subagents import observe_subagents
+from bumblehive_server.subagents import SUBAGENT_INSTRUCTIONS, observe_subagents
 
 
 class FakeRuntime:
@@ -134,6 +134,7 @@ class RecordingSubagentObserver:
         workspace: str,
         title: str,
         content: str,
+        background: bool = False,
     ) -> None:
         self.created.append(
             {
@@ -141,6 +142,7 @@ class RecordingSubagentObserver:
                 "workspace": workspace,
                 "title": title,
                 "content": content,
+                **({"background": True} if background else {}),
             }
         )
 
@@ -982,7 +984,11 @@ async def test_subagent_tool_runs_a_read_only_child_session(tmp_path) -> None:
     assert [event.session_id for event in observer.events] == ["child-session"]
     assert runtime.run_calls == [
         {
-            "message": "Inspect the project",
+            "message": [{
+                "role": "user",
+                "content": SUBAGENT_INSTRUCTIONS + "Inspect the project",
+                "_bumblehive_ui": {"content": "Inspect the project"},
+            }],
             "session_id": "child-session",
             "config": {
                 "runtime": {"workspace": str(workspace.resolve())},
@@ -1058,9 +1064,9 @@ async def test_subagent_tool_runs_multiple_calls_in_parallel(tmp_path) -> None:
 
     await asyncio.wait_for(runtime.run_started.wait(), timeout=1)
 
-    assert [call["message"] for call in runtime.run_calls] == [
-        "Inspect task A",
-        "Inspect task B",
+    assert [call["message"][0]["content"] for call in runtime.run_calls] == [
+        SUBAGENT_INSTRUCTIONS + "Inspect task A",
+        SUBAGENT_INSTRUCTIONS + "Inspect task B",
     ]
     assert reader.created_titles == ["Inspect A", "Inspect B"]
     assert {

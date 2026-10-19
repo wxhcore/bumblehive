@@ -66,6 +66,20 @@ controller = service.get_session_controller(session_id)
 await controller.submit(request, steer=True)
 ```
 
+### Sub-agents
+
+The server's read-only `sub_agent` tool accepts `title`, `task`, and an optional
+`background` flag. By default it waits and returns the final answer. With
+`background=true`, it returns the child session ID while execution continues.
+The final report or failure is delivered automatically to the parent: through
+steering while running, or a new turn when naturally idle. After a stop or error,
+reports stay queued until the user resumes. Background work survives disconnects
+and parent-turn cancellation; deleting its session cancels it.
+
+The parent's `ready.running_subagents` lists active background children for
+reconnection. Child events retain their own session IDs. Task ownership and
+pending reports are in memory; conversation history is saved as usual.
+
 ## Desktop sidecar
 
 Build the standalone binary from the repository root with the Python build

@@ -40,6 +40,8 @@ class SessionController:
         self._lock = asyncio.Lock()
         self._closing = False
         self._stopping = False
+        self._paused = False
+        self._last_request: ChatRequest | None = None
         self._started_at: float | None = None
 
     @staticmethod
@@ -98,24 +100,42 @@ class SessionController:
         async with self._lock:
             if self._closing:
                 raise InputError("session_closed", "session is closed")
-            if any(
-                item.request.message_id == request.message_id for item in self.pending
-            ) or (
-                self.active_request
-                and self.active_request.message_id == request.message_id
-            ):
-                raise InputError(
-                    "duplicate_message", "message has already been submitted"
-                )
             was_empty = not self.pending
-            item = PendingMessage(request, self._next_input_order)
-            self._next_input_order += 1
-            self.pending.append(item)
-            await self._status(request, "queued")
+            item = await self._enqueue(request)
             if steer and not self._stopping:
                 await self._steer(item)
             elif self.active_task is None and was_empty and not self._stopping:
                 self._start(item)
+
+    async def _enqueue(self, request: ChatRequest) -> PendingMessage:
+        """Append input under the controller lock, retaining its dispatch order."""
+        if any(
+            item.request.message_id == request.message_id for item in self.pending
+        ) or (
+            self.active_request and self.active_request.message_id == request.message_id
+        ):
+            raise InputError("duplicate_message", "message has already been submitted")
+        item = PendingMessage(request, self._next_input_order)
+        self._next_input_order += 1
+        self.pending.append(item)
+        await self._status(request, "queued")
+        return item
+
+    async def notify(self, message_id: str, content: str) -> None:
+        """Deliver a background report without resuming a stopped or failed run."""
+        async with self._lock:
+            if self._closing or self._last_request is None:
+                return
+            request = self._last_request.model_copy(
+                update={"message_id": message_id, "content": content}
+            )
+            item = await self._enqueue(request)
+            if self._paused or self._stopping:
+                return
+            if self.active_task is None:
+                self._start(self.pending[0])
+            else:
+                await self._steer(item)
 
     async def steer(self, message_id: str) -> None:
         async with self._lock:
@@ -160,6 +180,8 @@ class SessionController:
             await self._status(item.request, "removed")
 
     def _start(self, item: PendingMessage) -> None:
+        self._paused = False
+        self._last_request = item.request
         self.active_request = item.request
         self._started_at = time()
         self.approvals = ToolApprovals(
@@ -202,6 +224,8 @@ class SessionController:
         finally:
             approvals.clear()
             async with self._lock:
+                if not successful:
+                    self._paused = True
                 if not self._closing:
                     await self._restore_unconsumed()
                 else:
@@ -218,6 +242,7 @@ class SessionController:
                     and self.pending
                     and not self._closing
                     and not self._stopping
+                    and not self._paused
                 ):
                     self._start(self.pending[0])
 
@@ -228,6 +253,7 @@ class SessionController:
 
     async def cancel(self) -> None:
         async with self._lock:
+            self._paused = True
             task = self.active_task
             if task is None:
                 return
