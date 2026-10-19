@@ -146,15 +146,6 @@ export const Composer = memo(function Composer({
       />
       <div className="composer-toolbar">
         <button
-          className="tool-button"
-          type="button"
-          aria-label="附件功能暂未开放"
-          title="附件功能暂未开放"
-          disabled
-        >
-          <span className="plus-icon tool-plus" aria-hidden="true" />
-        </button>
-        <button
           className="workspace-button"
           type="button"
           aria-label={`新建工作空间，当前工作区 ${workspace}`}

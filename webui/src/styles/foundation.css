@@ -31,7 +31,6 @@ button {
 .conversation,
 .settings-button,
 .suggestion,
-.tool-button,
 .workspace-button,
 .model-button,
 .send-button {
@@ -122,8 +121,6 @@ textarea::placeholder {
   display: flex;
 }
 
-.tool-button:hover,
-.tool-button:focus-visible,
 .workspace-button:hover,
 .workspace-button:focus-visible,
 .model-button:hover,

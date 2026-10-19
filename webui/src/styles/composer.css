@@ -49,7 +49,6 @@ textarea {
   gap: 4px;
 }
 
-.tool-button,
 .workspace-button,
 .model-button {
   display: inline-flex;
@@ -57,17 +56,6 @@ textarea {
   justify-content: center;
   transition: background 160ms ease;
   border-radius: 9px;
-}
-
-.tool-button {
-  width: 31px;
-  height: 34px;
-  margin-right: 2px;
-}
-
-.tool-plus {
-  width: 18px;
-  height: 18px;
 }
 
 .workspace-button {
