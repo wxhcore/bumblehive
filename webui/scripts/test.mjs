@@ -704,6 +704,26 @@ test("history shows interrupted calls as stopped while preserving recorded resul
   assert.doesNotMatch(html, /正在写入文件/);
 });
 
+test("history keeps a stopped approval cancelled after recovery fills the missing result", () => {
+  const messages = chatEvents.historyMessages([
+    { role: "user", content: "Run a command" },
+    { role: "assistant", tool_calls: [{ id: "stopped", function: {
+      name: "exec", arguments: JSON.stringify({ command: "printf STOP_SHOULD_NOT_RUN" }),
+    } }] },
+    { role: "tool", tool_call_id: "stopped", name: "exec",
+      content: "[Tool result unavailable - call was interrupted or lost]" },
+    { role: "assistant", content: "[Previous turn was interrupted after tool execution.]" },
+    { role: "user", content: "Continue without running the command" },
+    { role: "assistant", content: "Ready" },
+  ]);
+  const tools = messages[1].iterations.flatMap((iteration) => iteration.tools ?? []);
+  assert.equal(tools.length, 1);
+  assert.equal(tools[0].status, "cancelled");
+  const html = renderToStaticMarkup(createElement(toolActivityList.ToolSteps, { tools }));
+  assert.match(html, /Shell 命令已停止/);
+  assert.doesNotMatch(html, /已运行 Shell 命令/);
+});
+
 test("pending and rejected terminal input stays separate from the running process", () => {
   for (const status of ["waiting_approval", "rejected"]) {
     const iterations = [{ id: "iteration", iteration: 0, content: "", tools: [

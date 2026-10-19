@@ -201,7 +201,9 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
       const tool = callId ? toolsByCallId.get(callId) : undefined;
       if (tool) {
         const errorMessage = toolResultError(message.content);
-        tool.status = toolResultRejected(message.content)
+        tool.status = message.content === "[Tool result unavailable - call was interrupted or lost]"
+          ? "cancelled"
+          : toolResultRejected(message.content)
           ? "rejected"
           : errorMessage ? "error" : "completed";
         tool.errorMessage = errorMessage || undefined;
