@@ -339,6 +339,7 @@ export interface ToolActivity {
   streamedArguments?: string;
   streamIndex?: number;
   status: ToolActivityStatus;
+  background?: boolean;
   durationSeconds?: number;
   errorMessage?: string;
   detail?: ToolActivityDetail;

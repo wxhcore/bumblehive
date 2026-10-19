@@ -56,7 +56,7 @@ class DelegationProvider(ModelProvider):
                     {
                         "title": f"Review {root}-{i}",
                         "task": f"CHILD:{root}-{i}",
-                        "background": bg,
+                        **({"background": bg} if bg is not None else {}),
                     },
                 )
                 for i, bg in enumerate(backgrounds)
@@ -183,12 +183,13 @@ async def test_waiting_mode_uses_final_report_without_background_notification(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("count", [1, 3])
+@pytest.mark.parametrize("background", [None, True], ids=["default", "explicit"])
 async def test_background_returns_then_wakes_idle_parent_and_preserves_order(
-    delegation, count
+    delegation, count, background
 ):
     service, provider, reader, _ = delegation
     parent, controller, queue, children = await begin(
-        delegation, "idle", [True] * count
+        delegation, "idle", [background] * count
     )
     assert all(child["background"] for child in children)
     await receive(queue, "result", parent)

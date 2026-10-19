@@ -69,8 +69,9 @@ await controller.submit(request, steer=True)
 ### Sub-agents
 
 The server's read-only `sub_agent` tool accepts `title`, `task`, and an optional
-`background` flag. By default it waits and returns the final answer. With
-`background=true`, it returns the child session ID while execution continues.
+`background` flag. By default (`background=true`), it returns the child session
+ID while execution continues. Pass `background=false` explicitly to wait and
+return the final answer.
 The final report or failure is delivered automatically to the parent: through
 steering while running, or a new turn when naturally idle. After a stop or error,
 reports stay queued until the user resumes. Background work survives disconnects

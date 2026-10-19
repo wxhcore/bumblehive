@@ -205,6 +205,9 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
           ? "rejected"
           : errorMessage ? "error" : "completed";
         tool.errorMessage = errorMessage || undefined;
+        if (tool.name === "sub_agent") {
+          tool.background = asRecord(parseArguments(message.content))?.background === true;
+        }
         tool.detail = detailFromStoredToolResult(tool.name, message.content);
         Object.assign(tool, normalizeToolActivityOutcome(tool));
       }
@@ -248,6 +251,7 @@ function finishedTool(payload: Record<string, unknown>): ToolActivity | null {
       typeof payload.duration_s === "number" ? payload.duration_s : undefined,
     errorMessage:
       typeof error?.message === "string" ? error.message : undefined,
+    background: typeof result.background === "boolean" ? result.background : undefined,
     detail: parseToolActivityDetail(result.detail),
   };
 }

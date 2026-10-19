@@ -1000,6 +1000,36 @@ test("background delegation displays startup instead of falsely claiming complet
   assert.match(mixed, /1 完成/);
 });
 
+test("default background results render correctly live and from history, including old waiting calls", async () => {
+  const { SubAgentActivity } = await server.ssrLoadModule("/src/components/SubAgentActivity.tsx");
+  for (const background of [true, false]) {
+    const content = background
+      ? JSON.stringify({ session_id: "child", background: true })
+      : "Child final answer";
+    // Neither old waiting calls nor new default background calls specify the flag.
+    const messages = chatEvents.historyMessages([
+      { role: "assistant", content: "", tool_calls: [{ id: "delegate", function: {
+        name: "sub_agent", arguments: JSON.stringify({ title: "Review", task: "Read files" }),
+      } }] },
+      { role: "tool", tool_call_id: "delegate", content },
+    ]);
+    const restored = messages[0].iterations[0].tools[0];
+    const live = chatEvents.applyAgentEventFrames([
+      { id: "assistant", role: "assistant", content: "", iterations: [] },
+    ], "assistant", [{
+      type: "event", kind: "tool.call.finished", run_id: "run", session_id: "parent",
+      iteration: 0, timestamp: 1, payload: {
+        ok: true, tool_result: { tool_call_id: "delegate", name: "sub_agent", background },
+      },
+    }])[0].iterations[0].tools[0];
+    for (const tool of [restored, live]) {
+      const html = renderToStaticMarkup(createElement(SubAgentActivity, { tools: [tool] }));
+      assert.match(html, background ? /已启动后台 Bee/ : /Bee 已完成/);
+      assert.doesNotMatch(html, background ? /Bee 已完成/ : /已启动后台 Bee/);
+    }
+  }
+});
+
 test("sub-agent history keeps task text separate from model-only handoff instructions", () => {
   const messages = chatEvents.historyMessages([
     { role: "user", content: "Internal instructions\nTask:\nReview", _bumblehive_ui: { content: "Review" } },

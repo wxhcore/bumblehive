@@ -146,6 +146,28 @@ async def test_subagent_observer_reuses_existing_websocket_frames() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("content", "background"),
+    [
+        ({"session_id": "child", "background": True}, True),
+        ('{"session_id":"child","background":true}', True),
+        ("Child final answer", False),
+    ],
+)
+def test_subagent_frame_preserves_execution_mode(content, background) -> None:
+    frame = _ui_event_frame(make_event(
+        "tool.call.finished",
+        run_id="run-1",
+        ok=True,
+        tool_result={
+            "tool_call_id": "delegate-1",
+            "name": "sub_agent",
+            "content": content,
+        },
+    ))
+    assert frame["payload"]["tool_result"]["background"] is background
+
+
 def test_ui_event_filter_removes_unused_and_large_payloads() -> None:
     internal = make_event(
         "model.request.started",

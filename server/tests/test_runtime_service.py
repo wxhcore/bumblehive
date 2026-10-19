@@ -243,7 +243,7 @@ def _start_subagent_tool(
     try:
         tool = runtime.tools.get_tool("sub_agent")
         assert tool is not None
-        return asyncio.create_task(tool.execute(title=title, task=task))
+        return asyncio.create_task(tool.execute(title=title, task=task, background=False))
     finally:
         reset_tool_workspace(workspace_token)
         reset_tool_session(session_token)
@@ -937,6 +937,7 @@ async def test_runtime_service_registers_subagent_on_startup_and_replacement(
     assert tool is not None
     assert tool.parameters["required"] == ["title", "task"]
     assert tool.parameters["properties"]["title"]["maxLength"] == 80
+    assert tool.parameters["properties"]["background"]["default"] is True
     assert "independent read-only sub-agent" in tool.description
     await service.shutdown()
 
@@ -1044,6 +1045,7 @@ async def test_subagent_tool_runs_multiple_calls_in_parallel(tmp_path) -> None:
                             arguments={
                                 "title": "Inspect A",
                                 "task": "Inspect task A",
+                                "background": False,
                             },
                         ),
                         ToolCall(
@@ -1052,6 +1054,7 @@ async def test_subagent_tool_runs_multiple_calls_in_parallel(tmp_path) -> None:
                             arguments={
                                 "title": "Inspect B",
                                 "task": "Inspect task B",
+                                "background": False,
                             },
                         ),
                     ],

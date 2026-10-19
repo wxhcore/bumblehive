@@ -300,10 +300,11 @@ def register_subagent_tool(
             "workspace. It can inspect and search files, but cannot modify files or execute "
             "commands. Use it for independent investigation, review, comparison, or planning. "
             "The sub-agent cannot see this conversation; include all necessary context.\n\n"
-            "By default, this call waits and returns the sub-agent's final answer. Use this "
-            "mode when your next step depends on the result. With background=true, the call "
-            "returns a child session ID without waiting for the final answer. The sub-agent "
-            "continues independently, and its final answer or execution error will be sent "
+            "By default, this call runs in the background and returns a child session ID "
+            "without waiting for the final answer. Set background=false when your next "
+            "step depends on the result; the call then waits and returns the final answer. "
+            "In background mode, the sub-agent continues independently, and its final "
+            "answer or execution error will be sent "
             "back automatically. You may continue independent work or end your current turn "
             "while waiting, but do not claim a result you have not received. Do not poll or "
             "launch duplicate work while that task is running. Multiple independent tasks "
@@ -331,10 +332,10 @@ def register_subagent_tool(
                 },
                 "background": {
                     "type": "boolean",
-                    "default": False,
+                    "default": True,
                     "description": (
-                        "If false (default), wait and return the final answer. If true, return "
-                        "the child session ID immediately and deliver the result automatically when done."
+                        "If true (default), return the child session ID immediately and deliver "
+                        "the result automatically when done. Set false to wait and return the final answer."
                     ),
                 },
             },
@@ -343,7 +344,7 @@ def register_subagent_tool(
         },
         parallel_safe=True,
     )
-    async def sub_agent(title: str, task: str, background: bool = False) -> str | dict:
+    async def sub_agent(title: str, task: str, background: bool = True) -> str | dict:
         title, task = title.strip(), task.strip()
         if not title:
             raise ValueError("title must not be blank")
