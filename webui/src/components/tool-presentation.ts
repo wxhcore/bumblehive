@@ -18,6 +18,13 @@ interface ToolPresentation {
 const MUTATION_TOOLS = new Set(["write_file", "edit_file", "apply_patch"]);
 
 const BUILTIN_TOOL_COPY: Record<string, ToolCopy> = {
+  ask_user: {
+    preparing: "正在组织问题",
+    running: "等待用户回答",
+    completed: "提问等待已结束",
+    error: "提问失败",
+    cancelled: "已停止等待回答",
+  },
   read_file: {
     preparing: "正在准备读取文件",
     running: "正在读取文件",
@@ -305,7 +312,7 @@ function toolSummary(tool: ToolActivity): string {
     return shortValue(argumentsValue || "").slice(0, 100);
   }
   const values = argumentsValue as Record<string, unknown>;
-  const preferredKey = ["path", "command", "query", "url"].find(
+  const preferredKey = ["path", "command", "query", "url", "question"].find(
     (key) => values[key] !== undefined,
   );
   if (preferredKey) return shortValue(values[preferredKey]).slice(0, 100);

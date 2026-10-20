@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSession } from "../api/http";
 import { ChatSocket } from "../api/chat-socket";
+import { applyQuestionFrame } from "../lib/questions";
 import {
   applyApprovalFrame,
   applyPendingMessageStatus,
@@ -18,6 +19,7 @@ import type {
   PendingChatMessage,
   ToolActivity,
   UiMessage,
+  UserQuestion,
 } from "../types/api";
 import { useAgentFrameBuffer } from "./useAgentFrameBuffer";
 import { useStableCallback } from "./useStableCallback";
@@ -54,6 +56,7 @@ export function useChatRuntime({
     ReadonlySet<string>
   >(() => new Set());
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [questions, setQuestions] = useState<UserQuestion[]>([]);
   const [pendingBySession, setPendingBySession] = useState(new Map<string, PendingChatMessage[]>());
   const [disconnectedSessions, setDisconnectedSessions] = useState(new Set<string>());
   const pendingRef = useRef(new Map<string, PendingChatMessage[]>());
@@ -217,6 +220,13 @@ export function useChatRuntime({
   }, [updateSessionMessages]);
 
   frameHandlerRef.current = async (sessionId, sourceSessionId, frame) => {
+    if (frame.type === "ready" || frame.type === "question_request" ||
+      frame.type === "question_closed" ||
+      (frame.type === "error" && frame.scope === "input" && frame.question_id)) {
+      setQuestions((current) => applyQuestionFrame(current, sessionId, frame));
+    }
+    if (frame.type === "question_request" || frame.type === "question_closed" ||
+      (frame.type === "error" && frame.scope === "input" && frame.question_id)) return;
     if (frame.type === "ready") {
       flushPendingAgentFrames(sessionId);
       await restoreHistory(sessionId);
@@ -502,6 +512,8 @@ export function useChatRuntime({
           ),
         onDisconnect: () => {
           setDisconnectedSessions((current) => new Set(current).add(sessionId));
+          setQuestions((current) => current.map((item) =>
+            item.session_id === sessionId ? { ...item, submitting: false } : item));
         },
       });
       socketsRef.current.set(sessionId, socket);
@@ -569,6 +581,7 @@ export function useChatRuntime({
       setApprovals((current) =>
         current.filter((item) => !ids.includes(item.session_id)),
       );
+      setQuestions((current) => current.filter((item) => !ids.includes(item.session_id)));
       forgetPendingAgentFrames(ids);
     },
     [forgetPendingAgentFrames, setSessionRunning],
@@ -664,6 +677,23 @@ export function useChatRuntime({
     [notify],
   );
 
+  const answerQuestion = useCallback((question: UserQuestion, answer?: string) => {
+    if (question.submitting ||
+      (answer !== undefined && !answer.trim())) return;
+    let errorMessage: string | undefined;
+    try {
+      const socket = socketsRef.current.get(question.session_id);
+      if (!socket?.connected) throw new Error("聊天连接不可用，请重连后提交");
+      socket.answerQuestion(question.question_id, answer);
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : "回答提交失败";
+    }
+    setQuestions((current) => current.map((item) =>
+      item.session_id === question.session_id && item.question_id === question.question_id
+        ? { ...item, submitting: !errorMessage, error: errorMessage }
+        : item));
+  }, []);
+
   useEffect(
     () => () => {
       socketsRef.current.forEach((socket) => socket.close());
@@ -682,6 +712,8 @@ export function useChatRuntime({
     ) : false,
     actOnPending,
     pendingApprovals: approvals.filter((item) => item.session_id === activeSessionId),
+    questions: questions.filter((item) => item.session_id === activeSessionId),
+    answerQuestion,
     decideApproval,
     displaySession,
     forgetSessions,

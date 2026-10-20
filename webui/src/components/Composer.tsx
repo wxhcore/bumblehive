@@ -13,6 +13,7 @@ import { ModelOptions } from "./ModelOptions";
 
 interface ComposerProps {
   approvalSlot?: ReactNode;
+  questionSlot?: ReactNode;
   pendingMessages?: PendingChatMessage[];
   disconnected?: boolean;
   onPendingAction?: (messageId: string, type: "steer" | "remove_pending") => void;
@@ -35,6 +36,7 @@ interface ComposerProps {
 
 export const Composer = memo(function Composer({
   approvalSlot,
+  questionSlot,
   pendingMessages = [],
   disconnected = false,
   onPendingAction,
@@ -90,6 +92,7 @@ export const Composer = memo(function Composer({
   return (
     <form className="composer" onSubmit={submit} ref={composerRef}>
       <div className="composer-accessory" ref={accessoryRef}>
+        {questionSlot}
         {approvalSlot}
         {pendingMessages.length > 0 ? (
           <div

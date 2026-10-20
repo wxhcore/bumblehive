@@ -151,6 +151,7 @@ export interface ReadyFrame {
   started_at?: number | null;
   pending?: PendingChatMessage[];
   approvals?: ApprovalRequestFrame[];
+  questions?: QuestionSnapshot[];
   running_subagents?: RunningSubagent[];
 }
 
@@ -166,6 +167,29 @@ export interface PendingChatMessage {
   message_id: string;
   content: string;
   submitting?: boolean;
+}
+
+export interface QuestionSnapshot {
+  question_id: string;
+  question: string;
+  options: string[];
+}
+
+export interface UserQuestion extends QuestionSnapshot {
+  session_id: string;
+  submitting?: boolean;
+  error?: string;
+}
+
+export interface QuestionRequestFrame extends QuestionSnapshot {
+  type: "question_request";
+  session_id: string;
+}
+
+export interface QuestionClosedFrame {
+  type: "question_closed";
+  session_id: string;
+  question_id: string;
 }
 
 export interface MessageStatusFrame {
@@ -204,6 +228,7 @@ export interface ErrorFrame {
   message: string;
   scope?: "input";
   message_id?: string;
+  question_id?: string;
 }
 
 export interface CancelledFrame {
@@ -240,6 +265,8 @@ export interface PendingApproval extends ApprovalRequestFrame {
 }
 
 export type ChatFrame =
+  | QuestionRequestFrame
+  | QuestionClosedFrame
   | MessageStatusFrame
   | ApprovalRequestFrame
   | ApprovalResolvedFrame

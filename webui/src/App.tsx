@@ -15,6 +15,7 @@ import {
 } from "./api/http";
 import { ChatView } from "./components/ChatView";
 import { ApprovalCard } from "./components/ApprovalCard";
+import { QuestionCard } from "./components/QuestionCard";
 import { Composer } from "./components/Composer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DesktopTitlebar } from "./components/DesktopTitlebar";
@@ -118,6 +119,8 @@ export default function App() {
   const {
     activeSessionId,
     pendingApprovals,
+    questions,
+    answerQuestion,
     pendingMessages,
     actOnPending,
     isDisconnected,
@@ -720,6 +723,19 @@ export default function App() {
                   <HomeView onSelectPrompt={setInput} />
                 )}
                 <Composer
+                  questionSlot={questions.length > 0 ? (
+                    <div className="question-cards" aria-label="用户提问">
+                      {questions.map((question) => (
+                        <QuestionCard
+                          key={`${question.session_id}:${question.question_id}`}
+                          question={question}
+                          disconnected={isDisconnected}
+                          onAnswer={answerQuestion}
+                          onSkip={() => answerQuestion(question)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                   pendingMessages={pendingMessages}
                   disconnected={isDisconnected}
                   onPendingAction={actOnPending}
