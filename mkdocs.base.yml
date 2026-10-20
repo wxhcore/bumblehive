@@ -8,10 +8,8 @@ theme:
   name: material
   font: false
   features:
-    - navigation.tabs
-    - navigation.tabs.sticky
     - navigation.sections
-    - navigation.indexes
+    - navigation.expand
     - navigation.top
     - content.code.copy
     - content.code.annotate
