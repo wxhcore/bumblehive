@@ -1,73 +1,66 @@
-# Bumblehive examples
+# SDK 示例
 
-## Recommended learning path
-
-If you are new to Bumblehive, run these examples in order:
-
-1. `runtime/basic.py` — make one model call.
-2. `runtime/custom_tool.py` — register a Python tool.
-3. `runtime/tool_approval.py` — interactively approve or reject a file write.
-
-Application examples:
-
-- `runtime/file_assistant.py` — edit a sample file and validate it with human approval.
-- `runtime/chat_events.py` — map streamed SDK events to JSON updates for a chat UI.
-- `runtime/multi_agent.py` — delegate an isolated task through a custom tool.
-
-These examples are organized by the SDK layer they use:
-
-- `runtime/` — high-level application API.
-- `loop/` — independently composed agent loops.
-- `providers/` — managed model-provider access.
-- `tools/` — local, built-in, and MCP tools.
-- `skills/` — skill discovery and rendering.
-- `observability/` — lifecycle hooks and event recording.
-
-| Area | Covered workflows |
-| --- | --- |
-| Runtime | Basic calls, streaming, steering, tool approval, history, sessions, sub-agents |
-| Loop | `AgentLoop` context composition and low-level tool calling |
-| Providers | Provider creation, requests, and cleanup |
-| Tools | Function tools, schemas, batch execution, built-ins, path scope, MCP |
-| Skills | Package layout, discovery, resources, content, rendering, reload |
-| Observability | Callback hooks, event recording, event filtering |
-
-Network-backed examples read their connection settings from the environment:
+先安装 SDK，并在当前终端设置模型连接：
 
 ```bash
-export BUMBLEHIVE_API_KEY="..."
+python -m pip install -e .
 export BUMBLEHIVE_MODEL="your-model"
+export BUMBLEHIVE_API_KEY="your-api-key"
 export BUMBLEHIVE_BASE_URL="https://your-provider.example/v1"
 ```
 
-Run an example from the repository root:
+PowerShell 配置见[快速开始](../docs/zh/getting-started/installation.md#configure-model)。以下命令均从仓库根目录执行。
+
+## 从这里开始
 
 ```bash
 python examples/runtime/basic.py
-python examples/runtime/tool_approval.py
-python examples/loop/agent_loop.py
-python examples/tools/basic.py
+python examples/runtime/custom_tool.py
+python examples/runtime/sessions.py
 ```
 
-`runtime/tool_approval.py` 将工作目录设为脚本所在的 `examples/runtime/`，启动时会打印其绝对路径；请求模型调用 `write_file` 在该目录创建 `approval-demo.txt`，内容为 `hello`。模型发出有效工具调用后，终端会展示工具名称和参数并等待确认：输入 `y` 或 `yes` 批准实际写入（可能覆盖同名文件），回车或其他输入拒绝，本次调用不会修改文件。终端会打印批准或拒绝结果。如果没有审批提示，请检查模型是否实际请求了工具调用。通过 Conda 启动时使用 `conda run --no-capture-output -n bumblehive_env python examples/runtime/tool_approval.py`，以保留实时输入输出。
+分别体验模型回答、课程查询工具和多轮记忆。
 
-`tools/basic.py`, `tools/builtins.py`, and `skills/basic.py` do not require a
-model API. `tools/mcp_tools.py` additionally requires `BUMBLEHIVE_MCP_URL`.
+## 按功能选择
 
-## 追加指令（Steering）
-
-| 示例 | 用法 |
+| 功能 | 示例与运行方式 |
 | --- | --- |
-| [steering_run.py](runtime/steering_run.py) | 模型调用查询工具时追加引导，等待工具执行后继续回答 |
-| [steering_stream.py](runtime/steering_stream.py) | 启动前追加指令，`async for` 展示输出 |
-| [steering_console.py](runtime/steering_console.py) | 启动前追加指令，由 `run_console()` 自动展示输出 |
+| 流式输出 | `python examples/runtime/streaming.py` |
+| 图片输入 | `python examples/runtime/multimodal.py /path/to/image.png` |
+| 内存历史 | `python examples/runtime/conversation_history.py` |
+| 审批 | `python examples/runtime/tool_approval.py`；输入 y 才写入脚本目录下的 approval-demo.txt，可能覆盖同名文件 |
+| 引导 | `python examples/runtime/steering_run.py`；查询工具开始时追加中文回答要求 |
+| 流式引导 | `python examples/runtime/steering_stream.py` |
+| 控制台引导 | `python examples/runtime/steering_console.py` |
+| 追问 | `python examples/runtime/ask_user.py`；自由输入、选项编号或 /skip |
+| 超时追问 | `python -m examples.runtime.ask_user_timeout`；默认等待 60 秒 |
+| 后台工具 | `python -m examples.runtime.background_tools` |
+| 子 Agent | `python examples/runtime/multi_agent.py` |
+| 后台子 Agent | `python -m examples.runtime.multi_agent_background` |
+| 文件读取 | `python examples/runtime/files.py` |
+| MCP | 先运行 `python examples/tools/mcp_server.py`，另一个终端运行 `python examples/runtime/mcp.py` |
+| Skills | `python examples/runtime/skills.py` |
+| 上下文 | `python examples/runtime/context.py` |
+| Hooks | `python examples/observability/hooks.py` |
 
-配置上面的模型环境变量后，从仓库根目录运行：
+后台示例共用 [background_support.py](runtime/background_support.py)，这是示例辅助代码，不是 SDK 内置 API。用 `python -m` 运行，以便导入同目录下的示例模块。终端追问结束前请输入答案或 `/skip`；取消协程不能终止线程中的 `input()`。
+
+## 完整应用
+
+- [file_assistant.py](runtime/file_assistant.py)：读取、修改文件并执行验证，修改前等待审批。
+- [chat.py](runtime/chat.py)：多轮流式聊天，`/quit` 退出。
+- [chat_events.py](runtime/chat_events.py)：将文本和工具事件转成 JSON 更新。
+
+## 底层接口
+
+`loop/` 展示 AgentLoop 和 Runner；`providers/` 展示模型 Provider；`tools/` 展示独立工具调用；`skills/basic.py` 展示 Skill 管理。
+
+以下例子无需模型或密钥：
 
 ```bash
-python examples/runtime/steering_run.py
-python examples/runtime/steering_stream.py
-python examples/runtime/steering_console.py
+python examples/tools/basic.py
+python examples/tools/builtins.py
+python examples/skills/basic.py
 ```
 
-`steering_run.py` 会打印引导时机、课程查询结果和最终回答，可观察回答是否改为中文两句话。完整用法和输入处理规则见[运行期间追加指令](../docs/zh/how-to/steering.md)。
+`examples/tools/mcp_tools.py` 另需 `BUMBLEHIVE_MCP_URL`，用于独立测试远端工具连接。完整教学说明见[中文文档](../docs/zh/index.md)。

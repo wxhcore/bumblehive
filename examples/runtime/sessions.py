@@ -1,6 +1,5 @@
 import asyncio
 import os
-from uuid import uuid4
 
 import bumblehive
 
@@ -10,21 +9,14 @@ async def main() -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
+        skill_names=[],
+        tool_names=[],
     )
-    session_id = f"example:{uuid4()}"
-
     async with bumblehive.from_config(config) as runtime:
-        await runtime.run(
-            "Remember that the release color is amber.",
-            session_id=session_id,
-        )
-        result = await runtime.run(
-            "What is the release color?",
-            session_id=session_id,
-        )
-        await runtime.delete_session(session_id)
-
-    print(result.final_content)
+        first = await runtime.run("记住：我的项目叫 BumbleHive。", session_id="hello-agent")
+        print(first.error.message if first.error else first.final_content)
+        second = await runtime.run("我的项目叫什么？", session_id="hello-agent")
+        print(second.error.message if second.error else second.final_content)
 
 
 if __name__ == "__main__":

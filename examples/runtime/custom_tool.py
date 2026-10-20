@@ -14,18 +14,19 @@ async def main() -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
+        skill_names=[],
         agent_instructions=("回答课程问题前，必须先调用 get_course_info 工具。"),
         tool_names=["get_course_info"],
     )
     async with bumblehive.from_config(config) as runtime:
         @runtime.tools.tool(
             name="get_course_info",
-            description="查询指定课程的上课时间和地点。",
+            description="查询课程的上课时间和地点。可查询的课程名：Python 入门。",
         )
         def get_course_info(course: str) -> str:
             return COURSES.get(course, f"没有找到课程：{course}")
 
-        result = await runtime.run("Python 入门课在什么时候、什么地点上课？")
+        result = await runtime.run("请查询课程“Python 入门”的上课时间和地点。")
 
     if result.error is not None:
         print(f"运行失败 [{result.error.code}]：{result.error.message}")
