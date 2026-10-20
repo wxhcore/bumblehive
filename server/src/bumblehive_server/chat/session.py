@@ -4,11 +4,13 @@ import asyncio
 from dataclasses import dataclass
 from time import time
 from typing import Any
+from uuid import uuid4
 
 from bumblehive import AgentRunStream
 
 from ..schemas import ChatRequest
 from .approval import ToolApprovals
+from .questions import UserQuestion
 from .streaming import RuntimeLease, stream_turn
 
 
@@ -36,6 +38,7 @@ class SessionController:
         self._steered: list[PendingMessage] = []
         self._next_input_order = 0
         self.approvals: ToolApprovals | None = None
+        self.questions: dict[str, UserQuestion] = {}
         self._subscribers: set[asyncio.Queue] = set()
         self._lock = asyncio.Lock()
         self._closing = False
@@ -64,6 +67,7 @@ class SessionController:
             "started_at": self._started_at,
             "pending": [self._message(item.request) for item in self.pending],
             "approvals": self.approvals.snapshot() if self.approvals else [],
+            "questions": [question.snapshot() for question in self.questions.values()],
         }
 
     def unsubscribe(self, queue: asyncio.Queue) -> None:
@@ -98,14 +102,69 @@ class SessionController:
 
     async def submit(self, request: ChatRequest, *, steer: bool = False) -> None:
         async with self._lock:
+            await self._submit(request, steer=steer)
+
+    async def _submit(self, request: ChatRequest, *, steer: bool = False) -> None:
+        """Submit under the session lock, also used by late question answers."""
+        if self._closing:
+            raise InputError("session_closed", "session is closed")
+        was_empty = not self.pending
+        item = await self._enqueue(request)
+        if steer and not self._stopping:
+            await self._steer(item)
+        elif self.active_task is None and was_empty and not self._stopping:
+            self._start(item)
+
+    async def ask_user(self, question: str, options: list[str]) -> dict:
+        if not question.strip() or any(not option.strip() for option in options):
+            raise ValueError("question and options must not be blank")
+        async with self._lock:
+            if self._closing or self._stopping or self.active_request is None:
+                raise InputError("session_inactive", "ask_user requires an active server conversation")
+            item = UserQuestion(
+                question_id=uuid4().hex,
+                question=question,
+                options=list(options),
+                future=asyncio.get_running_loop().create_future(),
+            )
+            self.questions[item.question_id] = item
+            await self.publish({
+                "type": "question_request",
+                "session_id": self.session_id,
+                **item.snapshot(),
+            })
+        return await item.wait()
+
+    async def answer_question(self, question_id: str, answer: str | None = None) -> None:
+        """Resolve once; None is an explicit skip, never a timeout."""
+        async with self._lock:
             if self._closing:
                 raise InputError("session_closed", "session is closed")
-            was_empty = not self.pending
-            item = await self._enqueue(request)
-            if steer and not self._stopping:
-                await self._steer(item)
-            elif self.active_task is None and was_empty and not self._stopping:
-                self._start(item)
+            item = self.questions.get(question_id)
+            if item is None:
+                raise InputError("question_not_found", "question does not exist in this session")
+            if answer is not None and not answer.strip():
+                raise InputError("invalid_answer", "answer must not be blank")
+            future = item.future
+            if future is not None and not future.done() and not self._stopping:
+                future.set_result(answer)
+            elif answer is not None:
+                if self._last_request is None:
+                    raise InputError("session_inactive", "question has no conversation request")
+                request = self._last_request.model_copy(update={
+                    "message_id": item.question_id,
+                    "content": (
+                        "The user answered an earlier question.\n"
+                        f"Question: {item.question}\nAnswer: {answer}"
+                    ),
+                })
+                await self._submit(request, steer=True)
+            del self.questions[question_id]
+            await self.publish({
+                "type": "question_closed",
+                "session_id": self.session_id,
+                "question_id": question_id,
+            })
 
     async def _enqueue(self, request: ChatRequest) -> PendingMessage:
         """Append input under the controller lock, retaining its dispatch order."""
@@ -275,5 +334,9 @@ class SessionController:
     async def close(self) -> None:
         self._closing = True
         await self.cancel()
+        for question in self.questions.values():
+            if question.future is not None:
+                question.future.cancel()
+        self.questions.clear()
         self.pending.clear()
         self._subscribers.clear()

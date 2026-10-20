@@ -59,6 +59,32 @@ so clients can reinsert the card at the correct place. Consumed steering is not
 requeued. Pending messages survive a connection loss, but are held in memory and
 do not survive a server restart.
 
+### Ask user
+
+The application registers `ask_user(question, options?)` without requiring tool
+approval. It asks one question, with optional suggested answers and an always
+available free-text input above the composer. An answer within 60 seconds returns
+`{"question_id":"...","status":"answered","answer":"..."}` to the tool. Otherwise
+the tool returns `{"question_id":"...","status":"pending"}`; the card stays
+answerable, and a later answer uses the existing session input queue and steering.
+
+The server sends `question_request` and acknowledges answers with
+`question_closed`. Submit `{"type":"question_answer","question_id":"...","answer":"..."}`.
+To skip, submit `{"type":"question_skip","question_id":"..."}`. The server
+acknowledges it with `question_closed`. While the tool is waiting, skipping
+immediately returns `{"question_id":"...","status":"skipped"}`. After timeout,
+skipping only closes the question; it does not append a second tool result or
+start another run. The first accepted answer or skip wins.
+Input errors include `question_id` so the corresponding card can be resubmitted.
+Only unresolved questions are kept in memory and included in `ready.questions`.
+Accepted answers and skips remove the question and send `question_closed`, without
+retaining or replaying a terminal state. Later submissions for that ID receive
+`question_not_found` and cannot trigger another run. Errors appear on the
+corresponding card without an additional global notification. Questions
+survive completed and stopped runs within the same server process; they are not
+restored after a server restart. The × and Skip buttons both end the question.
+Answered and skipped cards leave the input area. Sub-agents do not receive this tool.
+
 Backend callers can deliver input to a running turn or start one while idle:
 
 ```python

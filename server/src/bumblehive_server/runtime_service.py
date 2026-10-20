@@ -23,6 +23,7 @@ from openai import AsyncOpenAI
 
 from .config_defaults import apply_config_defaults
 from .chat.session import SessionController
+from .chat.questions import register_ask_user_tool
 from .logging_utils import elapsed_since, safe_log_value
 from .session_reader import SessionReader
 from .subagents import SubagentTasks, register_subagent_tool
@@ -464,6 +465,7 @@ class RuntimeService:
         try:
             await runtime.initialize_tools()
             register_subagent_tool(runtime, self._session_reader, self.subagents)
+            register_ask_user_tool(runtime, self._session_controllers.get)
         except BaseException:
             await runtime.close()
             raise

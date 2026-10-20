@@ -23,6 +23,24 @@ class CancelRequest(BaseModel):
     type: Literal["cancel"]
 
 
+class QuestionAnswerRequest(BaseModel):
+    type: Literal["question_answer"]
+    question_id: str = Field(min_length=1)
+    answer: str = Field(min_length=1)
+
+    @field_validator("answer")
+    @classmethod
+    def answer_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("answer must not be blank")
+        return value
+
+
+class QuestionSkipRequest(BaseModel):
+    type: Literal["question_skip"]
+    question_id: str = Field(min_length=1)
+
+
 class SteerRequest(BaseModel):
     type: Literal["steer"]
     message_id: str = Field(min_length=1)

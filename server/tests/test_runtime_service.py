@@ -30,6 +30,7 @@ class FakeRuntime:
         initialize_error: Exception | None = None,
     ) -> None:
         self.config = config
+        self.tools = ToolManager()
         self.initialize_error = initialize_error
         self.initialize_calls = 0
         self.initialized = False

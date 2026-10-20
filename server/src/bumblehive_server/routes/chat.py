@@ -15,6 +15,8 @@ from ..schemas import (
     ApprovalDecisionRequest,
     CancelRequest,
     ChatRequest,
+    QuestionAnswerRequest,
+    QuestionSkipRequest,
     RemovePendingRequest,
     SteerRequest,
 )
@@ -86,6 +88,12 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
                     await controller.decide_approval(
                         request.approval_id, request.approved
                     )
+                elif kind == "question_answer":
+                    request = QuestionAnswerRequest.model_validate(payload)
+                    await controller.answer_question(request.question_id, request.answer)
+                elif kind == "question_skip":
+                    request = QuestionSkipRequest.model_validate(payload)
+                    await controller.answer_question(request.question_id)
                 else:
                     raise InputError("invalid_message", "unknown message type")
             except (ValidationError, InputError) as exc:
@@ -95,6 +103,9 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
                         str(exc),
                         payload.get("message_id")
                         if isinstance(payload, dict)
+                        else None,
+                        question_id=payload.get("question_id")
+                        if isinstance(payload, dict) and payload.get("type") in {"question_answer", "question_skip"}
                         else None,
                     )
                 )
@@ -114,11 +125,15 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
         )
 
 
-def _error(code: str, message: str, message_id: str | None = None) -> dict[str, Any]:
+def _error(
+    code: str, message: str, message_id: str | None = None,
+    *, question_id: str | None = None,
+) -> dict[str, Any]:
     return {
         "type": "error",
         "scope": "input",
         "code": code,
         "message": message,
         "message_id": message_id,
+        **({"question_id": question_id} if question_id is not None else {}),
     }
