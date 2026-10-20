@@ -1,64 +1,22 @@
-# 流式输出与运行事件
+# 流式输出
 
-`runtime.stream()` 会在 Agent 运行时持续返回结构化事件，适合终端输出、聊天界面和运行日志。
+希望用户在回答完成前就看到内容时，使用 `runtime.stream()` 逐段接收模型输出。
 
-## 输出模型文本
+## 逐段打印回答
 
-```python
-import asyncio
-import os
-
-import bumblehive
-from bumblehive.observability import MODEL_STREAM_CONTENT_DELTA
-
-
-async def main() -> None:
-    config = bumblehive.RuntimeArguments(
-        model=os.environ["BUMBLEHIVE_MODEL"],
-        api_key=os.environ["BUMBLEHIVE_API_KEY"],
-        base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        tool_names=[],
-    )
-
-    async with bumblehive.from_config(config) as runtime:
-        stream = runtime.stream("用三句话解释 Agent Loop")
-
-        async for event in stream:
-            if event.kind == MODEL_STREAM_CONTENT_DELTA:
-                print(event.payload["delta"], end="", flush=True)
-
-        result = await stream.result()
-
-    print()
-    if result.error:
-        print("运行失败：", result.error.message)
-
-
-asyncio.run(main())
-```
-
-## 获取最终结果
-
-事件流用于展示过程，`AgentRunResult` 才是完整结果。它包含最终文本、工具使用情况、token 用量和错误。
-
-必须先把事件消费完，再读取结果：
+完成[模型配置](../getting-started/installation.md#configure-model)，运行 `python examples/runtime/streaming.py`：
 
 ```python
-async for event in stream:
-    ...
-
-result = await stream.result()
+--8<-- "examples/runtime/streaming.py"
 ```
 
-提前调用 `result()` 会抛出 `RuntimeError`。
+`MODEL_STREAM_CONTENT_DELTA` 事件中的 `delta` 是新增文本。程序边接收边打印，最终组成一段回答；具体分块由模型服务决定。
 
-## 运行期间引导
-
-保存事件流对象，通过 `stream.steer(text)` 补充或纠正当前任务。输入事件的接入方式和指令生效时机，见[运行期间追加指令](steering.md)。
+完整消费事件后，`await stream.result()` 返回最终结果。`finally` 中关闭事件流，使提前退出时也能清理运行。
 
 ## 显示工具进度
 
-在上面的事件循环中，根据事件类型更新界面。工具开始事件包含 `tool_call`，完成事件包含 `tool_result` 和 `ok`：
+在事件循环中增加两个分支，就能显示工具执行状态：
 
 ```python
 from bumblehive.observability import TOOL_CALL_STARTED, TOOL_CALL_FINISHED
@@ -70,39 +28,14 @@ elif event.kind == TOOL_CALL_FINISHED:
     print("完成：", event.payload["ok"])
 ```
 
-工具名称与调用 ID 应分别保存，避免多个工具同时运行时相互覆盖。完整映射见[接入聊天界面](../examples/chat-interface.md)。
-
-## 常用事件
-
-| 事件 | 用途 |
-| --- | --- |
-| `MODEL_STREAM_CONTENT_DELTA` | 普通回答增量 |
-| `MODEL_STREAM_REASONING_DELTA` | Provider 提供的推理增量 |
-| `MODEL_STREAM_TOOL_CALL_DELTA` | 工具调用参数增量 |
-| `TOOL_CALL_STARTED` | 一个工具开始执行 |
-| `TOOL_CALL_FINISHED` | 一个工具执行结束 |
-| `FINAL_RESULT` | 完整结果已经生成 |
-
-每个 `AgentEvent` 都包含 `kind`、`run_id`、`payload`、`timestamp`，还可能包含 `iteration` 和 `session_id`。
-
-## 提前停止
-
-```python
-await stream.aclose()
-```
-
-提前关闭会取消后台任务，因此之后不能取得最终结果。一个 Stream 也只能消费一次。
-
-在其他协程中关闭流时，未读事件会被丢弃，等待事件的消费任务会被唤醒。应用应等待消费任务退出，并处理可能传播的 `asyncio.CancelledError`。
+工具进度与最终回答是不同事件。接入界面的完整映射见[聊天助手](../examples/chat-interface.md#ui)。事件字段全集见[事件参考](../reference/observability.md)。
 
 ## 只需要终端显示
 
-`run_console()` 自动展示流式输出，等待完成后得到 `AgentRunResult`：
+`run_console()` 已封装终端展示。在已有的 `runtime` 中可以直接使用：
 
 ```python
-result = await runtime.run_console("解释当前项目")
+result = await runtime.run_console("用三句话解释 Agent Loop。")
 ```
 
-此接口只负责展示，键盘输入由应用接入。运行对象的等待与取消方式见[运行对象的生命周期](../concepts/runtime-lifecycle.md#run-lifecycle)。
-
-[聊天界面集成](../examples/chat-interface.md) · [事件与 Hooks API](../reference/observability.md)
+运行期间追加要求使用 `stream.steer(text)`，见[引导与纠偏](steering.md)。提前停止使用 `await stream.aclose()`；停止后不能再读取最终结果。

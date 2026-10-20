@@ -10,7 +10,14 @@
 --8<-- "examples/runtime/custom_tool.py"
 ```
 
-从仓库根目录运行 `python examples/runtime/custom_tool.py`。终端会输出成功使用的工具名称与回答；`result.error` 表示本次运行的结构化错误。
+从仓库根目录运行 `python examples/runtime/custom_tool.py`。输出类似：
+
+```text
+工具：get_course_info
+回答：Python 入门课在周一 10:00，于教学楼 A101 上课。
+```
+
+装饰器注册函数，类型标注定义输入参数，返回值交给模型组织最终回答。`result.error` 表示本次运行的错误。
 
 ## 定义输入和返回值
 
@@ -29,19 +36,17 @@ result = await runtime.run(
 )
 ```
 
-网络或数据库操作可以使用 `async def`。SDK 也接受同步函数；耗时阻塞操作应由应用妥善处理，避免阻塞运行事件。
+网络或数据库操作可以使用 `async def`；同步函数由 SDK 在线程中执行。
 
-## 选择可用工具
+## 选择可用工具 { #tool-selection }
 
-| `tool_names` | 模型可用的工具 |
-| --- | --- |
-| `None` | 全部已注册工具 |
-| `[]` | 不提供工具 |
-| `["add"]` | 仅列出的工具 |
+示例通过 `tool_names=["get_course_info"]` 只开放课程查询工具。省略、空列表和指定列表的完整区别见[能力选择](../how-to/configuration.md#capability-lists)。工具必须在调用 `run()` 前注册。
 
-工具必须先注册，再调用 `run()`。同名工具不能靠不同描述区分；MCP 工具名称通常为 `mcp_<server>_<tool>`。
+工具可用不代表模型必定调用；任务应明确需要该工具，模型也要支持 Tool Calling。
 
-工具列表限定可见范围，并不强制模型一定调用工具。提示词应明确要求完成具体动作，模型也必须支持 Tool Calling。
+## 等待还是后台执行
+
+普通工具会等待函数完成后把结果交给模型。`async def` 也遵循这个规则。如果希望 Agent 在工具工作期间继续其他任务，见[等待结果与后台执行](../how-to/background-tools.md)。
 
 ## 处理工具失败
 

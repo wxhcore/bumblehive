@@ -5,23 +5,25 @@ search:
 
 # 模型 Provider
 
-模型接入内容已集中到[配置与模型 Provider](config.md)。本页保留旧链接和接口锚点。
+接口说明已集中到[配置与模型 Provider](config.md)。
 
-`ModelProvider` 把不同模型服务转换成 Bumblehive 使用的统一请求和响应。
+<span id="bumblehive.providers.ModelProvider"></span>
+[ModelProvider](config.md#bumblehive.providers.ModelProvider)
 
-| 接口 | 用途 |
-| --- | --- |
-| `ModelProvider` | 自定义 Provider 的抽象基类 |
-| `ModelRequest` | 发送给模型的统一请求 |
-| `ModelResponse` | Provider 返回的统一结果 |
-| `RetryConfig` | 可恢复错误的重试设置 |
-| `ProviderManager` | 缓存并关闭默认 Provider |
+<span id="bumblehive.providers.ModelRequest"></span>
+[ModelRequest](config.md#bumblehive.providers.ModelRequest)
 
-当前高层 Runtime 创建的是 `openai_chat_completions` Provider。接入自定义 Provider 时，请使用 `AgentLoop` 并显式传入 Provider。
+<span id="bumblehive.providers.ModelResponse"></span>
+[ModelResponse](config.md#bumblehive.providers.ModelResponse)
 
-## 公开接口
+<span id="bumblehive.providers.ModelStreamCallbacks"></span>
+[ModelStreamCallbacks](config.md#bumblehive.providers.ModelStreamCallbacks)
 
-::: bumblehive.providers
-    options:
-      show_root_heading: false
-      show_root_full_path: false
+<span id="bumblehive.providers.RetryConfig"></span>
+[RetryConfig](config.md#bumblehive.providers.RetryConfig)
+
+<span id="bumblehive.providers.ProviderManager"></span>
+[ProviderManager](config.md#bumblehive.providers.ProviderManager)
+
+<span id="bumblehive.providers.OpenAIChatCompletionsProvider"></span>
+[OpenAIChatCompletionsProvider](config.md#bumblehive.providers.OpenAIChatCompletionsProvider)

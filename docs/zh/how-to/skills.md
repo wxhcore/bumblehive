@@ -1,105 +1,44 @@
 # Skills
 
-Skill 提供一类任务的工作方法和资源路径。模型先看到摘要，需要时再读取详细说明。
+Skill 是可复用的任务说明，可以附带脚本、参考资料和模板。下面让 Agent 按固定结构整理一份课程笔记。
 
-## 创建一个 Skill
+## 一份最小 Skill
 
-一个 Skill 至少包含 `SKILL.md`：
-
-```text
-skills/
-└── course-summary/
-    ├── SKILL.md
-    ├── scripts/       # 可选
-    ├── references/    # 可选
-    └── assets/        # 可选
-```
-
-`SKILL.md` 示例：
+仓库中的 `examples/skills/course-summary/SKILL.md` 内容如下：
 
 ```markdown
----
-name: course-summary
-description: 把课程笔记整理成简洁的复习提纲。
----
-
-# 课程提纲
-
-1. 先读取用户指定的笔记。
-2. 按“核心概念、例子、易错点”整理。
-3. 不确定的内容明确标注，不要猜测。
+--8<-- "examples/skills/course-summary/SKILL.md"
 ```
 
-名称必须满足两个条件：
+`name` 与目录名一致，使用小写字母、数字和连字符。`description` 帮助模型判断何时使用，正文说明具体步骤。
 
-- 使用小写字母、数字和连字符；
-- `name` 与目录名完全相同。
+## 让 Agent 使用它
 
-## 加载并启用 Skill
+仓库已准备好 `examples/skills/notes.md`。完成[模型配置](../getting-started/installation.md#configure-model)，运行：
+
+```bash
+python examples/runtime/skills.py
+```
 
 ```python
-import os
-from pathlib import Path
-
-import bumblehive
-
-
-config = bumblehive.RuntimeArguments(
-    model=os.environ["BUMBLEHIVE_MODEL"],
-    api_key=os.environ["BUMBLEHIVE_API_KEY"],
-    base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-    workspace=".",
-    skills_dir="./skills",
-    skill_names=["course-summary"],
-    tool_names=["read_file"],
-)
+--8<-- "examples/runtime/skills.py"
 ```
 
-`skills_dir` 指向包含各个 Skill 子目录的根目录。省略时默认使用 `~/.bumblehive/skills/`；目录会在首次安装 Skill 时创建，单纯创建 Runtime 或列出空目录不会创建它。
+`skills_dir` 指向存放各个 Skill 的根目录，`skill_names` 选择启用项。Agent 先看到名称、简介和路径，再使用 `read_file` 读取详细说明和笔记。
 
-`SkillsManager.set_skills_dir()` 可在运行前切换目录，并清空之前的加载缓存；目标目录会在首次安装 Skill 时创建：
+输出应按“核心概念、例子、易错点”三部分整理 Python 列表知识，例如把“索引从 0 开始”列入易错点。Skill 提供方法，读取笔记仍由工具完成。
+
+## 换成自己的任务方法
+
+复制 Skill 目录，修改名称、描述和正文，再调整示例的 `skills_dir`、`skill_names` 与任务。需要额外资源时再加入 `scripts/`、`references/` 或 `assets/`；模型使用资源仍需要相应的工具。
+
+检查加载结果可以在已创建的 Runtime 中运行：
 
 ```python
-manager = bumblehive.SkillsManager()
-manager.set_skills_dir(Path("./other-skills"))
+catalog = runtime.skills.list_skills()
+print([skill.name for skill in catalog.skills])
+for error in catalog.errors:
+    print(error.path, error.message)
 ```
 
-该方法适合独立使用 `SkillsManager`。Runtime 的 Skill 目录仍应通过 `RuntimeArguments.skills_dir` 在创建时确定，避免配置状态与实际目录不一致。
-
-如果 Skill 位于外部目录，可在已创建的 `runtime` 中安装到配置的 `skills_dir`：
-
-```python
-runtime.skills.install_skills([Path("./downloaded/course-summary")])
-```
-
-目标目录已存在同名 Skill 时，默认不会覆盖；需要替换时传入 `replace=True`。已直接放在 `skills_dir` 中的 Skill 无需重复安装。
-
-模型最初只会看到 Skill 的名称、描述和文件路径。模型需要使用 `read_file` 打开 `SKILL.md`，因此启用 Skill 时通常也要开放 `read_file`。启用 `exec` 后可以运行其中的脚本，输出位置应明确指定。
-
-在工作目录准备 `notes.md`，写入需要整理的课程笔记。该 Skill 已位于 `skills_dir` 下，可以直接加载；在 `async main()` 中创建 Runtime 并运行：
-
-```python
-async with bumblehive.from_config(config) as runtime:
-    result = await runtime.run("根据 notes.md 生成复习提纲")
-    print(result.error.message if result.error else result.final_content)
-```
-
-开发时可以检查加载结果：
-
-```python
-async with bumblehive.from_config(config) as runtime:
-    catalog = runtime.skills.list_skills()
-
-    print([skill.name for skill in catalog.skills])
-    for error in catalog.errors:
-        print(error.path, error.message)
-```
-
-`skill_names=None` 表示向模型提供全部已加载 Skill 的摘要，`[]` 表示不提供任何 Skill。正式项目建议明确列出名称。
-
-
-## 运行与检查
-
-完成[模型配置](../getting-started/installation.md#configure-model)，把以上配置和调用放入 `async main()`。调用 `list_skills()` 应能看到 `course-summary`；错误列表应为空。模型仍需实际读取 Skill，选中名称不代表脚本已经执行。
-
-[完整加载示例](https://github.com/wxhcore/bumblehive/blob/main/examples/skills/basic.py) · [MCP 与 Skills API](../reference/skills.md)
+安装外部 Skill、刷新和目录设置等接口见 [Skills 参考](../reference/skills.md)。

@@ -20,26 +20,30 @@ plugins:
 
 nav:
   - 开始使用:
-      - 概览: index.md
-      - 安装与快速开始: getting-started/installation.md
-      - Agent 如何工作: concepts/mental-model.md
-  - 核心能力:
-      - 模型接入与配置: how-to/configuration.md
-      - 提示词与上下文: how-to/context.md
-      - 工具调用: getting-started/first-tool.md
+      - 项目介绍: index.md
+      - 快速开始: getting-started/installation.md
+  - 基础使用:
+      - 模型配置: how-to/configuration.md
+      - 工具调用:
+          - 定义和使用工具: getting-started/first-tool.md
+          - 等待结果与后台执行: how-to/background-tools.md
+      - 多轮对话与记忆: how-to/memory-and-sessions.md
+      - 流式输出: how-to/streaming.md
+      - 图片输入: how-to/images.md
+  - Human in the Loop:
+      - 审批: concepts/tool-safety.md
+      - 引导与纠偏: how-to/steering.md
+      - 主动追问: how-to/ask-user.md
+  - 扩展能力:
       - 文件操作与命令执行: how-to/files-and-commands.md
       - MCP: how-to/mcp.md
       - Skills: how-to/skills.md
-      - 流式输出与运行事件: how-to/streaming.md
-      - 运行期间追加指令: how-to/steering.md
-      - 会话与历史: how-to/memory-and-sessions.md
-      - 工具审批与访问范围: concepts/tool-safety.md
-      - 图片输入: how-to/images.md
+      - 提示词与上下文: how-to/context.md
       - Hooks 与运行记录: how-to/hooks.md
-  - 应用示例:
-      - 构建文件与代码助手: examples/file-assistant.md
-      - 接入聊天界面: examples/chat-interface.md
-      - 子 Agent 与任务委派: examples/sub-agents.md
+      - 子 Agent 协作: examples/sub-agents.md
+  - 完整示例:
+      - 文件助手: examples/file-assistant.md
+      - 交互式聊天助手: examples/chat-interface.md
   - API 参考:
       - Runtime 与运行结果: reference/runtime.md
       - 配置与模型 Provider: reference/config.md
@@ -48,8 +52,8 @@ nav:
       - 消息与会话: reference/protocols.md
       - MCP 与 Skills: reference/skills.md
       - 事件与 Hooks: reference/observability.md
-  - 开发与排错:
-      - 错误、重试与常见问题: how-to/error-handling.md
+  - 开发指南:
+      - 错误与排查: how-to/error-handling.md
       - 测试 Agent: how-to/testing-an-agent.md
       - 自定义 Provider 与底层组装: development/adding-a-provider.md
-      - 参与 SDK 开发: development/testing-and-release.md
+      - 参与开发: development/testing-and-release.md

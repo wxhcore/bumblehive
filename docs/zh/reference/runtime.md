@@ -51,7 +51,7 @@ Runtime 组合模型、工具、Skills 与会话。使用 `async with` 初始化
 
 `AgentRun` 支持直接 `await` 或交给 `asyncio.create_task()`，只能由一个 await 或 Task 驱动。需要多次读取结果时，等待同一个 Task。
 
-未调度的对象用 `run.close()` 丢弃；运行中通过 Task 取消并等待清理。完整示例见[运行对象的生命周期](../concepts/runtime-lifecycle.md#run-lifecycle)。
+未调度的对象用 `run.close()` 丢弃；运行中通过 Task 取消并等待清理。示例见本页[运行生命周期](#run-lifecycle)。
 
 需要检查协程类型时：`run()` 和 `run_console()` 是普通方法，`inspect.iscoroutinefunction()` 返回 `False`；返回对象实现 Coroutine 协议，但 `inspect.iscoroutine(run)` 也为 `False`。
 
@@ -78,3 +78,24 @@ Runtime 组合模型、工具、Skills 与会话。使用 `async with` 初始化
       heading_level: 3
       show_root_heading: true
       show_root_full_path: false
+
+## 运行生命周期 { #run-lifecycle }
+
+Runtime 应在一组相关任务中复用，并通过 `async with` 关闭 Provider、MCP 和内置命令会话。退出前应完成或取消它上面的运行：
+
+```python
+import asyncio
+
+async with bumblehive.from_config(config) as runtime:
+    task = asyncio.create_task(runtime.run("分析项目"))
+    try:
+        result = await task
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+```
+
+`run()` 在等待或调度后执行，`stream()` 在首次迭代时执行。创建后不使用的运行对象调用 `close()`；事件流调用 `await aclose()`。
+
+`steer()` 必须在所属事件循环中调用，输入关闭后抛出 `RuntimeError`。关闭后可以用 `take_pending()` 取回尚未消费的消息；此操作清空队列，已加入对话的消息不会退回。

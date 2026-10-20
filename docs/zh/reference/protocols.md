@@ -95,3 +95,9 @@ Runtime 仅读取传入的历史。用 replace_run_messages(result.messages) 显
 <span id="bumblehive.protocols.ToolApprovalHandler"></span>
 
 [`ToolApprovalHandler`](tools.md#bumblehive.ToolApprovalHandler) 的完整定义已集中到对应主题。
+
+## 会话使用约束
+
+`history` 与 `session_id` 不能同时传入。`MessageHistory` 由调用方更新，不应被并发运行共同修改。
+
+同一 Runtime 会串行处理相同 `session_id`；不同 ID 可以并发。不要让多个 Runtime 或进程同时写同一个会话文件。会话保存为本地 JSON，不是加密数据库。

@@ -1,6 +1,6 @@
-# 安装与快速开始
+# 快速开始
 
-安装 Python SDK，连接模型，然后运行一个能查询课程信息的 Agent。需要 Python 3.11+ 和支持工具调用的 Chat Completions 兼容服务。
+安装 SDK，连接模型，运行第一个 Agent。需要 Python 3.11+ 和 OpenAI Chat Completions 兼容服务。
 
 ## 安装 SDK
 
@@ -57,35 +57,29 @@
 新建 `agent.py`，复制以下完整程序：
 
 ```python title="agent.py"
---8<-- "examples/runtime/custom_tool.py"
+--8<-- "examples/runtime/basic.py"
 ```
 
 ```bash
 python agent.py
 ```
 
-输出示例：
+输出类似：
 
 ```text
-工具：get_course_info
-回答：Python 入门课在周一 10:00，于教学楼 A101 上课。
+回答：Agent Runtime 负责组织模型调用和工具执行，推动 Agent 完成任务。
 ```
 
-具体措辞由模型决定。检查工具一行是否包含 `get_course_info`；若没有，查看[工具调用排错](../troubleshooting.md)。
+具体措辞由模型决定。如果运行失败，根据错误检查模型名、密钥和接口地址，详见[错误排查](../how-to/error-handling.md)。
 
-## 理解这次运行
+## 这段代码做了什么
 
-`from_config()` 创建 Runtime，`async with` 初始化工具并在退出时释放模型和 MCP 连接。装饰器注册 Python 函数；`tool_names` 指定本次开放的工具；`await runtime.run(...)` 驱动模型与工具循环，完成后得到 `AgentRunResult`。
+- `RuntimeArguments` 提供模型配置。`tool_names=[]` 和 `skill_names=[]` 让第一个例子只进行文本问答。
+- `async with from_config(...)` 创建 Runtime，并在退出时释放连接。
+- `await runtime.run(...)` 执行任务，`final_content` 是最终回答，`error` 是运行错误。
 
-一个 Runtime 可以执行多次调用。每次调用默认独立；需要多轮对话时传入[会话或历史](../how-to/memory-and-sessions.md)。从源码仓库运行同一个示例：
+一个 Runtime 可以执行多次任务。不传入对话历史时，每次调用独立。
 
-```bash
-python examples/runtime/custom_tool.py
-```
+## 下一步
 
-## 继续构建
-
-- [工具调用](first-tool.md)：参数、异步函数与执行结果。
-- [流式输出](../how-to/streaming.md)：展示回答与工具进度。
-- [工具审批](../concepts/tool-safety.md)：执行前等待用户确认。
-- [Runtime API](../reference/runtime.md)：查询调用参数和结果字段。
+[给 Agent 添加一个工具](first-tool.md)，让它查询课程信息，而不只是生成文本。

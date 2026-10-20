@@ -1,121 +1,68 @@
-# 模型接入与配置
+# 模型配置
 
-高层 Runtime 使用 OpenAI Chat Completions 兼容接口。通过 `model`、`api_key` 和 `base_url` 连接模型；简单项目使用 `RuntimeArguments`，需要保存配置时使用字典或 JSON。
+高层 Runtime 连接 OpenAI Chat Completions 兼容服务。开始时只需提供模型名、密钥和接口地址，完整程序见[快速开始](../getting-started/installation.md)。
 
-## 使用 `RuntimeArguments`
+## 连接模型
 
 ```python
 import os
-
 import bumblehive
-
 
 config = bumblehive.RuntimeArguments(
     model=os.environ["BUMBLEHIVE_MODEL"],
     api_key=os.environ["BUMBLEHIVE_API_KEY"],
     base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-    workspace="./workspace",
-    skills_dir="./skills",
-    timezone="Asia/Shanghai",
-    max_completion_tokens=2_048,
-    temperature=0.2,
-    max_iterations=12,
-    agent_instructions="回答要简洁，并优先使用提供的工具。",
-    dynamic_context={"project": "course-helper"},
     skill_names=[],
     tool_names=[],
 )
-
-runtime = bumblehive.from_config(config)
 ```
 
-Bumblehive 不会自动读取这些环境变量。上面的 `os.environ` 和 `os.getenv` 是应用自己的读取逻辑。
+环境变量由这里的 `os.environ` 读取。`base_url` 填服务提供的 API 基地址；省略时使用 OpenAI SDK 的默认地址。工具调用需要模型支持 Tool Calling，图片输入需要视觉能力。
 
-## 常用配置
+## 按需增加配置
 
-| 分类 | 参数 | 作用 |
-| --- | --- | --- |
-| Provider | `model` | 模型名称 |
-| Provider | `api_key`、`base_url` | API 凭证和 OpenAI 兼容地址 |
-| 生成 | `max_completion_tokens` | 最大输出 token 数 |
-| 生成 | `temperature`、`reasoning_effort` | 控制生成行为 |
-| Agent | `agent_instructions` | Agent 的长期行为要求 |
-| Agent | `dynamic_context` | 项目名、用户角色等动态信息 |
-| 能力 | `skill_names`、`tool_names` | 本次 Runtime 默认开放的能力 |
-| 能力 | `skills_dir` | Runtime 加载和安装 Skill 的根目录 |
-| 运行 | `workspace`、`timezone` | 工作目录和时区 |
-| 运行 | `max_iterations` | 最多执行多少轮模型/工具循环 |
-| 运行 | `context_window_tokens` | 上下文窗口预算 |
-| 运行 | `max_tool_result_chars` | 单个工具结果进入模型前的字符预算 |
+在上面的 `RuntimeArguments(...)` 中加入所需参数即可：
 
-`model` 应明确设置。`base_url=None` 时，OpenAI SDK 使用自己的默认地址。
+| 需求 | 示例 |
+| --- | --- |
+| 控制回答长度 | `max_completion_tokens=2048` |
+| 限制工具循环次数 | `max_iterations=12` |
+| 设置工作目录 | `workspace="./workspace"` |
+| 定义 Agent 的任务与风格 | `agent_instructions="你是课程助手，回答简洁。"` |
+| 使用工具 | `tool_names=["read_file"]` |
 
-## 使用嵌套字典
+生成参数是否支持取决于模型。提示词和预算的用法见[上下文指南](context.md)，所有字段见[配置参考](../reference/config.md)。
 
-字典适合从应用配置系统动态组装：
+## 覆盖一次调用 { #overrides }
+
+在已经创建的 `runtime` 中，只修改这一次运行的要求：
 
 ```python
-config = {
-    "skills_dir": "./skills",
-    "provider": {
-        "model": os.environ["BUMBLEHIVE_MODEL"],
-        "api_key": os.environ["BUMBLEHIVE_API_KEY"],
-        "base_url": os.environ["BUMBLEHIVE_BASE_URL"],
-    },
-    "generation": {"temperature": 0.2},
-    "agent": {
-        "instructions": "回答要简洁。",
-        "tool_names": [],
-    },
-    "runtime": {
-        "workspace": "./workspace",
-        "timezone": "Asia/Shanghai",
-    },
-}
-
-runtime = bumblehive.from_config(config)
+result = await runtime.run(
+    "解释什么是 Agent。",
+    config={"agent": {"instructions": "使用中文，最多两句话。"}},
+)
+print(result.error.message if result.error else result.final_content)
 ```
 
-## 从 JSON 文件加载
+单次配置与基础配置合并，不修改后续调用的默认值。MCP 连接和 Skill 目录在创建 Runtime 时确定，不能按调用覆盖。
 
-`from_config()` 也接受 `.json` 路径：
+## 选择工具和 Skills { #capability-lists }
+
+| 配置值 | 含义 |
+| --- | --- |
+| 省略或 `None` | 全部可用项 |
+| `[]` | 不使用任何项 |
+| `["name"]` | 只使用指定项 |
+
+这个规则同时适用于 `tool_names` 和 `skill_names`。在单次调用的 `config` 中省略字段则继承基础配置。
+
+## 使用配置文件
+
+配置较多时，`from_config()` 也接受嵌套字典或 JSON 文件路径：
 
 ```python
 runtime = bumblehive.from_config("bumblehive.json")
 ```
 
-JSON 不会展开环境变量。不要把真实 API Key 提交到 Git 仓库；正式项目更适合在 Python 中从环境变量注入密钥。
-
-## 覆盖单次调用配置
-
-以下片段在已创建且注册了 `calculate` 工具的 `runtime` 中运行。`run()` 的 `config` 会与 Runtime 基础配置深度合并：
-
-```python
-result = await runtime.run(
-    "只回答最终数字",
-    config={
-        "generation": {"temperature": 0},
-        "agent": {"tool_names": ["calculate"]},
-    },
-)
-```
-
-单次覆盖不会修改 Runtime 的基础配置。
-
-`mcp_servers` 和 `skills_dir` 不能按调用覆盖，因为 MCP 连接和 Skill 目录属于 Runtime 生命周期。应在创建 Runtime 时配置。
-
-## 能力列表：省略、`None` 和空列表 { #capability-lists }
-
-创建 Runtime 时，省略 `skill_names` 或 `tool_names` 等同于传入 `None`。
-
-| 配置值 | `skill_names` | `tool_names` |
-| --- | --- | --- |
-| 省略或 `None` | 向模型提供全部已加载 Skill 的摘要 | 向模型开放全部已注册工具 |
-| `[]` | 不提供任何 Skill | 不开放任何工具 |
-| `['name']` | 只提供指定 Skill | 只开放指定工具 |
-
-Skill 是加入上下文的能力说明，不是可调用函数。未知工具名会触发 `Unknown tools` 错误；未知 Skill 名目前会被忽略。
-
-在 `run(config=...)` 中省略这两个字段会继承 Runtime 配置；显式传入 `None` 才会改为全部。正式项目建议写出明确列表。
-
-[提示词与上下文](context.md) · [配置与 Provider API](../reference/config.md)
+JSON 使用 `provider`、`agent`、`generation`、`runtime` 等分组，不会展开环境变量。字段结构见[配置参考](../reference/config.md)。密钥可以在 Python 中读取后放入字典，不必写进配置文件。

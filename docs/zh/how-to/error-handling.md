@@ -90,9 +90,9 @@ for event in recorder.by_kind(TOOL_CALL_FINISHED):
 | 审批提示没有出现 | 模型是否发出有效工具请求；参数校验先于审批，见[审批指南](../concepts/tool-safety.md) |
 | Skill 未生效 | 名称、目录、SKILL.md 和 read_file 是否可用，见[Skills](skills.md) |
 | MCP 连接失败 | URL、Header 和远端状态；连接在 Runtime 初始化时发生，见[MCP](mcp.md) |
-| 文件路径被拒绝 | workspace 和额外读写根目录是否包含该路径，见[访问范围](../concepts/tool-safety.md) |
+| 文件或命令执行失败 | 检查路径、操作系统权限和命令规则，见[文件与命令](files-and-commands.md) |
 | 忘记前一轮 | 是否复用了 history 或 session_id，见[会话](memory-and-sessions.md) |
 | 无法获取流式结果 | 是否已消费完整事件流，是否提前关闭，见[流式输出](streaming.md) |
 | 达到最大迭代次数 | 检查工具是否持续失败、指令是否冲突，再考虑提高 max_iterations |
 
-[详细诊断步骤](../troubleshooting.md) · [AgentError 参考](../reference/protocols.md#bumblehive.protocols.AgentError)
+[AgentError 参考](../reference/protocols.md#bumblehive.protocols.AgentError)

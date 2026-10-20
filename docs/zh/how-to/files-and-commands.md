@@ -2,28 +2,15 @@
 
 内置工具覆盖文件读写、搜索、补丁和命令执行。创建 Runtime 时显式指定工作目录与工具列表，让相对路径有明确起点。
 
-## 选择工作区和工具
+## 让 Agent 阅读文件
 
-在[快速开始](../getting-started/installation.md)的 `RuntimeArguments` 中加入：
+完成[模型配置](../getting-started/installation.md#configure-model)，运行 `python examples/runtime/files.py`：
 
 ```python
-import os
-from pathlib import Path
-
-import bumblehive
-
-workspace = Path(__file__).resolve().parent
-# 在创建 Runtime 的配置中使用：
-config = bumblehive.RuntimeArguments(
-    model=os.environ["BUMBLEHIVE_MODEL"],
-    api_key=os.environ["BUMBLEHIVE_API_KEY"],
-    base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-    workspace=workspace,
-    tool_names=["read_file", "list_dir", "find_files", "grep"],
-)
+--8<-- "examples/runtime/files.py"
 ```
 
-示例脚本中的相对路径从 `workspace` 解析，Python 交互环境没有 `__file__` 时请直接传入目录路径。
+`workspace` 指向示例目录，`tool_names` 开放读取工具。运行后，Agent 应概括 `basic.py` 的配置、调用和输出流程。
 
 ## 常用内置工具
 
@@ -64,10 +51,12 @@ Runtime 会注册内置工具，但是否向模型开放取决于 `tool_names`�
 
 默认命令超时为 60 秒。关闭 Runtime 会清理其管理的执行会话；应用应及时释放不再需要的资源。
 
-## 路径与工作目录
+## 路径与工作目录 { #paths }
 
 文件工具的 `path` 接受绝对路径和相对于 `workspace` 的路径。Shell 的 `working_dir` 省略时使用 workspace，也可以指定其他目录。
 
-执行审批和 Shell 命令规则见[工具审批与执行](../concepts/tool-safety.md)。
+工作目录是路径解析起点，不是文件或进程沙箱；相对路径可以包含 `..`。需要用户决定是否执行时，接入[审批](../concepts/tool-safety.md)。Shell 命令还会检查自身的 `deny_patterns` 规则，匹配时拒绝执行。
+
+子进程的 `PATH` 优先包含当前 Python 解释器目录，再继承父进程中的有效绝对路径。
 
 [工具与审批 API](../reference/tools.md) · [文件与代码助手](../examples/file-assistant.md)

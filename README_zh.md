@@ -36,21 +36,22 @@ import os
 import bumblehive
 
 
-async def main() -> None:
+async def main():
     config = bumblehive.RuntimeArguments(
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
+        skill_names=[],
+        tool_names=[],
     )
-
     async with bumblehive.from_config(config) as runtime:
-        await runtime.run_console("请用一句话解释 Agent Loop。")
+        await runtime.run_console("请用一句话解释什么是 Agent Runtime。")
 
 
 asyncio.run(main())
 ```
 
-`run_console()` 会在终端直接展示运行过程和最终回答。
+`run_console()` 会直接在终端显示回答。这里用空列表关闭 Skills 和工具，先体验一次最简单的调用。完整安装和环境变量设置见[快速开始](https://wxhcore.github.io/bumblehive/getting-started/installation/)。
 
 ## 选择运行方式
 
@@ -64,17 +65,8 @@ asyncio.run(main())
 
 - 使用 Runtime 管理模型调用、Agent Loop 和资源生命周期。
 - 将 Python 函数、内置工具或 MCP 服务提供给 Agent。
-- 按需使用流式事件、对话历史、持久化 Session、Skills 和可观测 Hooks。
-
-## 桌面端
-
-Bumblehive Desktop 是使用 Bumblehive Python SDK 构建的可选参考应用，展示了如何把 Runtime、工具和会话能力组合成完整产品。
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/wxhcore/bumblehive/main/assets/readme/desktop-demo.gif" alt="Bumblehive Desktop 演示" width="900">
-</p>
-
-桌面安装包将通过 [GitHub Releases](https://github.com/wxhcore/bumblehive/releases) 发布。
+- 使用流式输出、会话记忆、图片输入、Skills 和运行 Hooks。
+- 通过审批、引导和追问让用户参与任务，用工具组合后台执行和子 Agent 协作。
 
 ## 下一步
 
@@ -87,6 +79,8 @@ Bumblehive Desktop 是使用 Bumblehive Python SDK 构建的可选参考应用�
 | 保存对话 | [消息历史与 Session](https://wxhcore.github.io/bumblehive/how-to/memory-and-sessions/) |
 | 加载工作方法 | [Skills](https://wxhcore.github.io/bumblehive/how-to/skills/) |
 | 连接外部工具 | [MCP](https://wxhcore.github.io/bumblehive/how-to/mcp/) |
+| 让用户参与任务 | [Human in the Loop](https://wxhcore.github.io/bumblehive/concepts/tool-safety/) |
+| 后台工具与子 Agent | [等待结果与后台执行](https://wxhcore.github.io/bumblehive/how-to/background-tools/) |
 | 查询公开接口 | [API Reference](https://wxhcore.github.io/bumblehive/reference/runtime/) |
 | 查看可运行代码 | [Examples](examples/README.md) |
 

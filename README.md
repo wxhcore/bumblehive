@@ -36,21 +36,22 @@ import os
 import bumblehive
 
 
-async def main() -> None:
+async def main():
     config = bumblehive.RuntimeArguments(
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
+        skill_names=[],
+        tool_names=[],
     )
-
     async with bumblehive.from_config(config) as runtime:
-        await runtime.run_console("Explain Agent Loop in one sentence.")
+        await runtime.run_console("Explain Agent Runtime in one sentence.")
 
 
 asyncio.run(main())
 ```
 
-`run_console()` displays the runtime process and final answer directly in your terminal.
+`run_console()` displays the answer directly in your terminal. The empty lists disable Skills and tools for this first call. See the [quickstart](https://wxhcore.github.io/bumblehive/getting-started/installation/) for installation and environment setup.
 
 ## Choose a Run Method
 
@@ -65,16 +66,6 @@ asyncio.run(main())
 - Manage model calls, the Agent Loop, and resource lifecycles through Runtime.
 - Give an Agent Python functions, built-in tools, or MCP servers.
 - Add streaming events, conversation history, persisted sessions, Skills, and observability hooks when needed.
-
-## Desktop
-
-Bumblehive Desktop is an optional reference application built with the Bumblehive Python SDK. It shows how Runtime, tools, and sessions can be combined into a complete product.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/wxhcore/bumblehive/main/assets/readme/desktop-demo.gif" alt="Bumblehive Desktop demo" width="900">
-</p>
-
-Desktop installers will be published through [GitHub Releases](https://github.com/wxhcore/bumblehive/releases).
 
 ## Next Steps
 

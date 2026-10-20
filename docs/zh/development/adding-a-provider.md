@@ -13,7 +13,7 @@ Provider 负责把模型服务转换为统一的 `ModelRequest` 和 `ModelRespon
 | 已有消息构建，只需要模型与工具循环 | `ToolCallingRunner` |
 | 只使用工具注册与执行 | `ToolManager` |
 
-[SDK 架构](sdk-architecture.md)说明各层关系。下面的静态 Provider 不访问网络，适合测试底层组装。
+Runtime 管理配置与会话，AgentLoop 构建上下文，ToolCallingRunner 执行模型与工具循环。下面的静态 Provider 不访问网络，适合测试底层组装。
 
 ## 最小 Provider
 

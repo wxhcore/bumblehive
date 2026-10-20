@@ -1,99 +1,34 @@
-# 会话与历史
+# 多轮对话与记忆
 
-临时对话使用 `MessageHistory`；需要重启后继续时使用 `session_id`。
+让 Agent 记住上一轮内容，只需在连续调用中使用同一个 `session_id`。不传会话或历史时，每次调用独立。
 
-## 保存并继续对话
+## 记住项目名称
 
-先完成[快速开始](../getting-started/installation.md)，复用其中的 `config`，在 `async main()` 中运行：
-
-```python
-async with bumblehive.from_config(config) as runtime:
-    await runtime.run(
-        "记住：我的课程是操作系统",
-        session_id="user-42:course-helper",
-    )
-    result = await runtime.run(
-        "我的课程是什么？",
-        session_id="user-42:course-helper",
-    )
-```
-
-会话默认保存在 `~/.bumblehive/sessions/`。创建新的 Runtime 后，使用同一个 `session_id` 仍能继续对话。
-
-`session_id` 必须是非空字符串。建议由业务身份和对话标识组成，例如：
-
-```text
-user-42:course-helper
-team-7:project-18
-```
-
-## 使用内存历史
+完成[模型配置](../getting-started/installation.md#configure-model)，运行 `python examples/runtime/sessions.py`：
 
 ```python
-import asyncio
-import os
-
-import bumblehive
-
-
-async def main() -> None:
-    config = bumblehive.RuntimeArguments(
-        model=os.environ["BUMBLEHIVE_MODEL"],
-        api_key=os.environ["BUMBLEHIVE_API_KEY"],
-        base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        tool_names=[],
-    )
-    history = bumblehive.MessageHistory()
-
-    async with bumblehive.from_config(config) as runtime:
-        first = await runtime.run("记住：我的项目叫 Bumblehive", history=history)
-        history.replace_run_messages(first.messages)
-
-        result = await runtime.run("我的项目叫什么？", history=history)
-        history.replace_run_messages(result.messages)
-
-    print(result.final_content)
-
-
-asyncio.run(main())
+--8<-- "examples/runtime/sessions.py"
 ```
 
-可以查看或清空历史：
+两次调用使用同一个 ID。第二次回答应包含 `BumbleHive`，因为 SDK 会读取第一轮的对话。
+
+会话默认保存在 `~/.bumblehive/sessions/`。程序重启后仍可使用相同 ID 继续；换一个 ID 就是另一段对话。
+
+## 只在内存中保存
+
+临时对话可以使用 `MessageHistory`。运行 `python examples/runtime/conversation_history.py`：
 
 ```python
-messages = history.get_history()
-history.clear()
+--8<-- "examples/runtime/conversation_history.py"
 ```
 
-Runtime 不会自动修改 `history`。`replace_run_messages()` 用运行结果替换历史，
-并去掉其中的 system message 和 runtime context。
+与 `session_id` 不同，Runtime 不会自动修改这个对象。每轮用 `history.replace_run_messages(result.messages)` 更新后，下一轮才能看到新内容。该方法会去除运行生成的系统上下文。
 
-`get_history()` 返回消息副本，修改它不会直接改变原历史。
-
-## 删除会话
+## 清空对话
 
 ```python
-deleted = await runtime.delete_session("user-42:course-helper")
+history.clear()  # 清空内存历史。
+await runtime.delete_session("hello-agent")  # 删除持久化会话。
 ```
 
-删除后，再使用相同 ID 会开始一段新对话。
-
-## 选择建议
-
-| 需求 | 选择 |
-| --- | --- |
-| 单个脚本中的临时多轮对话 | `MessageHistory` |
-| 测试中明确检查消息 | `MessageHistory` |
-| 应用重启后继续 | `session_id` |
-| 同一用户的多个独立对话 | 不同 `session_id` |
-| 每次都是独立任务 | 两者都不传 |
-
-## 重要限制
-
-- `history` 与 `session_id` 不能同时传入；
-- 同一个 `MessageHistory` 不要并发使用；
-- 同一 Runtime 会串行处理相同 `session_id`；
-- 不要让多个 Runtime 或进程同时写同一个 `session_id`；
-- 持久化会话是本地 JSON，不是加密数据库。
-
-[消息与会话 API](../reference/protocols.md) · [Runtime 生命周期](../concepts/runtime-lifecycle.md)
+一次调用只选择 `history` 或 `session_id` 其中一种。并发使用约束见[消息与会话参考](../reference/protocols.md)。
