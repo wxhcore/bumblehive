@@ -22,7 +22,7 @@ from bumblehive_server.chat.frames import (
     ui_event_frame as _ui_event_frame,
 )
 from bumblehive_server.chat.streaming import (
-    WebSocketSubagentObserver as _WebSocketSubagentObserver,
+    RunEventForwarder as _RunEventForwarder,
     persist_run_duration as _persist_run_duration,
 )
 from bumblehive_server.routes.chat import chat
@@ -102,9 +102,9 @@ class RecordingWebSocket:
 
 
 @pytest.mark.asyncio
-async def test_subagent_observer_reuses_existing_websocket_frames() -> None:
+async def test_run_event_forwarder_reuses_existing_websocket_frames() -> None:
     websocket = RecordingWebSocket()
-    observer = _WebSocketSubagentObserver(
+    observer = _RunEventForwarder(
         websocket.send_json,
         SimpleNamespace(),
     )

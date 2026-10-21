@@ -23,7 +23,7 @@ from openai import AsyncOpenAI
 
 from .config_defaults import apply_config_defaults
 from .chat.session import SessionController
-from .chat.questions import register_ask_user_tool
+from .chat.ask_user import register_ask_user_tool
 from .logging_utils import elapsed_since, safe_log_value
 from .session_reader import SessionReader
 from .subagents import SubagentTasks, register_subagent_tool

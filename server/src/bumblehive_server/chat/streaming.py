@@ -21,7 +21,7 @@ from .frames import result_frame, ui_event_frame
 logger = logging.getLogger("uvicorn.error.bumblehive")
 
 
-class WebSocketSubagentObserver(SubagentRunObserver):
+class RunEventForwarder(SubagentRunObserver):
     def __init__(self, send: SendFrame, runtime: Any) -> None:
         self._send = send
         self._runtime = runtime
@@ -87,7 +87,7 @@ async def stream_turn(
     logger.info("[agent] started | session_id=%s", session_label)
     try:
         async with lease() as runtime:
-            observer = WebSocketSubagentObserver(send, runtime)
+            observer = RunEventForwarder(send, runtime)
             with observe_subagents(observer):
                 stream = runtime.stream(
                     request.content,

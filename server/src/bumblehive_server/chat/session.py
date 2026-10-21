@@ -9,9 +9,10 @@ from uuid import uuid4
 from bumblehive import AgentRunStream
 
 from ..schemas import ChatRequest
+from ..subagents import RuntimeLease
 from .approval import ToolApprovals
 from .questions import UserQuestion
-from .streaming import RuntimeLease, stream_turn
+from .streaming import stream_turn
 
 
 class InputError(ValueError):
