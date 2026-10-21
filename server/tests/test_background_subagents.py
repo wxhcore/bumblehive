@@ -1,6 +1,7 @@
 """Exercise background delegation through the real SDK runner and session history."""
 
 import asyncio
+import json
 from copy import deepcopy
 
 import pytest
@@ -48,7 +49,7 @@ class DelegationProvider(ModelProvider):
             )
         root = first.removeprefix("ROOT:").splitlines()[0]
         if len(messages) == len([m for m in messages if m["role"] == "system"]) + 1:
-            backgrounds, approval = self.plans[root]
+            count, approval = self.plans[root]
             calls = [
                 ToolCall(
                     f"delegate-{i}",
@@ -56,10 +57,9 @@ class DelegationProvider(ModelProvider):
                     {
                         "title": f"Review {root}-{i}",
                         "task": f"CHILD:{root}-{i}",
-                        **({"background": bg} if bg is not None else {}),
                     },
                 )
-                for i, bg in enumerate(backgrounds)
+                for i in range(count)
             ]
             if approval:
                 calls.append(
@@ -128,7 +128,7 @@ async def receive(queue, kind, session_id=None, status=None):
                 return value
 
 
-async def begin(delegation, root, backgrounds, *, approval=False, workspace=None):
+async def begin(delegation, root, count, *, approval=False, workspace=None):
     service, provider, reader, tmp_path = delegation
     workspace = workspace or tmp_path / root
     workspace.mkdir(exist_ok=True)
@@ -136,14 +136,14 @@ async def begin(delegation, root, backgrounds, *, approval=False, workspace=None
     session_id = await reader.create(workspace)
     controller = service.get_session_controller(session_id)
     queue, _ = controller.subscribe()
-    provider.plans[root] = (backgrounds, approval)
+    provider.plans[root] = (count, approval)
     await controller.submit(
         ChatRequest(
             content=f"ROOT:{root}",
             config={"runtime": {"workspace": str(workspace)}},
         )
     )
-    children = [await receive(queue, "session_created") for _ in backgrounds]
+    children = [await receive(queue, "session_created") for _ in range(count)]
     return session_id, controller, queue, children
 
 
@@ -163,36 +163,20 @@ def assert_message_order(messages):
 
 
 @pytest.mark.asyncio
-async def test_waiting_mode_uses_final_report_without_background_notification(
-    delegation,
-):
-    _, provider, reader, _ = delegation
-    parent, controller, queue, children = await begin(delegation, "sync", [False])
-    assert "background" not in children[0]
-    assert controller.active_task is not None
-    provider.children.setdefault("sync-0", asyncio.Event()).set()
-    result = await receive(queue, "result", parent)
-    assert result["error"] is None
-    history = (await reader.get(parent)).messages
-    assert "REPORT:sync-0" in str(history)
-    assert not any(
-        str(m.get("content", "")).startswith("[Background sub-agent") for m in history
-    )
-    assert_message_order(history)
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("count", [1, 3])
-@pytest.mark.parametrize("background", [None, True], ids=["default", "explicit"])
 async def test_background_returns_then_wakes_idle_parent_and_preserves_order(
-    delegation, count, background
+    delegation, count
 ):
     service, provider, reader, _ = delegation
     parent, controller, queue, children = await begin(
-        delegation, "idle", [background] * count
+        delegation, "idle", count
     )
-    assert all(child["background"] for child in children)
+    assert all("background" not in child for child in children)
     await receive(queue, "result", parent)
+    history = (await reader.get(parent)).messages
+    assert [json.loads(m["content"]) for m in history if m["role"] == "tool"] == [
+        {"status": "pending", "task_id": f"delegate-{i}"} for i in range(count)
+    ]
     assert service._active_runs == count
     with pytest.raises(RuntimeBusyError):
         await service.update_config({"provider": {"model": "other"}})
@@ -226,7 +210,7 @@ async def test_background_returns_then_wakes_idle_parent_and_preserves_order(
 async def test_two_parent_sessions_keep_results_and_workspaces_separate(delegation):
     service, provider, reader, _ = delegation
     parents = await asyncio.gather(
-        begin(delegation, "one", [True, True]), begin(delegation, "two", [True])
+        begin(delegation, "one", 2), begin(delegation, "two", 1)
     )
     for parent, _, queue, _ in parents:
         await receive(queue, "result", parent)
@@ -249,7 +233,7 @@ async def test_two_parent_sessions_keep_results_and_workspaces_separate(delegati
 async def test_completion_during_approval_is_steered_then_restored_on_stop(delegation):
     service, provider, reader, tmp_path = delegation
     parent, controller, queue, children = await begin(
-        delegation, "stop", [True], approval=True
+        delegation, "stop", 1, approval=True
     )
     await receive(queue, "approval_request", parent)
     provider.children.setdefault("stop-0", asyncio.Event()).set()
@@ -278,7 +262,7 @@ async def test_completion_during_approval_is_steered_then_restored_on_stop(deleg
 async def test_late_report_after_stop_stays_queued_until_manual_resume(delegation):
     service, provider, reader, _ = delegation
     provider.parent_release.clear()
-    parent, controller, queue, children = await begin(delegation, "late", [True])
+    parent, controller, queue, children = await begin(delegation, "late", 1)
     while (await receive(queue, "event"))["kind"] != "tool.call.finished":
         pass
     await controller.cancel()
@@ -301,7 +285,7 @@ async def test_disconnect_does_not_cancel_background_and_snapshot_is_authoritati
     delegation,
 ):
     service, provider, reader, _ = delegation
-    parent, controller, queue, children = await begin(delegation, "reconnect", [True])
+    parent, controller, queue, children = await begin(delegation, "reconnect", 1)
     await receive(queue, "result", parent)
     controller.unsubscribe(queue)
     again, snapshot = controller.subscribe()
@@ -326,7 +310,7 @@ async def test_failure_reports_once_and_delete_cancels_without_waking_parent(
 ):
     service, provider, reader, _ = delegation
     provider.child_error = True
-    parent, controller, queue, children = await begin(delegation, "error", [True])
+    parent, controller, queue, children = await begin(delegation, "error", 1)
     await receive(queue, "result", parent)
     provider.children.setdefault("error-0", asyncio.Event()).set()
     await receive(queue, "message_status", parent, "started")
@@ -340,7 +324,7 @@ async def test_failure_reports_once_and_delete_cancels_without_waking_parent(
     assert "failed" in reports[0]["content"]
     assert "child execution failed" in reports[0]["content"]
     provider.child_error = False
-    parent2, controller2, queue2, children2 = await begin(delegation, "delete", [True])
+    parent2, controller2, queue2, children2 = await begin(delegation, "delete", 1)
     await receive(queue2, "result", parent2)
     await service.delete_session(children2[0]["session_id"])
     assert controller2.active_task is None and not controller2.pending
@@ -353,7 +337,7 @@ async def test_report_arriving_during_final_model_response_follows_assistant(
 ):
     service, provider, reader, _ = delegation
     provider.parent_release.clear()
-    parent, controller, queue, _ = await begin(delegation, "final", [True])
+    parent, controller, queue, _ = await begin(delegation, "final", 1)
     # Wait until the parent has requested its answer with the delegation result.
     async with asyncio.timeout(4):
         while not any(
@@ -383,7 +367,7 @@ async def test_report_arriving_during_final_model_response_follows_assistant(
 async def test_report_during_approval_is_consumed_after_complete_tool_batch(delegation):
     _, provider, reader, _ = delegation
     parent, controller, queue, _ = await begin(
-        delegation, "approve", [True], approval=True
+        delegation, "approve", 1, approval=True
     )
     approval = await receive(queue, "approval_request", parent)
     provider.children.setdefault("approve-0", asyncio.Event()).set()
@@ -406,7 +390,7 @@ async def test_extremely_fast_children_still_report_after_the_tool_batch(delegat
     service, provider, reader, _ = delegation
     for i in range(3):
         provider.children.setdefault(f"fast-{i}", asyncio.Event()).set()
-    parent, controller, queue, _ = await begin(delegation, "fast", [True] * 3)
+    parent, controller, queue, _ = await begin(delegation, "fast", 3)
     async with asyncio.timeout(4):
         while service.subagents._tasks or controller.active_task:
             await asyncio.sleep(0.001)
@@ -498,7 +482,7 @@ async def test_lease_startup_failure_is_one_tool_error_without_completion_notice
 async def test_parent_failure_does_not_auto_resume_for_late_report(delegation):
     service, provider, reader, _ = delegation
     provider.parent_error = True
-    parent, controller, queue, _ = await begin(delegation, "parent-error", [True])
+    parent, controller, queue, _ = await begin(delegation, "parent-error", 1)
     await receive(queue, "error", parent)
     provider.children.setdefault("parent-error-0", asyncio.Event()).set()
     await receive(queue, "message_status", parent, "queued")

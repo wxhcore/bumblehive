@@ -57,7 +57,7 @@ function beeTask(tool: ToolActivity): string {
 
 function backgroundStarted(tool: ToolActivity): boolean {
   return tool.status === "completed" &&
-    (tool.background ?? argumentRecord(tool)?.background === true);
+    Boolean(tool.taskId);
 }
 
 function durationLabel(duration: number | undefined): string {

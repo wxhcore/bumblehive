@@ -14,6 +14,7 @@ from bumblehive.observability import AgentEvent
 from ..logging_utils import elapsed_since, format_token_usage, safe_log_value
 from ..schemas import ChatRequest
 from ..subagents import RuntimeLease, SubagentRunObserver, observe_subagents
+from ..tool_context import capture_tool_call
 from .approval import SendFrame, ToolApprovals
 from .frames import result_frame, ui_event_frame
 
@@ -32,7 +33,6 @@ class WebSocketSubagentObserver(SubagentRunObserver):
         workspace: str,
         title: str,
         content: str,
-        background: bool = False,
     ) -> None:
         await self._send(
             {
@@ -41,7 +41,6 @@ class WebSocketSubagentObserver(SubagentRunObserver):
                 "workspace": workspace,
                 "title": title,
                 "content": content,
-                **({"background": True} if background else {}),
             }
         )
 
@@ -95,6 +94,7 @@ async def stream_turn(
                     session_id=session_id,
                     config=request.config,
                     approval_handler=approvals,
+                    hooks=capture_tool_call,
                 )
                 try:
                     if on_stream_ready is not None:

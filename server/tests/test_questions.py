@@ -151,6 +151,11 @@ async def test_concurrent_sessions_keep_questions_and_answers_isolated(asking, m
     assert "wrong session" not in json.dumps(first_history + second_history)
     assert tool_results(first_history)[0]["status"] == ("pending" if timed_out else "answered")
     assert tool_results(second_history)[0]["status"] == ("pending" if timed_out else "skipped")
+    if timed_out:
+        # Both model calls use "ask", but questions and answers remain session-owned.
+        assert tool_results(first_history)[0] == tool_results(second_history)[0] == {
+            "status": "pending", "task_id": "ask",
+        }
     assert len(late_answers(first_history)) == int(timed_out)
     assert late_answers(second_history) == []
 
@@ -204,7 +209,7 @@ async def test_timeout_late_answer_routes_once_and_keeps_original_result(asking,
         while controller.active_task:
             await asyncio.sleep(0.001)
     history = (await reader.get(controller.session_id)).messages
-    assert tool_results(history)[0]["status"] == "pending"
+    assert tool_results(history)[0] == {"status": "pending", "task_id": "ask"}
     assert len(late_answers(history)) == 1
     assert "Question: Which database?\nAnswer: SQLite" in late_answers(history)[0]["content"]
     assert controller._last_request.config["runtime"]["workspace"] == str(asking[-1])
@@ -387,7 +392,7 @@ async def test_skip_after_timeout_closes_without_starting_another_run(asking):
     assert not controller.pending
     assert len(provider.requests) == requests
     assert (await reader.get(controller.session_id)).messages == before
-    assert tool_results(before)[0]["status"] == "pending"
+    assert tool_results(before)[0] == {"status": "pending", "task_id": "ask"}
     assert controller.subscribe()[1]["questions"] == []
 
 

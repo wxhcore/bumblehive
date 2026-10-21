@@ -66,9 +66,12 @@ def ui_event_frame(event: AgentEvent) -> dict[str, Any] | None:
             },
         }
         if isinstance(name, str):
-            if name == "sub_agent":
-                payload["tool_result"]["background"] = (
-                    result_document.get("background") is True
+            if (
+                result_document.get("status") == "pending"
+                and isinstance(result_document.get("task_id"), str)
+            ):
+                payload["tool_result"].update(
+                    status="pending", task_id=result_document["task_id"],
                 )
             detail = tool_detail(
                 name,

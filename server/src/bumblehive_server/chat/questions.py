@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from bumblehive import BumblehiveRuntime
 from bumblehive.tools.scope import current_tool_session_id
 
+from ..tool_context import pending_tool_result
+
 if TYPE_CHECKING:
     from .session import SessionController
 
@@ -44,7 +46,7 @@ class UserQuestion:
                     "status": "answered",
                     "answer": future.result(),
                 }
-            return {"question_id": self.question_id, "status": "pending"}
+            return pending_tool_result()
         finally:
             self.future = None
             if not future.done():
@@ -64,7 +66,8 @@ def register_ask_user_tool(
             "The user can always enter a free-text answer.\n\n"
             "This tool waits up to 60 seconds. An answered result contains the user's reply. "
             "A skipped result means the user chose not to answer; do not repeat that question. "
-            "A pending result means no answer was received during the wait. The question "
+            "A pending result contains task_id matching this tool call ID and means no answer "
+            "was received during the wait. The question "
             "remains answerable, and a later reply will arrive as a user message identifying "
             "the original question. Continue useful independent work. If all remaining work "
             "depends on the answer, explain the blocker and end the current turn. Do not poll "

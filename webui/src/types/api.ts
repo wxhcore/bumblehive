@@ -207,7 +207,6 @@ export interface SessionCreatedFrame {
   workspace: string;
   title: string;
   content: string;
-  background?: boolean;
 }
 
 export interface ResultFrame {
@@ -366,7 +365,7 @@ export interface ToolActivity {
   streamedArguments?: string;
   streamIndex?: number;
   status: ToolActivityStatus;
-  background?: boolean;
+  taskId?: string;
   durationSeconds?: number;
   errorMessage?: string;
   detail?: ToolActivityDetail;

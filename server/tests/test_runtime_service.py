@@ -9,17 +9,35 @@ import pytest
 from bumblehive import BumblehiveConfig, SkillsManager
 from bumblehive.config import ProviderConfig
 from bumblehive.observability.events import make_event
-from bumblehive.protocols import ToolCall
+from bumblehive.observability.emitter import EventEmitter
+from bumblehive.protocols import ToolCall, ToolResult
 from bumblehive.protocols.errors import AgentError
 from bumblehive.tools import ToolManager
 from bumblehive.tools.scope import (
     bind_tool_session,
-    bind_tool_workspace,
     reset_tool_session,
-    reset_tool_workspace,
 )
 from bumblehive_server.runtime_service import RuntimeBusyError, RuntimeService
 from bumblehive_server.subagents import SUBAGENT_INSTRUCTIONS, observe_subagents
+from bumblehive_server.tool_context import capture_tool_call, pending_tool_result
+
+
+@pytest.mark.asyncio
+async def test_repeated_desktop_tool_calls_use_the_current_call_id() -> None:
+    tools = ToolManager()
+
+    @tools.tool(name="pending", description="Return this call's pending result.")
+    async def pending() -> dict:
+        await asyncio.sleep(0)
+        return pending_tool_result()
+
+    emitter = EventEmitter.from_hooks(capture_tool_call)
+    for call_id in ("first-call", "second-call"):
+        result = await tools.execute_call(ToolCall(call_id, "pending", {}), emitter=emitter)
+        assert result.error is None
+        assert result.content == {"status": "pending", "task_id": call_id}
+        with pytest.raises(RuntimeError, match="active tool call"):
+            pending_tool_result()
 
 
 class FakeRuntime:
@@ -135,7 +153,6 @@ class RecordingSubagentObserver:
         workspace: str,
         title: str,
         content: str,
-        background: bool = False,
     ) -> None:
         self.created.append(
             {
@@ -143,7 +160,6 @@ class RecordingSubagentObserver:
                 "workspace": workspace,
                 "title": title,
                 "content": content,
-                **({"background": True} if background else {}),
             }
         )
 
@@ -238,16 +254,21 @@ def _start_subagent_tool(
     workspace: Any,
     title: str,
     task: str,
-) -> asyncio.Task[str]:
+) -> asyncio.Task[ToolResult]:
     session_token = bind_tool_session("parent-session")
-    workspace_token = bind_tool_workspace(workspace)
     try:
-        tool = runtime.tools.get_tool("sub_agent")
-        assert tool is not None
-        return asyncio.create_task(tool.execute(title=title, task=task, background=False))
+        return asyncio.create_task(runtime.tools.execute_call(
+            ToolCall("delegate", "sub_agent", {"title": title, "task": task}),
+            workspace=workspace,
+            emitter=EventEmitter.from_hooks(capture_tool_call),
+        ))
     finally:
-        reset_tool_workspace(workspace_token)
         reset_tool_session(session_token)
+
+
+async def _finish_subagents(service: RuntimeService) -> None:
+    async with asyncio.timeout(2):
+        await asyncio.gather(*(entry.task for entry in service.subagents._tasks.values()))
 
 
 @pytest.mark.asyncio
@@ -938,7 +959,8 @@ async def test_runtime_service_registers_subagent_on_startup_and_replacement(
     assert tool is not None
     assert tool.parameters["required"] == ["title", "task"]
     assert tool.parameters["properties"]["title"]["maxLength"] == 80
-    assert tool.parameters["properties"]["background"]["default"] is True
+    assert set(tool.parameters["properties"]) == {"title", "task"}
+    assert "background=false" not in tool.description
     assert "independent read-only sub-agent" in tool.description
     await service.shutdown()
 
@@ -1006,8 +1028,12 @@ async def test_subagent_tool_runs_a_read_only_child_session(tmp_path) -> None:
         }
     ]
 
+    result = await asyncio.wait_for(tool_task, 1)
+    assert result.error is None
+    assert result.content == {"status": "pending", "task_id": "delegate"}
+    assert not runtime.run_release.is_set()
     runtime.run_release.set()
-    assert await tool_task == "Child answer"
+    await _finish_subagents(service)
     assert [item["session_id"] for item in observer.results] == [
         "child-session"
     ]
@@ -1046,7 +1072,6 @@ async def test_subagent_tool_runs_multiple_calls_in_parallel(tmp_path) -> None:
                             arguments={
                                 "title": "Inspect A",
                                 "task": "Inspect task A",
-                                "background": False,
                             },
                         ),
                         ToolCall(
@@ -1055,12 +1080,12 @@ async def test_subagent_tool_runs_multiple_calls_in_parallel(tmp_path) -> None:
                             arguments={
                                 "title": "Inspect B",
                                 "task": "Inspect task B",
-                                "background": False,
                             },
                         ),
                     ],
                     tool_names=["sub_agent"],
                     workspace=tmp_path / "workspace",
+                    emitter=EventEmitter.from_hooks(capture_tool_call),
                 )
             )
     finally:
@@ -1080,13 +1105,13 @@ async def test_subagent_tool_runs_multiple_calls_in_parallel(tmp_path) -> None:
         event.session_id for event in observer.events
     } == {"child-session-1", "child-session-2"}
 
-    runtime.run_release.set()
-    results = await calls_task
-
+    results = await asyncio.wait_for(calls_task, 1)
     assert [result.content for result in results] == [
-        "Child answer",
-        "Child answer",
+        {"status": "pending", "task_id": "call-1"},
+        {"status": "pending", "task_id": "call-2"},
     ]
+    runtime.run_release.set()
+    await _finish_subagents(service)
     assert {
         item["session_id"] for item in observer.results
     } == {"child-session-1", "child-session-2"}
@@ -1128,8 +1153,9 @@ async def test_subagent_tool_cleans_running_state_on_error_and_cancellation(
     await runtime.run_started.wait()
     runtime.run_release.set()
 
-    with pytest.raises(RuntimeError, match="child failed"):
-        await failed_task
+    assert (await failed_task).content == {"status": "pending", "task_id": "delegate"}
+    await _finish_subagents(service)
+    assert not service.subagents.is_running("child-session")
     assert [item["session_id"] for item in observer.results] == [
         "child-session"
     ]
@@ -1148,8 +1174,9 @@ async def test_subagent_tool_cleans_running_state_on_error_and_cancellation(
     await runtime.run_started.wait()
     runtime.run_release.set()
 
-    with pytest.raises(RuntimeError, match="stream failed"):
-        await errored_task
+    assert (await errored_task).error is None
+    await _finish_subagents(service)
+    assert not service.subagents.is_running("child-session")
     assert observer.errors == [
         {
             "session_id": "child-session",
@@ -1169,9 +1196,8 @@ async def test_subagent_tool_cleans_running_state_on_error_and_cancellation(
             task="Wait",
         )
     await runtime.run_started.wait()
-    cancelled_task.cancel()
-
-    with pytest.raises(asyncio.CancelledError):
-        await cancelled_task
+    assert (await cancelled_task).error is None
+    await service.subagents.cancel("child-session")
+    assert not service.subagents.is_running("child-session")
     assert observer.cancelled == ["child-session"]
     await service.shutdown()

@@ -305,7 +305,7 @@ export function useChatRuntime({
     }
 
     if (frame.type === "session_created") {
-      if (frame.background) backgroundParentsRef.current.set(sessionId, sourceSessionId);
+      backgroundParentsRef.current.set(sessionId, sourceSessionId);
       if (runningSessionIdsRef.current.has(sessionId)) return;
 
       const assistantId = createMessageId();

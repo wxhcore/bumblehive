@@ -207,8 +207,11 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
           ? "rejected"
           : errorMessage ? "error" : "completed";
         tool.errorMessage = errorMessage || undefined;
-        if (tool.name === "sub_agent") {
-          tool.background = asRecord(parseArguments(message.content))?.background === true;
+        const resultDocument = asRecord(parseArguments(message.content));
+        tool.taskId = pendingTaskId(resultDocument);
+        // Read old histories without retaining the former execution-mode switch.
+        if (!tool.taskId && tool.name === "sub_agent" && resultDocument?.background === true) {
+          tool.taskId = tool.id;
         }
         tool.detail = detailFromStoredToolResult(tool.name, message.content);
         Object.assign(tool, normalizeToolActivityOutcome(tool));
@@ -234,6 +237,11 @@ function startedTool(payload: Record<string, unknown>): ToolActivity | null {
   };
 }
 
+function pendingTaskId(result: Record<string, unknown> | null): string | undefined {
+  return result?.status === "pending" && typeof result.task_id === "string"
+    ? result.task_id : undefined;
+}
+
 function finishedTool(payload: Record<string, unknown>): ToolActivity | null {
   const result = asRecord(payload.tool_result);
   if (!result) return null;
@@ -253,7 +261,7 @@ function finishedTool(payload: Record<string, unknown>): ToolActivity | null {
       typeof payload.duration_s === "number" ? payload.duration_s : undefined,
     errorMessage:
       typeof error?.message === "string" ? error.message : undefined,
-    background: typeof result.background === "boolean" ? result.background : undefined,
+    taskId: pendingTaskId(result),
     detail: parseToolActivityDetail(result.detail),
   };
 }

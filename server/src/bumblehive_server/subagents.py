@@ -13,6 +13,7 @@ from bumblehive.observability import AgentEvent
 from bumblehive.tools.scope import current_tool_session_id, current_tool_workspace
 
 from .session_reader import SessionReader
+from .tool_context import pending_tool_result
 
 
 RuntimeLease = Callable[[], AbstractAsyncContextManager[BumblehiveRuntime]]
@@ -47,7 +48,6 @@ class SubagentRunObserver(Protocol):
         workspace: str,
         title: str,
         content: str,
-        background: bool = False,
     ) -> None: ...
 
     async def on_event(self, event: AgentEvent) -> None: ...
@@ -169,14 +169,7 @@ class SubagentTasks:
                 ready.set_result(None)
                 error = None
                 try:
-                    result = await _run_subagent(
-                        runtime,
-                        entry.session_id,
-                        entry.workspace,
-                        entry.content,
-                        observer,
-                        background=entry,
-                    )
+                    result = await _run_subagent(runtime, entry, observer)
                 except Exception as exc:
                     error = str(exc)
                 heading = "failed" if error is not None else "finished"
@@ -232,13 +225,10 @@ class SubagentTasks:
 
 async def _run_subagent(
     runtime: BumblehiveRuntime,
-    session_id: str,
-    workspace: str,
-    task: str,
+    entry: BackgroundSubagent,
     observer: SubagentRunObserver | None,
-    *,
-    background: BackgroundSubagent | None = None,
 ) -> AgentRunResult:
+    session_id, workspace, task = entry.session_id, entry.workspace, entry.content
     started_at = perf_counter()
     try:
         try:
@@ -264,8 +254,7 @@ async def _run_subagent(
             finally:
                 await stream.aclose()
         finally:
-            if background is not None:
-                background.running = False
+            entry.running = False
     except asyncio.CancelledError:
         if observer is not None:
             await observer.on_cancelled(session_id=session_id)
@@ -300,12 +289,10 @@ def register_subagent_tool(
             "workspace. It can inspect and search files, but cannot modify files or execute "
             "commands. Use it for independent investigation, review, comparison, or planning. "
             "The sub-agent cannot see this conversation; include all necessary context.\n\n"
-            "By default, this call runs in the background and returns a child session ID "
-            "without waiting for the final answer. Set background=false when your next "
-            "step depends on the result; the call then waits and returns the final answer. "
-            "In background mode, the sub-agent continues independently, and its final "
-            "answer or execution error will be sent "
-            "back automatically. You may continue independent work or end your current turn "
+            "This call always runs in the background and immediately returns "
+            "status=pending and task_id matching this tool call ID. Its final "
+            "answer or execution error will be sent back automatically. "
+            "You may continue independent work or end your current turn "
             "while waiting, but do not claim a result you have not received. Do not poll or "
             "launch duplicate work while that task is running. Multiple independent tasks "
             "may run concurrently; each result identifies its child session."
@@ -330,21 +317,13 @@ def register_subagent_tool(
                         "and supporting details you need to use the result."
                     ),
                 },
-                "background": {
-                    "type": "boolean",
-                    "default": True,
-                    "description": (
-                        "If true (default), return the child session ID immediately and deliver "
-                        "the result automatically when done. Set false to wait and return the final answer."
-                    ),
-                },
             },
             "required": ["title", "task"],
             "additionalProperties": False,
         },
         parallel_safe=True,
     )
-    async def sub_agent(title: str, task: str, background: bool = True) -> str | dict:
+    async def sub_agent(title: str, task: str) -> dict:
         title, task = title.strip(), task.strip()
         if not title:
             raise ValueError("title must not be blank")
@@ -354,6 +333,7 @@ def register_subagent_tool(
         workspace_path = current_tool_workspace()
         if parent_session_id is None or workspace_path is None:
             raise RuntimeError("sub_agent requires an active server conversation")
+        pending = pending_tool_result()
         workspace = str(workspace_path)
         child_session_id = await session_reader.create_child(
             workspace_path,
@@ -367,19 +347,13 @@ def register_subagent_tool(
                 workspace=workspace,
                 title=title,
                 content=task,
-                **({"background": True} if background else {}),
             )
-        if background:
-            await background_tasks.start(
-                session_id=child_session_id,
-                parent_session_id=parent_session_id,
-                title=title,
-                workspace=workspace,
-                content=task,
-                observer=observer,
-            )
-            return {"session_id": child_session_id, "background": True}
-        result = await _run_subagent(
-            runtime, child_session_id, workspace, task, observer
+        await background_tasks.start(
+            session_id=child_session_id,
+            parent_session_id=parent_session_id,
+            title=title,
+            workspace=workspace,
+            content=task,
+            observer=observer,
         )
-        return result.final_content or ""
+        return pending
