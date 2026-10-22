@@ -64,27 +64,34 @@ do not survive a server restart.
 The application registers `ask_user(question, options?)` without requiring tool
 approval. It asks one question, with optional suggested answers and an always
 available free-text input above the composer. Its `task_id` is the originating
-tool call ID, shared by the card, submissions, and results. An answer within 60 seconds returns
-`{"task_id":"...","status":"answered","answer":"..."}` to the tool. Otherwise
-the tool returns `{"task_id":"...","status":"pending"}`; the card stays
-answerable, and a later answer uses the existing session input queue and steering.
+tool call ID, shared by the card, submissions, and results.
 
-The server sends `question_request` and acknowledges answers with
-`question_closed`. Submit `{"type":"question_answer","task_id":"...","answer":"..."}`.
-To skip, submit `{"type":"question_skip","task_id":"..."}`. The server
-acknowledges it with `question_closed`. While the tool is waiting, skipping
-immediately returns `{"task_id":"...","status":"skipped"}`. After timeout,
-skipping only closes the question; it does not append a second tool result or
-start another run. The first accepted answer or skip wins.
-Input errors include `task_id` so the corresponding card can be resubmitted.
-Only unresolved questions are kept in memory and included in `ready.questions`.
-Accepted answers and skips remove the question and send `question_closed`, without
-retaining or replaying a terminal state. Later submissions for that ID receive
-`question_not_found` and cannot trigger another run. Errors appear on the
-corresponding card without an additional global notification. Questions
-survive completed and stopped runs within the same server process; they are not
-restored after a server restart. The × and Skip buttons both end the question.
-Answered and skipped cards leave the input area. Sub-agents do not receive this tool.
+During the first 60 seconds, an answer returns
+`{"task_id":"...","status":"answered","answer":"..."}` and skipping returns
+`{"task_id":"...","status":"skipped"}`. Otherwise the tool returns
+`{"task_id":"...","status":"pending"}` and keeps the question answerable for
+up to 120 more seconds. A background answer delivers `answered`; skipping,
+closing the card, or reaching the deadline delivers `skipped`. Background results
+use the session notification queue: steering while running, a new turn while
+naturally idle, or queued until resume after a stop or error. They do not append
+a second tool response for the original call.
+
+The server sends `question_request`. Submit
+`{"type":"question_answer","task_id":"...","answer":"..."}` to answer, or
+`{"type":"question_skip","task_id":"..."}` to skip. The × and Skip buttons
+both end the question. On completion, the server removes the question and sends
+`question_closed`; the frontend removes its card. The first answer, skip, or
+expiration wins. Input errors include `task_id` so the corresponding card can be
+resubmitted. Ended questions are not retained or replayed.
+
+Only unresolved questions appear in `ready.questions`. Switching sessions or
+losing the connection does not reset the server deadline. Stopping during the
+initial wait leaves the card answerable without starting a background deadline;
+a later answer follows the normal user-input path. Stopping after `pending`
+leaves the background deadline running, but automatic results do not resume the
+stopped Agent. Closing or deleting the server session cancels its question
+waiters. Questions do not survive a server restart. Sub-agents do not receive
+this tool.
 
 Backend callers can deliver input to a running turn or start one while idle:
 

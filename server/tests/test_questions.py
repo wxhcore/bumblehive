@@ -68,7 +68,7 @@ def make_service(tmp_path):
 
 @pytest_asyncio.fixture
 async def asking(tmp_path, monkeypatch):
-    monkeypatch.setattr(questions, "ASK_USER_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(questions, "ASK_USER_WAIT_SECONDS", 0.05)
     service, provider, reader = make_service(tmp_path)
     await service.startup()
     try:
@@ -114,7 +114,7 @@ def late_answers(messages):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("timed_out", [False, True])
 async def test_concurrent_sessions_keep_questions_and_answers_isolated(asking, monkeypatch, timed_out):
-    monkeypatch.setattr(questions, "ASK_USER_TIMEOUT_SECONDS", 0.05 if timed_out else 10)
+    monkeypatch.setattr(questions, "ASK_USER_WAIT_SECONDS", 0.05 if timed_out else 10)
     service, provider, reader, first, first_queue, workspace = asking
     second = service.get_session_controller(await reader.create(workspace))
     second_queue, _ = second.subscribe()
@@ -148,8 +148,7 @@ async def test_concurrent_sessions_keep_questions_and_answers_isolated(asking, m
         }
         assert controller.subscribe()[1]["questions"] == []
     await receive(first_queue, "result")
-    if not timed_out:
-        await receive(second_queue, "result")
+    await receive(second_queue, "result")
     first_history = (await reader.get(first.session_id)).messages
     second_history = (await reader.get(second.session_id)).messages
     assert "first-session-only" in json.dumps(first_history)
@@ -202,7 +201,8 @@ async def test_timeout_late_answer_routes_once_and_keeps_original_result(asking,
         if controller.active_task:
             await controller.active_task
     item = controller.questions[card["task_id"]]
-    assert item.future is None
+    assert item.future is not None and not item.future.done()
+    background_task = item.background_task
     results = await asyncio.gather(
         controller.answer_question(card["task_id"], "SQLite"),
         controller.answer_question(card["task_id"], "SQLite"),
@@ -210,6 +210,7 @@ async def test_timeout_late_answer_routes_once_and_keeps_original_result(asking,
     )
     assert results[0] is None
     assert isinstance(results[1], InputError)
+    await background_task
     assert controller.questions == {}
     provider.release.set()
     async with asyncio.timeout(3):
@@ -217,6 +218,7 @@ async def test_timeout_late_answer_routes_once_and_keeps_original_result(asking,
             await asyncio.sleep(0.001)
     history = (await reader.get(controller.session_id)).messages
     assert tool_results(history)[0] == {"status": "pending", "task_id": "ask"}
+    assert card["task_id"] == "ask"
     assert len(late_answers(history)) == 1
     assert background_results(history) == [{"task_id": "ask", "status": "answered", "answer": "SQLite"}]
     assert controller._last_request.config["runtime"]["workspace"] == str(asking[-1])
@@ -225,7 +227,7 @@ async def test_timeout_late_answer_routes_once_and_keeps_original_result(asking,
 
 @pytest.mark.asyncio
 async def test_disconnect_snapshot_and_cancel_release_waiter_but_keep_question(asking, monkeypatch):
-    monkeypatch.setattr(questions, "ASK_USER_TIMEOUT_SECONDS", 10)
+    monkeypatch.setattr(questions, "ASK_USER_WAIT_SECONDS", 10)
     _, _, reader, controller, queue, _ = asking
     card = await start(asking)
     controller.unsubscribe(queue)
@@ -264,12 +266,11 @@ async def test_unknown_blank_and_closed_answers_do_not_lock_card(asking):
 
 
 @pytest.mark.asyncio
-async def test_failed_late_answer_keeps_question_for_retry(asking, monkeypatch):
+async def test_failed_answer_after_foreground_stop_keeps_question_for_retry(asking, monkeypatch):
+    monkeypatch.setattr(questions, "ASK_USER_WAIT_SECONDS", 10)
     _, _, reader, controller, queue, _ = asking
     card = await start(asking)
-    await receive(queue, "result")
-    if controller.active_task:
-        await controller.active_task
+    await controller.cancel()
 
     async def reject_submission(*args, **kwargs):
         raise InputError("submission_failed", "could not accept answer")
@@ -306,7 +307,7 @@ async def test_answer_during_stop_is_queued_without_starting_or_resolving_waiter
 @pytest.mark.asyncio
 @pytest.mark.parametrize("answer_first", [True, False])
 async def test_zero_timeout_and_answer_choose_exactly_one_route(asking, monkeypatch, answer_first):
-    monkeypatch.setattr(questions, "ASK_USER_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(questions, "ASK_USER_WAIT_SECONDS", 0)
     _, _, reader, controller, queue, _ = asking
     card = await start(asking)
     if not answer_first:
@@ -314,6 +315,7 @@ async def test_zero_timeout_and_answer_choose_exactly_one_route(asking, monkeypa
         if controller.active_task:
             await controller.active_task
     await controller.answer_question(card["task_id"], "MySQL")
+    await receive(queue, "question_closed")
     async with asyncio.timeout(3):
         while controller.active_task:
             await asyncio.sleep(0.001)
@@ -332,7 +334,7 @@ async def test_tool_rejects_missing_session_without_creating_controller(asking):
 
 
 def test_websocket_answers_errors_and_reconnect(tmp_path, monkeypatch):
-    monkeypatch.setattr(questions, "ASK_USER_TIMEOUT_SECONDS", 10)
+    monkeypatch.setattr(questions, "ASK_USER_WAIT_SECONDS", 10)
     service, _, reader = make_service(tmp_path)
     app = create_app(runtime_service=service, session_reader=reader)
     with TestClient(app) as client:
@@ -345,20 +347,20 @@ def test_websocket_answers_errors_and_reconnect(tmp_path, monkeypatch):
                 frame = socket.receive_json()
                 if frame["type"] == "question_request":
                     break
-            qid = frame["task_id"]
-            socket.send_json({"type": "question_answer", "task_id": qid, "answer": " "})
+            task_id = frame["task_id"]
+            socket.send_json({"type": "question_answer", "task_id": task_id, "answer": " "})
             error = socket.receive_json()
             while error["type"] != "error":
                 error = socket.receive_json()
             assert error["scope"] == "input"
-            assert error["task_id"] == qid
+            assert error["task_id"] == task_id
         with client.websocket_connect("/ws/v1/chat/questions-test") as socket:
             ready = socket.receive_json()
-            assert ready["questions"][0]["task_id"] == qid
+            assert ready["questions"][0]["task_id"] == task_id
             assert set(ready["questions"][0]) == {"task_id", "question", "options"}
-            socket.send_json({"type": "question_answer", "task_id": qid, "answer": "MySQL"})
+            socket.send_json({"type": "question_answer", "task_id": task_id, "answer": "MySQL"})
             answered = socket.receive_json()
-            assert answered == {"type": "question_closed", "session_id": "questions-test", "task_id": qid}
+            assert answered == {"type": "question_closed", "session_id": "questions-test", "task_id": task_id}
             while socket.receive_json()["type"] != "result":
                 pass
         with client.websocket_connect("/ws/v1/chat/questions-test") as socket:
@@ -367,7 +369,7 @@ def test_websocket_answers_errors_and_reconnect(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_skip_ends_wait_immediately_and_rejects_later_answers(asking, monkeypatch):
-    monkeypatch.setattr(questions, "ASK_USER_TIMEOUT_SECONDS", 60)
+    monkeypatch.setattr(questions, "ASK_USER_WAIT_SECONDS", 60)
     _, _, reader, controller, queue, _ = asking
     card = await start(asking)
     await controller.answer_question(card["task_id"])
@@ -384,23 +386,25 @@ async def test_skip_ends_wait_immediately_and_rejects_later_answers(asking, monk
 
 
 @pytest.mark.asyncio
-async def test_skip_after_timeout_closes_without_starting_another_run(asking):
-    _, provider, reader, controller, queue, _ = asking
+async def test_skip_after_timeout_delivers_one_result(asking):
+    _, _, reader, controller, queue, _ = asking
     card = await start(asking)
     await receive(queue, "result")
     if controller.active_task:
         await controller.active_task
-    before = (await reader.get(controller.session_id)).messages
-    requests = len(provider.requests)
+    item = controller.questions[card["task_id"]]
+    background_task = item.background_task
     await controller.answer_question(card["task_id"])
     with pytest.raises(InputError, match="does not exist"):
         await controller.answer_question(card["task_id"], "late conflicting answer")
-    assert controller.active_task is None
-    assert not controller.pending
-    assert len(provider.requests) == requests
-    assert (await reader.get(controller.session_id)).messages == before
-    assert tool_results(before)[0] == {"status": "pending", "task_id": "ask"}
+    await background_task
+    await receive(queue, "question_closed")
+    await receive(queue, "result")
+    history = (await reader.get(controller.session_id)).messages
+    assert tool_results(history) == [{"status": "pending", "task_id": "ask"}]
+    assert background_results(history) == [{"task_id": "ask", "status": "skipped"}]
     assert controller.subscribe()[1]["questions"] == []
+    assert item.future is None and item.background_task is None
 
 
 @pytest.mark.asyncio
@@ -424,7 +428,7 @@ async def test_answer_and_skip_first_submission_wins(asking, skip_first):
 
 
 def test_websocket_skip_errors_and_reconnect(tmp_path, monkeypatch):
-    monkeypatch.setattr(questions, "ASK_USER_TIMEOUT_SECONDS", 60)
+    monkeypatch.setattr(questions, "ASK_USER_WAIT_SECONDS", 60)
     service, _, reader = make_service(tmp_path)
     with TestClient(create_app(runtime_service=service, session_reader=reader)) as client:
         with client.websocket_connect("/ws/v1/chat/skip-test") as socket:
@@ -445,3 +449,186 @@ def test_websocket_skip_errors_and_reconnect(tmp_path, monkeypatch):
                 pass
         with client.websocket_connect("/ws/v1/chat/skip-test") as socket:
             assert socket.receive_json()["questions"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("running", [False, True])
+async def test_background_deadline_delivers_skip_and_closes_card(asking, monkeypatch, running):
+    monkeypatch.setattr(questions, "ASK_USER_BACKGROUND_WAIT_SECONDS", 0.1)
+    _, provider, reader, controller, queue, _ = asking
+    if running:
+        provider.release.clear()
+    card = await start(asking)
+    await asyncio.wait_for(provider.after_tool.wait(), 3)
+    item = controller.questions[card["task_id"]]
+    background_task = item.background_task
+    assert background_task is not None and item.future is not None
+    assert not item.future.done()
+    assert controller.subscribe()[1]["questions"]  # pending is not skipped
+    await asyncio.wait_for(background_task, 3)
+    assert await receive(queue, "question_closed") == {
+        "type": "question_closed", "session_id": controller.session_id, "task_id": "ask",
+    }
+    assert not controller.questions
+    provider.release.set()
+    async with asyncio.timeout(3):
+        while controller.active_task:
+            await asyncio.sleep(0.001)
+    history = (await reader.get(controller.session_id)).messages
+    assert tool_results(history) == [{"status": "pending", "task_id": "ask"}]
+    assert background_results(history) == [{"task_id": "ask", "status": "skipped"}]
+    assert item.future is None and item.background_task is None
+    with pytest.raises(InputError, match="does not exist"):
+        await controller.answer_question("ask", "too late")
+
+
+@pytest.mark.asyncio
+async def test_background_expiration_after_stop_is_queued_until_resume(asking, monkeypatch):
+    monkeypatch.setattr(questions, "ASK_USER_BACKGROUND_WAIT_SECONDS", 0.1)
+    _, provider, reader, controller, queue, _ = asking
+    provider.release.clear()
+    card = await start(asking)
+    await asyncio.wait_for(provider.after_tool.wait(), 3)
+    background_task = controller.questions[card["task_id"]].background_task
+    await controller.cancel()
+    await asyncio.wait_for(background_task, 3)
+    assert controller.active_task is None and controller._paused
+    assert not controller.questions
+    assert len(controller.pending) == 1
+    assert controller.pending[0].request.message_id == "ask_user:ask"
+    assert '"status": "skipped"' in controller.pending[0].request.content
+    provider.release.set()
+    await controller.steer(controller.pending[0].request.message_id)
+    await receive(queue, "result")
+    assert background_results((await reader.get(controller.session_id)).messages) == [
+        {"task_id": "ask", "status": "skipped"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_disconnect_does_not_reset_background_deadline(asking, monkeypatch):
+    monkeypatch.setattr(questions, "ASK_USER_BACKGROUND_WAIT_SECONDS", 0.1)
+    _, provider, _, controller, queue, _ = asking
+    card = await start(asking)
+    await asyncio.wait_for(provider.after_tool.wait(), 3)
+    background_task = controller.questions[card["task_id"]].background_task
+    controller.unsubscribe(queue)
+    new_queue, snapshot = controller.subscribe()
+    assert snapshot["questions"][0]["task_id"] == card["task_id"]
+    controller.unsubscribe(new_queue)
+    await asyncio.wait_for(background_task, 3)
+    assert controller.subscribe()[1]["questions"] == []
+
+
+@pytest.mark.asyncio
+async def test_close_cancels_background_wait_without_delivering_skip(asking, monkeypatch):
+    monkeypatch.setattr(questions, "ASK_USER_BACKGROUND_WAIT_SECONDS", 0.1)
+    _, provider, reader, controller, queue, _ = asking
+    card = await start(asking)
+    await asyncio.wait_for(provider.after_tool.wait(), 3)
+    item = controller.questions[card["task_id"]]
+    background_task = item.background_task
+    future = item.future
+    await controller.close()
+    assert background_task.cancelled()
+    assert future.cancelled()
+    assert not controller.questions and not controller.pending
+    assert background_results((await reader.get(controller.session_id)).messages) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer_first", [True, False])
+async def test_background_answer_and_deadline_deliver_only_one_result(asking, monkeypatch, answer_first):
+    monkeypatch.setattr(questions, "ASK_USER_BACKGROUND_WAIT_SECONDS", 0)
+    _, provider, reader, controller, queue, _ = asking
+    card = await start(asking)
+    item = controller.questions[card["task_id"]]
+    # Hold the completion callback at the deadline; submission must not overwrite
+    # a Future that has already completed, even while its card still exists.
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    original_finish = controller._finish_question
+
+    async def finish(question):
+        entered.set()
+        await release.wait()
+        await original_finish(question)
+
+    # wait() has captured the original callback, so exercise the same waiter
+    # directly with a controlled boundary and the real submission handler.
+    await controller.cancel()
+    item.future = asyncio.get_running_loop().create_future()
+    item.background_task = asyncio.create_task(item._wait_background(finish, asyncio.get_running_loop().time()))
+    background_task = item.background_task
+    if answer_first:
+        await controller.answer_question(card["task_id"], "boundary answer")
+    await asyncio.wait_for(entered.wait(), 3)
+    with pytest.raises(InputError, match="does not exist"):
+        await controller.answer_question(card["task_id"], "duplicate")
+    release.set()
+    await asyncio.wait_for(background_task, 3)
+    assert len(controller.pending) == 1  # paused by Stop, no automatic restart
+    result = json.loads(controller.pending[0].request.content.split("\n\n", 1)[1])
+    assert result == ({"task_id": "ask", "status": "answered", "answer": "boundary answer"}
+                      if answer_first else {"task_id": "ask", "status": "skipped"})
+    assert not controller.questions
+
+
+@pytest.mark.parametrize("action", ["answer", "skip", "expire"])
+def test_websocket_background_completion_and_reconnect(tmp_path, monkeypatch, action):
+    monkeypatch.setattr(questions, "ASK_USER_WAIT_SECONDS", 0.02)
+    monkeypatch.setattr(questions, "ASK_USER_BACKGROUND_WAIT_SECONDS", 0.15)
+    service, provider, reader = make_service(tmp_path)
+    app = create_app(runtime_service=service, session_reader=reader)
+    with TestClient(app) as client:
+        session_id = client.portal.call(reader.create, tmp_path)
+        with client.websocket_connect(f"/ws/v1/chat/{session_id}") as socket:
+            socket.receive_json()
+            socket.send_json({"type": "message", "content": "Ask", "config": {
+                "runtime": {"workspace": str(tmp_path)},
+            }})
+            while socket.receive_json()["type"] != "question_request":
+                pass
+            while socket.receive_json()["type"] != "result":
+                pass
+            if action != "expire":
+                socket.send_json({
+                    "type": "question_answer" if action == "answer" else "question_skip",
+                    "task_id": "ask",
+                    **({"answer": "MySQL"} if action == "answer" else {}),
+                })
+            closed = socket.receive_json()
+            while closed["type"] != "question_closed":
+                closed = socket.receive_json()
+            assert closed["task_id"] == "ask"
+            while socket.receive_json()["type"] != "result":
+                pass
+        with client.websocket_connect(f"/ws/v1/chat/{session_id}") as socket:
+            assert socket.receive_json()["questions"] == []
+        history = client.portal.call(reader.get, session_id).messages
+    assert background_results(history) == [
+        {"task_id": "ask", "status": "answered", "answer": "MySQL"}
+        if action == "answer" else {"task_id": "ask", "status": "skipped"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_answer_and_expiration_in_different_sessions_are_isolated(asking, monkeypatch):
+    monkeypatch.setattr(questions, "ASK_USER_BACKGROUND_WAIT_SECONDS", 0.15)
+    service, provider, reader, first, first_queue, workspace = asking
+    second = service.get_session_controller(await reader.create(workspace))
+    second_queue, _ = second.subscribe()
+    await asyncio.gather(start(asking), start((service, provider, reader, second, second_queue, workspace)))
+    await asyncio.gather(receive(first_queue, "result"), receive(second_queue, "result"))
+    first_wait = first.questions["ask"].background_task
+    second_wait = second.questions["ask"].background_task
+    await first.answer_question("ask", "only first session")
+    await asyncio.wait_for(asyncio.gather(first_wait, second_wait), 3)
+    await asyncio.gather(receive(first_queue, "result"), receive(second_queue, "result"))
+    assert background_results((await reader.get(first.session_id)).messages) == [
+        {"task_id": "ask", "status": "answered", "answer": "only first session"},
+    ]
+    assert background_results((await reader.get(second.session_id)).messages) == [
+        {"task_id": "ask", "status": "skipped"},
+    ]
+    assert not first.questions and not second.questions

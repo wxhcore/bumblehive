@@ -15,20 +15,18 @@ def register_ask_user_tool(
     @runtime.tools.tool(
         name="ask_user",
         description=(
-            "Ask the user one concise, self-contained question when important information "
-            "cannot be determined from the available context. Provide options when useful; "
-            "put a recommended option first and explain the recommendation in its text. "
-            "The user can always enter a free-text answer.\n\n"
-            "This tool waits up to 60 seconds. An answered result contains the user's reply. "
-            "A skipped result means the user chose not to answer; do not repeat that question. "
-            "A pending result contains task_id matching this tool call ID and means no answer "
-            "was received during the wait. The question "
-            "remains answerable, and a later reply will arrive as a user message identifying "
-            "the original question. Continue useful independent work. If all remaining work "
-            "depends on the answer, explain the blocker and end the current turn. Do not poll "
-            "or repeat the same question while it remains unanswered. A pending result is "
-            "neither an answer nor approval. A skipped result is not approval either; "
-            "never treat a recommended option as submitted."
+            "Ask the user when information needed for the task cannot be determined from "
+            "the available context.\n\n"
+            "Waits up to 60 seconds, then returns pending and waits in the background for "
+            "up to 120 more seconds before automatically skipping. Results share a task_id "
+            "matching this tool call ID.\n"
+            "- answered: Use the user's answer to continue.\n"
+            "- pending: The question remains open; its final result will arrive automatically. "
+            "Continue independent work without polling or repeating the question. If all "
+            "remaining work depends on the answer, explain the blocker and end the current turn.\n"
+            "- skipped: The question ended without an answer, through a skip or timeout. "
+            "Do not repeat it.\n"
+            "Neither pending nor skipped grants approval or selects a recommended option."
         ),
         parameters={
             "type": "object",

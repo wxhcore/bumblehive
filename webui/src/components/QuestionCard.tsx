@@ -72,9 +72,7 @@ export function QuestionCard({ question, disconnected, onAnswer, onSkip }: Quest
           onClick={submit}>{question.submitting ? "发送中…" : "发送"}</button>
       </div>
       {question.error ? <p className="question-error" role="alert">{question.error}</p> : null}
-      <p className="question-hint">
-        {disconnected ? "连接已中断，重连后可继续回答" : "最多等待 60 秒，之后仍可回答"}
-      </p>
+      {disconnected ? <p className="question-hint">连接已中断，重连后可继续回答</p> : null}
     </section>
   );
 }

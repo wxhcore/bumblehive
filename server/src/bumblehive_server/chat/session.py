@@ -7,10 +7,10 @@ from typing import Any
 
 from bumblehive import AgentRunStream
 
-from ..tool_context import current_task_id
-from ..tool_results import format_background_tool_result
 from ..schemas import ChatRequest
 from ..subagents import RuntimeLease
+from ..tool_context import current_task_id
+from ..tool_results import format_background_tool_result
 from .approval import ToolApprovals
 from .questions import UserQuestion
 from .streaming import stream_turn
@@ -135,22 +135,41 @@ class SessionController:
                 "session_id": self.session_id,
                 **item.snapshot(),
             })
-        return await item.wait()
+        return await item.wait(self._finish_question)
+
+    async def _close_question(self, item: UserQuestion) -> None:
+        del self.questions[item.task_id]
+        await self.publish({
+            "type": "question_closed",
+            "session_id": self.session_id,
+            "task_id": item.task_id,
+        })
+
+    async def _finish_question(self, item: UserQuestion) -> None:
+        content = format_background_tool_result(item.task_id, item.result())
+        async with self._lock:
+            if self._closing:
+                return
+            await self._close_question(item)
+        await self.notify(f"ask_user:{item.task_id}", content)
 
     async def answer_question(self, task_id: str, answer: str | None = None) -> None:
-        """Resolve once; None is an explicit skip, never a timeout."""
+        """Complete the question; its waiter owns background result delivery."""
         async with self._lock:
             if self._closing:
                 raise InputError("session_closed", "session is closed")
             item = self.questions.get(task_id)
-            if item is None:
+            if item is None or (item.future is not None and item.future.done()):
                 raise InputError("question_not_found", "question does not exist in this session")
             if answer is not None and not answer.strip():
                 raise InputError("invalid_answer", "answer must not be blank")
             future = item.future
-            if future is not None and not future.done() and not self._stopping:
+            if future is not None and (item.background_task is not None or not self._stopping):
                 future.set_result(answer)
+                if item.background_task is not None:
+                    return
             elif answer is not None:
+                # A foreground wait interrupted by Stop keeps its card answerable.
                 if self._last_request is None:
                     raise InputError("session_inactive", "question has no conversation request")
                 request = self._last_request.model_copy(update={
@@ -161,12 +180,7 @@ class SessionController:
                     ),
                 })
                 await self._submit(request, steer=True)
-            del self.questions[task_id]
-            await self.publish({
-                "type": "question_closed",
-                "session_id": self.session_id,
-                "task_id": task_id,
-            })
+            await self._close_question(item)
 
     async def _enqueue(self, request: ChatRequest) -> PendingMessage:
         """Append input under the controller lock, retaining its dispatch order."""
@@ -336,9 +350,14 @@ class SessionController:
     async def close(self) -> None:
         self._closing = True
         await self.cancel()
+        background_tasks = []
         for question in self.questions.values():
+            if question.background_task is not None:
+                question.background_task.cancel()
+                background_tasks.append(question.background_task)
             if question.future is not None:
                 question.future.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
         self.questions.clear()
         self.pending.clear()
         self._subscribers.clear()
