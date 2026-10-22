@@ -170,7 +170,7 @@ export interface PendingChatMessage {
 }
 
 export interface QuestionSnapshot {
-  question_id: string;
+  task_id: string;
   question: string;
   options: string[];
 }
@@ -189,7 +189,7 @@ export interface QuestionRequestFrame extends QuestionSnapshot {
 export interface QuestionClosedFrame {
   type: "question_closed";
   session_id: string;
-  question_id: string;
+  task_id: string;
 }
 
 export interface MessageStatusFrame {
@@ -227,7 +227,7 @@ export interface ErrorFrame {
   message: string;
   scope?: "input";
   message_id?: string;
-  question_id?: string;
+  task_id?: string;
 }
 
 export interface CancelledFrame {

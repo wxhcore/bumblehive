@@ -13,7 +13,8 @@ from bumblehive.observability import AgentEvent
 from bumblehive.tools.scope import current_tool_session_id, current_tool_workspace
 
 from .session_reader import SessionReader
-from .tool_context import pending_tool_result
+from .tool_context import current_task_id
+from .tool_results import format_background_tool_result
 
 
 RuntimeLease = Callable[[], AbstractAsyncContextManager[BumblehiveRuntime]]
@@ -83,6 +84,7 @@ def observe_subagents(observer: SubagentRunObserver) -> Iterator[None]:
 
 @dataclass
 class BackgroundSubagent:
+    task_id: str
     session_id: str
     parent_session_id: str
     title: str
@@ -118,6 +120,7 @@ class SubagentTasks:
     async def start(
         self,
         *,
+        task_id: str,
         session_id: str,
         parent_session_id: str,
         title: str,
@@ -126,7 +129,7 @@ class SubagentTasks:
         observer: SubagentRunObserver | None,
     ) -> None:
         entry = BackgroundSubagent(
-            session_id, parent_session_id, title, workspace, content, time()
+            task_id, session_id, parent_session_id, title, workspace, content, time()
         )
         ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self._tasks[session_id] = entry
@@ -167,32 +170,14 @@ class SubagentTasks:
         try:
             async with self._lease() as runtime:
                 ready.set_result(None)
-                error = None
                 try:
                     result = await _run_subagent(runtime, entry, observer)
+                    report = result.final_content or ""
                 except Exception as exc:
-                    error = str(exc)
-                heading = "failed" if error is not None else "finished"
-                report = (
-                    f"Error:\n{error}"
-                    if error is not None
-                    else f"Final answer:\n{result.final_content or ''}"
-                )
-                next_step = (
-                    "The sub-task did not complete successfully. Decide whether another "
-                    "approach is needed or report the blocker to the user."
-                    if error is not None
-                    else "Incorporate this report into the user's current task as appropriate. "
-                    "If the user is waiting for it, communicate the relevant result."
-                )
-                content = (
-                    f"[Background sub-agent {heading}]\n"
-                    "This is an automatic report for a task you delegated, not a new user request.\n"
-                    f"Title: {entry.title}\nSession ID: {entry.session_id}\n\n"
-                    f"{report}\n\n{next_step} No reply to the sub-agent is needed."
-                )
+                    report = f"Error:\n{exc}"
+                content = format_background_tool_result(entry.task_id, report)
                 await self._notify(
-                    entry.parent_session_id, f"subagent:{entry.session_id}", content
+                    entry.parent_session_id, f"subagent:{entry.task_id}", content
                 )
         except Exception as exc:
             if not ready.done():
@@ -288,14 +273,13 @@ def register_subagent_tool(
             "Delegate a self-contained task to an independent read-only sub-agent in the same "
             "workspace. It can inspect and search files, but cannot modify files or execute "
             "commands. Use it for independent investigation, review, comparison, or planning. "
-            "The sub-agent cannot see this conversation; include all necessary context.\n\n"
-            "This call always runs in the background and immediately returns "
-            "status=pending and task_id matching this tool call ID. Its final "
-            "answer or execution error will be sent back automatically. "
-            "You may continue independent work or end your current turn "
-            "while waiting, but do not claim a result you have not received. Do not poll or "
-            "launch duplicate work while that task is running. Multiple independent tasks "
-            "may run concurrently; each result identifies its child session."
+            "The sub-agent cannot see this conversation.\n\n"
+            "Runs in the background and returns status=pending with task_id matching this "
+            "tool call ID. Its final answer or execution error arrives automatically with "
+            "the same task_id. Continue work that does not depend on the result; if all "
+            "remaining work depends on it, end the current turn and await the notification. "
+            "Do not poll, duplicate delegated work, or claim results you have not received. "
+            "Independent tasks may run concurrently."
         ),
         parameters={
             "type": "object",
@@ -312,9 +296,8 @@ def register_subagent_tool(
                     "description": (
                         "Self-contained instructions with the objective, relevant context or paths, "
                         "scope, constraints, and expected deliverable, including the desired output "
-                        "language or format when relevant. Request read-only work only. The sub-agent "
-                        "cannot see this conversation. Its final answer must contain the conclusion "
-                        "and supporting details you need to use the result."
+                        "language or format when relevant. Specify the conclusion and supporting "
+                        "details needed in the final report."
                     ),
                 },
             },
@@ -333,7 +316,7 @@ def register_subagent_tool(
         workspace_path = current_tool_workspace()
         if parent_session_id is None or workspace_path is None:
             raise RuntimeError("sub_agent requires an active server conversation")
-        pending = pending_tool_result()
+        task_id = current_task_id()
         workspace = str(workspace_path)
         child_session_id = await session_reader.create_child(
             workspace_path,
@@ -349,6 +332,7 @@ def register_subagent_tool(
                 content=task,
             )
         await background_tasks.start(
+            task_id=task_id,
             session_id=child_session_id,
             parent_session_id=parent_session_id,
             title=title,
@@ -356,4 +340,4 @@ def register_subagent_tool(
             content=task,
             observer=observer,
         )
-        return pending
+        return {"status": "pending", "task_id": task_id}

@@ -19,7 +19,7 @@ from bumblehive.tools.scope import (
 )
 from bumblehive_server.runtime_service import RuntimeBusyError, RuntimeService
 from bumblehive_server.subagents import SUBAGENT_INSTRUCTIONS, observe_subagents
-from bumblehive_server.tool_context import capture_tool_call, pending_tool_result
+from bumblehive_server.tool_context import capture_tool_call, current_task_id
 
 
 @pytest.mark.asyncio
@@ -29,7 +29,7 @@ async def test_repeated_desktop_tool_calls_use_the_current_call_id() -> None:
     @tools.tool(name="pending", description="Return this call's pending result.")
     async def pending() -> dict:
         await asyncio.sleep(0)
-        return pending_tool_result()
+        return {"status": "pending", "task_id": current_task_id()}
 
     emitter = EventEmitter.from_hooks(capture_tool_call)
     for call_id in ("first-call", "second-call"):
@@ -37,7 +37,7 @@ async def test_repeated_desktop_tool_calls_use_the_current_call_id() -> None:
         assert result.error is None
         assert result.content == {"status": "pending", "task_id": call_id}
         with pytest.raises(RuntimeError, match="active tool call"):
-            pending_tool_result()
+            current_task_id()
 
 
 class FakeRuntime:

@@ -73,7 +73,7 @@ class DelegationProvider(ModelProvider):
         await self.parent_release.wait()
         if self.parent_error:
             raise RuntimeError("parent execution failed")
-        reports = [text for text in users if text.startswith("[Background sub-agent")]
+        reports = [text for text in users if text.startswith("[Background tool result]")]
         return ModelResponse(
             content=f"PARENT:{root}:"
             + ("\n".join(reports) if reports else "initial answer")
@@ -195,12 +195,16 @@ async def test_background_returns_then_wakes_idle_parent_and_preserves_order(
     reports = [
         m
         for m in history
-        if str(m.get("content", "")).startswith("[Background sub-agent")
+        if str(m.get("content", "")).startswith("[Background tool result]")
     ]
     assert len(reports) == count
-    assert {child["session_id"] for child in children} == {
-        m["content"].split("Session ID: ", 1)[1].split("\n", 1)[0] for m in reports
+    assert {f"delegate-{i}" for i in range(count)} == {
+        m["content"].split("Task ID: ", 1)[1].split("\n", 1)[0] for m in reports
     }
+    assert all(m["role"] == "user" for m in reports)
+    assert all(m["content"].split("\n\n", 1)[1].startswith("REPORT:idle-") for m in reports)
+    for child in children:
+        assert (await reader.get(child["session_id"])).messages
     assert_message_order(history)
     for request in provider.requests:
         assert_message_order(request)
@@ -241,6 +245,7 @@ async def test_completion_during_approval_is_steered_then_restored_on_stop(deleg
     await controller.cancel()
     assert len(controller.pending) == 1
     report_id = controller.pending[0].request.message_id
+    assert report_id == "subagent:delegate-0"
     _, snapshot = controller.subscribe()
     assert snapshot["pending"][0]["message_id"] == report_id
     assert not snapshot["running"]
@@ -250,7 +255,7 @@ async def test_completion_during_approval_is_steered_then_restored_on_stop(deleg
     history = (await reader.get(parent)).messages
     assert (
         sum(
-            str(m.get("content", "")).startswith("[Background sub-agent")
+            str(m.get("content", "")).startswith("[Background tool result]")
             for m in history
         )
         == 1
@@ -318,11 +323,13 @@ async def test_failure_reports_once_and_delete_cancels_without_waking_parent(
     reports = [
         m
         for m in (await reader.get(parent)).messages
-        if str(m.get("content", "")).startswith("[Background sub-agent")
+        if str(m.get("content", "")).startswith("[Background tool result]")
     ]
     assert len(reports) == 1
-    assert "failed" in reports[0]["content"]
-    assert "child execution failed" in reports[0]["content"]
+    assert reports[0]["content"] == (
+        "[Background tool result]\nTask ID: delegate-0\n\n"
+        "Error:\nchild execution failed"
+    )
     provider.child_error = False
     parent2, controller2, queue2, children2 = await begin(delegation, "delete", 1)
     await receive(queue2, "result", parent2)
@@ -354,7 +361,7 @@ async def test_report_arriving_during_final_model_response_follows_assistant(
     index = next(
         i
         for i, m in enumerate(history)
-        if str(m.get("content", "")).startswith("[Background sub-agent")
+        if str(m.get("content", "")).startswith("[Background tool result]")
     )
     assert history[index - 1]["role"] == "assistant"
     assert not history[index - 1].get("tool_calls")
@@ -379,7 +386,7 @@ async def test_report_during_approval_is_consumed_after_complete_tool_batch(dele
     index = next(
         i
         for i, m in enumerate(history)
-        if str(m.get("content", "")).startswith("[Background sub-agent")
+        if str(m.get("content", "")).startswith("[Background tool result]")
     )
     assert history[index - 1]["role"] == "tool"
     assert_message_order(history)
@@ -400,7 +407,7 @@ async def test_extremely_fast_children_still_report_after_the_tool_batch(delegat
             notices := [
                 m
                 for m in history
-                if str(m.get("content", "")).startswith("[Background sub-agent")
+                if str(m.get("content", "")).startswith("[Background tool result]")
             ]
         )
         == 3
@@ -429,6 +436,7 @@ async def test_background_cancel_before_lease_does_not_leave_startup_waiting():
     tasks = SubagentTasks(blocked_lease, notify)
     startup = asyncio.create_task(
         tasks.start(
+            task_id="delegate-blocked",
             session_id="child",
             parent_session_id="parent",
             title="Waiting",
@@ -465,6 +473,7 @@ async def test_lease_startup_failure_is_one_tool_error_without_completion_notice
     tasks = SubagentTasks(failed_lease, notify)
     with pytest.raises(RuntimeError, match="runtime unavailable"):
         await tasks.start(
+            task_id="delegate-failed",
             session_id="child",
             parent_session_id="parent",
             title="Start",

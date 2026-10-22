@@ -21,8 +21,8 @@ def capture_tool_call(event: AgentEvent) -> None:
         _CALL_ID.set(None)
 
 
-def pending_tool_result() -> dict[str, str]:
+def current_task_id() -> str:
     call_id = _CALL_ID.get()
     if call_id is None:
         raise RuntimeError("A desktop background tool requires an active tool call")
-    return {"status": "pending", "task_id": call_id}
+    return call_id

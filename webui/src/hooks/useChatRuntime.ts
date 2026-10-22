@@ -222,11 +222,11 @@ export function useChatRuntime({
   frameHandlerRef.current = async (sessionId, sourceSessionId, frame) => {
     if (frame.type === "ready" || frame.type === "question_request" ||
       frame.type === "question_closed" ||
-      (frame.type === "error" && frame.scope === "input" && frame.question_id)) {
+      (frame.type === "error" && frame.scope === "input" && frame.task_id)) {
       setQuestions((current) => applyQuestionFrame(current, sessionId, frame));
     }
     if (frame.type === "question_request" || frame.type === "question_closed" ||
-      (frame.type === "error" && frame.scope === "input" && frame.question_id)) return;
+      (frame.type === "error" && frame.scope === "input" && frame.task_id)) return;
     if (frame.type === "ready") {
       flushPendingAgentFrames(sessionId);
       await restoreHistory(sessionId);
@@ -684,12 +684,12 @@ export function useChatRuntime({
     try {
       const socket = socketsRef.current.get(question.session_id);
       if (!socket?.connected) throw new Error("聊天连接不可用，请重连后提交");
-      socket.answerQuestion(question.question_id, answer);
+      socket.answerQuestion(question.task_id, answer);
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "回答提交失败";
     }
     setQuestions((current) => current.map((item) =>
-      item.session_id === question.session_id && item.question_id === question.question_id
+      item.session_id === question.session_id && item.task_id === question.task_id
         ? { ...item, submitting: !errorMessage, error: errorMessage }
         : item));
   }, []);

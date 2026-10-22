@@ -4,10 +4,11 @@ import asyncio
 from dataclasses import dataclass
 from time import time
 from typing import Any
-from uuid import uuid4
 
 from bumblehive import AgentRunStream
 
+from ..tool_context import current_task_id
+from ..tool_results import format_background_tool_result
 from ..schemas import ChatRequest
 from ..subagents import RuntimeLease
 from .approval import ToolApprovals
@@ -123,12 +124,12 @@ class SessionController:
             if self._closing or self._stopping or self.active_request is None:
                 raise InputError("session_inactive", "ask_user requires an active server conversation")
             item = UserQuestion(
-                question_id=uuid4().hex,
+                task_id=current_task_id(),
                 question=question,
                 options=list(options),
                 future=asyncio.get_running_loop().create_future(),
             )
-            self.questions[item.question_id] = item
+            self.questions[item.task_id] = item
             await self.publish({
                 "type": "question_request",
                 "session_id": self.session_id,
@@ -136,12 +137,12 @@ class SessionController:
             })
         return await item.wait()
 
-    async def answer_question(self, question_id: str, answer: str | None = None) -> None:
+    async def answer_question(self, task_id: str, answer: str | None = None) -> None:
         """Resolve once; None is an explicit skip, never a timeout."""
         async with self._lock:
             if self._closing:
                 raise InputError("session_closed", "session is closed")
-            item = self.questions.get(question_id)
+            item = self.questions.get(task_id)
             if item is None:
                 raise InputError("question_not_found", "question does not exist in this session")
             if answer is not None and not answer.strip():
@@ -153,18 +154,18 @@ class SessionController:
                 if self._last_request is None:
                     raise InputError("session_inactive", "question has no conversation request")
                 request = self._last_request.model_copy(update={
-                    "message_id": item.question_id,
-                    "content": (
-                        "The user answered an earlier question.\n"
-                        f"Question: {item.question}\nAnswer: {answer}"
+                    "message_id": item.task_id,
+                    "content": format_background_tool_result(
+                        item.task_id,
+                        {"task_id": item.task_id, "status": "answered", "answer": answer},
                     ),
                 })
                 await self._submit(request, steer=True)
-            del self.questions[question_id]
+            del self.questions[task_id]
             await self.publish({
                 "type": "question_closed",
                 "session_id": self.session_id,
-                "question_id": question_id,
+                "task_id": task_id,
             })
 
     async def _enqueue(self, request: ChatRequest) -> PendingMessage:

@@ -15,23 +15,23 @@ export function applyQuestionFrame(
   if (frame.type === "question_request") {
     const item: UserQuestion = {
       session_id: sessionId,
-      question_id: frame.question_id,
+      task_id: frame.task_id,
       question: frame.question,
       options: frame.options,
     };
     return [
-      ...questions.filter((q) => q.session_id !== sessionId || q.question_id !== item.question_id),
+      ...questions.filter((q) => q.session_id !== sessionId || q.task_id !== item.task_id),
       item,
     ];
   }
   if (frame.type === "question_closed") {
     return questions.filter((item) =>
-      item.session_id !== sessionId || item.question_id !== frame.question_id,
+      item.session_id !== sessionId || item.task_id !== frame.task_id,
     );
   }
-  if (frame.type === "error" && frame.scope === "input" && frame.question_id) {
+  if (frame.type === "error" && frame.scope === "input" && frame.task_id) {
     return questions.map((item) =>
-      item.session_id === sessionId && item.question_id === frame.question_id
+      item.session_id === sessionId && item.task_id === frame.task_id
         ? { ...item, submitting: false, error: frame.message }
         : item,
     );

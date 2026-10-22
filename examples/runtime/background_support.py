@@ -56,7 +56,8 @@ class Conversation:
         self.inbox: list[str] = []
 
     def notify(self, task_id: str, value: Any) -> None:
-        message = f"后台任务 {task_id} 的结果：{json.dumps(value, ensure_ascii=False)}"
+        content = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+        message = f"[Background tool result]\nTask ID: {task_id}\n\n{content}"
         if self.current is not None:
             try:
                 self.current.steer(message)

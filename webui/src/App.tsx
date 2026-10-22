@@ -727,7 +727,7 @@ export default function App() {
                     <div className="question-cards" aria-label="用户提问">
                       {questions.map((question) => (
                         <QuestionCard
-                          key={`${question.session_id}:${question.question_id}`}
+                          key={`${question.session_id}:${question.task_id}`}
                           question={question}
                           disconnected={isDisconnected}
                           onAnswer={answerQuestion}

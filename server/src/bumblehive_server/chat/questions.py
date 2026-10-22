@@ -3,21 +3,20 @@
 import asyncio
 from dataclasses import dataclass
 
-from ..tool_context import pending_tool_result
 
 ASK_USER_TIMEOUT_SECONDS = 60
 
 
 @dataclass
 class UserQuestion:
-    question_id: str
+    task_id: str
     question: str
     options: list[str]
     future: asyncio.Future[str | None] | None = None
 
     def snapshot(self) -> dict:
         return {
-            "question_id": self.question_id,
+            "task_id": self.task_id,
             "question": self.question,
             "options": list(self.options),
         }
@@ -32,13 +31,13 @@ class UserQuestion:
             await asyncio.wait({future}, timeout=ASK_USER_TIMEOUT_SECONDS)
             if future.done():
                 if future.result() is None:
-                    return {"question_id": self.question_id, "status": "skipped"}
+                    return {"task_id": self.task_id, "status": "skipped"}
                 return {
-                    "question_id": self.question_id,
+                    "task_id": self.task_id,
                     "status": "answered",
                     "answer": future.result(),
                 }
-            return pending_tool_result()
+            return {"status": "pending", "task_id": self.task_id}
         finally:
             self.future = None
             if not future.done():

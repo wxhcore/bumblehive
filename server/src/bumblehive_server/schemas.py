@@ -25,7 +25,7 @@ class CancelRequest(BaseModel):
 
 class QuestionAnswerRequest(BaseModel):
     type: Literal["question_answer"]
-    question_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
     answer: str = Field(min_length=1)
 
     @field_validator("answer")
@@ -38,7 +38,7 @@ class QuestionAnswerRequest(BaseModel):
 
 class QuestionSkipRequest(BaseModel):
     type: Literal["question_skip"]
-    question_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
 
 
 class SteerRequest(BaseModel):

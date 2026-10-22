@@ -102,9 +102,13 @@ def tool_results(messages):
     return [json.loads(m["content"]) for m in messages if m["role"] == "tool"]
 
 
+def background_results(messages):
+    return [json.loads(m["content"].split("\n\n", 1)[1]) for m in messages
+            if m["role"] == "user" and str(m["content"]).startswith("[Background tool result]\n")]
+
+
 def late_answers(messages):
-    return [m for m in messages if m["role"] == "user"
-            and str(m["content"]).startswith("The user answered an earlier question.")]
+    return [result for result in background_results(messages) if result["status"] == "answered"]
 
 
 @pytest.mark.asyncio
@@ -117,28 +121,30 @@ async def test_concurrent_sessions_keep_questions_and_answers_isolated(asking, m
     other = (service, provider, reader, second, second_queue, workspace)
     first_card, second_card = await asyncio.gather(start(asking), start(other))
     assert first_card["question"] == second_card["question"]
-    assert first_card["question_id"] != second_card["question_id"]
+    # Tool call IDs can repeat across sessions; each controller owns its question.
+    assert first_card["task_id"] == second_card["task_id"] == "ask"
 
     if timed_out:
         await asyncio.gather(receive(first_queue, "result"), receive(second_queue, "result"))
         await asyncio.gather(*(c.active_task for c in (first, second) if c.active_task))
 
-    # Neither answering nor skipping can target another session's question.
+    # A session without this task cannot answer or skip either question.
+    empty = service.get_session_controller(await reader.create(workspace))
     with pytest.raises(InputError, match="does not exist"):
-        await second.answer_question(first_card["question_id"], "wrong session")
+        await empty.answer_question(first_card["task_id"], "wrong session")
     with pytest.raises(InputError, match="does not exist"):
-        await first.answer_question(second_card["question_id"])
-    assert [q["question_id"] for q in first.subscribe()[1]["questions"]] == [first_card["question_id"]]
-    assert [q["question_id"] for q in second.subscribe()[1]["questions"]] == [second_card["question_id"]]
+        await empty.answer_question(second_card["task_id"])
+    assert [q["task_id"] for q in first.subscribe()[1]["questions"]] == [first_card["task_id"]]
+    assert [q["task_id"] for q in second.subscribe()[1]["questions"]] == [second_card["task_id"]]
 
     await asyncio.gather(
-        first.answer_question(first_card["question_id"], "first-session-only"),
-        second.answer_question(second_card["question_id"]),
+        first.answer_question(first_card["task_id"], "first-session-only"),
+        second.answer_question(second_card["task_id"]),
     )
     for controller, queue, card in ((first, first_queue, first_card), (second, second_queue, second_card)):
         assert await receive(queue, "question_closed") == {
             "type": "question_closed", "session_id": controller.session_id,
-            "question_id": card["question_id"],
+            "task_id": card["task_id"],
         }
         assert controller.subscribe()[1]["questions"] == []
     await receive(first_queue, "result")
@@ -166,15 +172,16 @@ async def test_timely_answer_is_only_a_tool_result(asking, answer):
     service, _, reader, controller, queue, _ = asking
     card = await start(asking)
     tool = service._runtime.tools.get_tool("ask_user")
+    assert card["task_id"] == "ask"
     assert tool.parallel_safe is False
     assert tool.parameters["required"] == ["question"]
-    await controller.answer_question(card["question_id"], answer)
+    await controller.answer_question(card["task_id"], answer)
     with pytest.raises(InputError, match="does not exist"):
-        await controller.answer_question(card["question_id"], "duplicate")
+        await controller.answer_question(card["task_id"], "duplicate")
     await receive(queue, "result")
     history = (await reader.get(controller.session_id)).messages
     assert tool_results(history) == [{
-        "question_id": card["question_id"], "status": "answered", "answer": answer,
+        "task_id": card["task_id"], "status": "answered", "answer": answer,
     }]
     assert late_answers(history) == []
     assert controller.subscribe()[1]["questions"] == []
@@ -194,11 +201,11 @@ async def test_timeout_late_answer_routes_once_and_keeps_original_result(asking,
         await receive(queue, "result")
         if controller.active_task:
             await controller.active_task
-    item = controller.questions[card["question_id"]]
+    item = controller.questions[card["task_id"]]
     assert item.future is None
     results = await asyncio.gather(
-        controller.answer_question(card["question_id"], "SQLite"),
-        controller.answer_question(card["question_id"], "SQLite"),
+        controller.answer_question(card["task_id"], "SQLite"),
+        controller.answer_question(card["task_id"], "SQLite"),
         return_exceptions=True,
     )
     assert results[0] is None
@@ -211,7 +218,7 @@ async def test_timeout_late_answer_routes_once_and_keeps_original_result(asking,
     history = (await reader.get(controller.session_id)).messages
     assert tool_results(history)[0] == {"status": "pending", "task_id": "ask"}
     assert len(late_answers(history)) == 1
-    assert "Question: Which database?\nAnswer: SQLite" in late_answers(history)[0]["content"]
+    assert background_results(history) == [{"task_id": "ask", "status": "answered", "answer": "SQLite"}]
     assert controller._last_request.config["runtime"]["workspace"] == str(asking[-1])
     assert controller._last_request.approval_mode == "request"
 
@@ -224,14 +231,14 @@ async def test_disconnect_snapshot_and_cancel_release_waiter_but_keep_question(a
     controller.unsubscribe(queue)
     queue, snapshot = controller.subscribe()
     assert snapshot["questions"] == [{
-        "question_id": card["question_id"], "question": card["question"],
+        "task_id": card["task_id"], "question": card["question"],
         "options": card["options"],
     }]
     assert controller.active_task is not None
     await controller.cancel()
-    assert controller.questions[card["question_id"]].future is None
+    assert controller.questions[card["task_id"]].future is None
     assert controller.subscribe()[1]["questions"] == snapshot["questions"]
-    await controller.answer_question(card["question_id"], "MySQL")
+    await controller.answer_question(card["task_id"], "MySQL")
     await receive(queue, "result")
     history = (await reader.get(controller.session_id)).messages
     assert len(late_answers(history)) == 1
@@ -247,12 +254,12 @@ async def test_unknown_blank_and_closed_answers_do_not_lock_card(asking):
     with pytest.raises(InputError, match="does not exist"):
         await controller.answer_question("other-session-question", "answer")
     with pytest.raises(InputError, match="blank"):
-        await controller.answer_question(card["question_id"], "  ")
-    assert card["question_id"] in controller.questions
+        await controller.answer_question(card["task_id"], "  ")
+    assert card["task_id"] in controller.questions
     controller._closing = True
     with pytest.raises(InputError, match="closed"):
-        await controller.answer_question(card["question_id"], "answer")
-    assert card["question_id"] in controller.questions
+        await controller.answer_question(card["task_id"], "answer")
+    assert card["task_id"] in controller.questions
     controller._closing = False
 
 
@@ -270,10 +277,10 @@ async def test_failed_late_answer_keeps_question_for_retry(asking, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(controller, "_submit", reject_submission)
         with pytest.raises(InputError, match="could not accept answer"):
-            await controller.answer_question(card["question_id"], "MySQL")
-    assert controller.subscribe()[1]["questions"][0]["question_id"] == card["question_id"]
+            await controller.answer_question(card["task_id"], "MySQL")
+    assert controller.subscribe()[1]["questions"][0]["task_id"] == card["task_id"]
 
-    await controller.answer_question(card["question_id"], "MySQL")
+    await controller.answer_question(card["task_id"], "MySQL")
     await receive(queue, "result")
     assert controller.subscribe()[1]["questions"] == []
     history = (await reader.get(controller.session_id)).messages
@@ -286,11 +293,11 @@ async def test_answer_during_stop_is_queued_without_starting_or_resolving_waiter
     card = await start(asking)
     # The cancel path sets this flag before waiting for the run to unwind.
     controller._stopping = True
-    item = controller.questions[card["question_id"]]
-    await controller.answer_question(card["question_id"], "MySQL")
-    assert card["question_id"] not in controller.questions
+    item = controller.questions[card["task_id"]]
+    await controller.answer_question(card["task_id"], "MySQL")
+    assert card["task_id"] not in controller.questions
     assert not item.future.done()
-    assert [p.request.message_id for p in controller.pending] == [card["question_id"]]
+    assert [p.request.message_id for p in controller.pending] == [card["task_id"]]
     await controller.cancel()
     assert controller.active_task is None
     assert len(controller.pending) == 1
@@ -306,7 +313,7 @@ async def test_zero_timeout_and_answer_choose_exactly_one_route(asking, monkeypa
         await receive(queue, "result")
         if controller.active_task:
             await controller.active_task
-    await controller.answer_question(card["question_id"], "MySQL")
+    await controller.answer_question(card["task_id"], "MySQL")
     async with asyncio.timeout(3):
         while controller.active_task:
             await asyncio.sleep(0.001)
@@ -338,20 +345,20 @@ def test_websocket_answers_errors_and_reconnect(tmp_path, monkeypatch):
                 frame = socket.receive_json()
                 if frame["type"] == "question_request":
                     break
-            qid = frame["question_id"]
-            socket.send_json({"type": "question_answer", "question_id": qid, "answer": " "})
+            qid = frame["task_id"]
+            socket.send_json({"type": "question_answer", "task_id": qid, "answer": " "})
             error = socket.receive_json()
             while error["type"] != "error":
                 error = socket.receive_json()
             assert error["scope"] == "input"
-            assert error["question_id"] == qid
+            assert error["task_id"] == qid
         with client.websocket_connect("/ws/v1/chat/questions-test") as socket:
             ready = socket.receive_json()
-            assert ready["questions"][0]["question_id"] == qid
-            assert set(ready["questions"][0]) == {"question_id", "question", "options"}
-            socket.send_json({"type": "question_answer", "question_id": qid, "answer": "MySQL"})
+            assert ready["questions"][0]["task_id"] == qid
+            assert set(ready["questions"][0]) == {"task_id", "question", "options"}
+            socket.send_json({"type": "question_answer", "task_id": qid, "answer": "MySQL"})
             answered = socket.receive_json()
-            assert answered == {"type": "question_closed", "session_id": "questions-test", "question_id": qid}
+            assert answered == {"type": "question_closed", "session_id": "questions-test", "task_id": qid}
             while socket.receive_json()["type"] != "result":
                 pass
         with client.websocket_connect("/ws/v1/chat/questions-test") as socket:
@@ -363,14 +370,14 @@ async def test_skip_ends_wait_immediately_and_rejects_later_answers(asking, monk
     monkeypatch.setattr(questions, "ASK_USER_TIMEOUT_SECONDS", 60)
     _, _, reader, controller, queue, _ = asking
     card = await start(asking)
-    await controller.answer_question(card["question_id"])
+    await controller.answer_question(card["task_id"])
     await receive(queue, "result")  # bounded to 3 seconds, not the 60-second timeout
     with pytest.raises(InputError, match="does not exist"):
-        await controller.answer_question(card["question_id"], "late conflicting answer")
+        await controller.answer_question(card["task_id"], "late conflicting answer")
     with pytest.raises(InputError, match="does not exist"):
-        await controller.answer_question(card["question_id"])
+        await controller.answer_question(card["task_id"])
     history = (await reader.get(controller.session_id)).messages
-    assert tool_results(history) == [{"question_id": card["question_id"], "status": "skipped"}]
+    assert tool_results(history) == [{"task_id": card["task_id"], "status": "skipped"}]
     assert late_answers(history) == []
     assert controller.subscribe()[1]["questions"] == []
     assert controller.questions == {}
@@ -385,9 +392,9 @@ async def test_skip_after_timeout_closes_without_starting_another_run(asking):
         await controller.active_task
     before = (await reader.get(controller.session_id)).messages
     requests = len(provider.requests)
-    await controller.answer_question(card["question_id"])
+    await controller.answer_question(card["task_id"])
     with pytest.raises(InputError, match="does not exist"):
-        await controller.answer_question(card["question_id"], "late conflicting answer")
+        await controller.answer_question(card["task_id"], "late conflicting answer")
     assert controller.active_task is None
     assert not controller.pending
     assert len(provider.requests) == requests
@@ -403,7 +410,7 @@ async def test_answer_and_skip_first_submission_wins(asking, skip_first):
     card = await start(asking)
     answers = [None, "MySQL"] if skip_first else ["MySQL", None]
     results = await asyncio.gather(
-        *(controller.answer_question(card["question_id"], a) for a in answers),
+        *(controller.answer_question(card["task_id"], a) for a in answers),
         return_exceptions=True,
     )
     assert results[0] is None
@@ -422,15 +429,15 @@ def test_websocket_skip_errors_and_reconnect(tmp_path, monkeypatch):
     with TestClient(create_app(runtime_service=service, session_reader=reader)) as client:
         with client.websocket_connect("/ws/v1/chat/skip-test") as socket:
             socket.receive_json()
-            socket.send_json({"type": "question_skip", "question_id": "unknown"})
-            assert socket.receive_json()["question_id"] == "unknown"
+            socket.send_json({"type": "question_skip", "task_id": "unknown"})
+            assert socket.receive_json()["task_id"] == "unknown"
             socket.send_json({"type": "message", "content": "Ask", "config": {
                 "runtime": {"workspace": str(tmp_path)},
             }})
             frame = socket.receive_json()
             while frame["type"] != "question_request":
                 frame = socket.receive_json()
-            socket.send_json({"type": "question_skip", "question_id": frame["question_id"]})
+            socket.send_json({"type": "question_skip", "task_id": frame["task_id"]})
             frame = socket.receive_json()
             while frame["type"] != "question_closed":
                 frame = socket.receive_json()

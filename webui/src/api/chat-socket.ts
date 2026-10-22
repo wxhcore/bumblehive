@@ -120,13 +120,13 @@ export class ChatSocket {
     }));
   }
 
-  answerQuestion(questionId: string, answer?: string): void {
+  answerQuestion(taskId: string, answer?: string): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error("聊天服务尚未连接");
     }
     this.socket.send(JSON.stringify({
       type: answer === undefined ? "question_skip" : "question_answer",
-      question_id: questionId,
+      task_id: taskId,
       answer,
     }));
   }

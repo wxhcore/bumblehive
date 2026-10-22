@@ -63,19 +63,20 @@ do not survive a server restart.
 
 The application registers `ask_user(question, options?)` without requiring tool
 approval. It asks one question, with optional suggested answers and an always
-available free-text input above the composer. An answer within 60 seconds returns
-`{"question_id":"...","status":"answered","answer":"..."}` to the tool. Otherwise
-the tool returns `{"question_id":"...","status":"pending"}`; the card stays
+available free-text input above the composer. Its `task_id` is the originating
+tool call ID, shared by the card, submissions, and results. An answer within 60 seconds returns
+`{"task_id":"...","status":"answered","answer":"..."}` to the tool. Otherwise
+the tool returns `{"task_id":"...","status":"pending"}`; the card stays
 answerable, and a later answer uses the existing session input queue and steering.
 
 The server sends `question_request` and acknowledges answers with
-`question_closed`. Submit `{"type":"question_answer","question_id":"...","answer":"..."}`.
-To skip, submit `{"type":"question_skip","question_id":"..."}`. The server
+`question_closed`. Submit `{"type":"question_answer","task_id":"...","answer":"..."}`.
+To skip, submit `{"type":"question_skip","task_id":"..."}`. The server
 acknowledges it with `question_closed`. While the tool is waiting, skipping
-immediately returns `{"question_id":"...","status":"skipped"}`. After timeout,
+immediately returns `{"task_id":"...","status":"skipped"}`. After timeout,
 skipping only closes the question; it does not append a second tool result or
 start another run. The first accepted answer or skip wins.
-Input errors include `question_id` so the corresponding card can be resubmitted.
+Input errors include `task_id` so the corresponding card can be resubmitted.
 Only unresolved questions are kept in memory and included in `ready.questions`.
 Accepted answers and skips remove the question and send `question_closed`, without
 retaining or replaying a terminal state. Later submissions for that ID receive
@@ -94,10 +95,9 @@ await controller.submit(request, steer=True)
 
 ### Sub-agents
 
-The server's read-only `sub_agent` tool accepts `title`, `task`, and an optional
-`background` flag. By default (`background=true`), it returns the child session
-ID while execution continues. Pass `background=false` explicitly to wait and
-return the final answer.
+The server's read-only `sub_agent(title, task)` runs in the background and returns
+`{"status":"pending","task_id":"..."}` after startup. The task ID is the
+originating tool call ID; success and failure reports include that same ID.
 The final report or failure is delivered automatically to the parent: through
 steering while running, or a new turn when naturally idle. After a stop or error,
 reports stay queued until the user resumes. Background work survives disconnects
@@ -106,6 +106,22 @@ and parent-turn cancellation; deleting its session cancels it.
 The parent's `ready.running_subagents` lists active background children for
 reconnection. Child events retain their own session IDs. Task ownership and
 pending reports are in memory; conversation history is saved as usual.
+
+### Background result messages
+
+The server wraps Ask User and sub-agent background results in the same
+`user` message format, using the original tool call ID:
+
+```text
+[Background tool result]
+Task ID: call_123
+
+Tool return content
+```
+
+Strings are included as-is; structured results are serialized as JSON. Each
+tool defines its own result content. This is a later conversation input, not a
+second tool response for the original call.
 
 ## Desktop sidecar
 
