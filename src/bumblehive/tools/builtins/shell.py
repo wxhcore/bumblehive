@@ -45,6 +45,14 @@ _EXEC_PARAMETERS: dict[str, Any] = {
     "type": "object",
     "properties": {
         "command": {"type": "string", "description": "Shell command to execute."},
+        "justification": {
+            "type": "string",
+            "description": (
+                "Brief user-facing explanation of why this command is needed, "
+                "for display during approval. Use the language of the user's "
+                "current request."
+            ),
+        },
         "working_dir": {
             "type": "string",
             "description": (
@@ -568,7 +576,9 @@ class ExecRunner:
         login: bool | None = None,
         yield_time_ms: int | None = None,
         max_output_chars: int | None = None,
+        justification: str | None = None,
     ) -> dict[str, Any]:
+        # Approval handlers read justification from the call arguments before execution.
         if not command.strip():
             return {"error": "command must not be empty"}
 

@@ -88,6 +88,52 @@ def test_exec_schema_requires_the_current_explicit_interface(arguments) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [None, True, False])
+@pytest.mark.parametrize("justification", [None, "创建测试文件，以验证命令执行。"])
+async def test_exec_justification_reaches_approval_without_changing_execution(
+    tmp_path, approved, justification,
+):
+    marker = tmp_path / "executed.txt"
+    command = _shell_command([
+        sys.executable,
+        "-c",
+        "from pathlib import Path; Path('executed.txt').write_text('done')",
+    ])
+    arguments = {"command": command}
+    if justification is not None:
+        arguments["justification"] = justification
+    requests = []
+
+    async def approve(request):
+        assert not marker.exists()
+        requests.append(request)
+        return (
+            ToolApprovalDecision.approve()
+            if approved
+            else ToolApprovalDecision.reject("User declined.")
+        )
+
+    async with _manager(timeout=10) as manager:
+        result = await manager.execute_call(
+            ToolCall("exec-justification", "exec", arguments),
+            workspace=tmp_path,
+            approval_handler=approve if approved is not None else None,
+        )
+
+    if approved is not None:
+        assert len(requests) == 1
+        assert dict(requests[0].arguments) == arguments
+    if approved is False:
+        assert result.error.code == "tool_approval_denied"
+        assert not marker.exists()
+    else:
+        assert result.error is None
+        assert result.content["command"] == command
+        assert result.content["exit_code"] == 0
+        assert marker.read_text() == "done"
+
+
+@pytest.mark.asyncio
 async def test_session_poll_waits_for_early_process_completion() -> None:
     class CompletingProcess:
         returncode = None
