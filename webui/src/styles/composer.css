@@ -561,17 +561,16 @@ textarea {
   flex-shrink: 0;
   width: 20px;
   height: 21px;
-  border: 1px solid #dedede;
+  border: 1px solid var(--sidebar-surface);
   border-radius: 7px;
-  background: #f4f4f4;
-  color: #929292;
+  background: var(--sidebar-surface);
+  color: var(--ink);
   font-weight: 400;
 }
 
 .question-option:hover,
 .question-close:hover { background: #f7f7f7; }
 .question-option.selected { border-color: #d8d8d8; background: #f5f5f5; }
-.question-option.selected .question-number { background: #252525; border-color: #252525; color: #fff; }
 .question-option:focus-visible,
 .question-close:focus-visible,
 .question-reply button:focus-visible { outline: 2px solid #8c8c8c; outline-offset: 2px; }
