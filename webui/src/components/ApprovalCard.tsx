@@ -1,13 +1,12 @@
-import { useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { PendingApproval } from "../types/api";
 
 interface ApprovalCardProps {
-  embedded?: boolean;
   approval: PendingApproval;
   count: number;
   isStopping: boolean;
+  disconnected?: boolean;
   onDecide: (approval: PendingApproval, approved: boolean) => void;
-  onStop: () => void;
 }
 
 function approvalPrompt(approval: PendingApproval): string {
@@ -18,8 +17,12 @@ function approvalPrompt(approval: PendingApproval): string {
       return "此操作将修改工作目录外的文件。是否允许？";
     case "apply_patch":
       return `此操作涉及 ${approval.outside_paths?.length ?? 0} 个工作目录外的文件。是否允许执行？`;
-    case "exec":
-      return "是否允许执行以下命令？";
+    case "exec": {
+      const justification = approval.arguments.justification;
+      return typeof justification === "string" && justification.trim()
+        ? justification.trim()
+        : "是否允许执行以下命令？";
+    }
     case "write_stdin": {
       const actions = [];
       if (approval.arguments.chars) actions.push("向该终端发送以下输入");
@@ -33,89 +36,81 @@ function approvalPrompt(approval: PendingApproval): string {
 }
 
 export function ApprovalCard({
-  embedded = false,
   approval,
   count,
   isStopping,
+  disconnected = false,
   onDecide,
-  onStop,
 }: ApprovalCardProps) {
   const cardRef = useRef<HTMLElement>(null);
+  const previewId = useId();
+  const promptId = useId();
+  const [expanded, setExpanded] = useState(true);
   useLayoutEffect(() => {
-    if (embedded) return;
-    const card = cardRef.current;
-    const panel = card?.closest<HTMLElement>(".main-panel");
-    if (!card || !panel) return;
-    const measure = () =>
-      panel.style.setProperty("--composer-height", `${card.offsetHeight}px`);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(card);
-    return () => {
-      observer.disconnect();
-      panel.style.removeProperty("--composer-height");
-    };
-  }, [embedded]);
+    cardRef.current?.focus({ preventScroll: true });
+  }, []);
 
-  const disabled = approval.submitting || isStopping;
+  const disabled = approval.submitting || isStopping || disconnected;
   const terminal = approval.reason === "exec" || approval.reason === "write_stdin";
+  const preview = approval.command ?? (
+    approval.reason === "write_stdin" ? String(approval.arguments.chars ?? "")
+      : approval.reason === "write_file" ? String(approval.arguments.content ?? "")
+        : JSON.stringify(approval.arguments, null, 2)
+  );
+
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (disabled || event.repeat || event.nativeEvent.isComposing ||
+      event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onDecide(approval, false);
+    } else if (event.key === "Enter" && event.target === event.currentTarget) {
+      event.preventDefault();
+      event.stopPropagation();
+      onDecide(approval, true);
+    }
+  }
+
   return (
-    <section className={embedded ? "approval-card embedded-approval" : "composer approval-card"} ref={cardRef} aria-label="工具审批">
+    <section className="approval-card" ref={cardRef} tabIndex={-1}
+      aria-label="工具审批" aria-describedby={promptId} onKeyDown={handleKeyDown}>
       <div className="approval-body">
         <div className="approval-heading">
-          <span>{terminal ? "终端" : "工具审批"} · {approval.name}</span>
+          <span className="approval-label">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="4" />
+              {terminal ? <path d="m7 8 3 4-3 4m6 0h4" /> : <path d="m7 12 3 3 7-7" />}
+            </svg>
+            {terminal ? "终端" : `工具审批 · ${approval.name}`}
+          </span>
           {count > 1 ? <span>{count} 项待确认</span> : null}
         </div>
-        <p className="approval-prompt" role="status">{approvalPrompt(approval)}</p>
-        <div className="approval-context">工作目录：{approval.workspace}</div>
-        {approval.paths?.map((path) => (
-          <code className="approval-path" key={path}>{path}</code>
-        ))}
-        {approval.command !== undefined ? (
-          <>
-            <div className="approval-context">执行目录：{approval.working_dir}</div>
-            <pre className="approval-code">{approval.command}</pre>
-          </>
-        ) : null}
-        {approval.reason === "write_stdin" ? (
-          <>
-            <div className="approval-context">
-              终端：{String(approval.arguments.session_id ?? "")}
-            </div>
-            {approval.arguments.chars ? (
-              <pre className="approval-code">{String(approval.arguments.chars)}</pre>
-            ) : null}
-          </>
-        ) : null}
-        <details className="approval-details">
-          <summary>操作详情</summary>
-          <pre className="approval-code">
-            {approval.reason === "write_file"
-              ? String(approval.arguments.content ?? "")
-              : JSON.stringify(approval.arguments, null, 2)}
-          </pre>
-        </details>
+        <p id={promptId} className="approval-prompt">{approvalPrompt(approval)}</p>
+        <div id={previewId} hidden={!expanded}>
+          {approval.paths?.map((path) => (
+            <code className="approval-path" key={path}>{path}</code>
+          ))}
+          {preview ? <pre className="approval-code">{preview}</pre> : null}
+        </div>
+        <div className="approval-disclosure">
+          <button type="button" aria-expanded={expanded} aria-controls={previewId}
+            onClick={() => setExpanded((value) => !value)}>
+            {expanded ? "折叠" : "展开"}
+          </button>
+        </div>
       </div>
       <div className="approval-actions">
-        <button
-          type="button"
-          className="approval-stop"
-          disabled={isStopping}
-          onClick={onStop}
-        >
-          {isStopping ? "正在停止…" : "停止任务"}
-        </button>
-        {approval.submitting ? <span role="status">处理中…</span> : null}
+        {disconnected || approval.submitting ? (
+          <span className="approval-status" role="status">
+            {disconnected ? "连接已中断，等待重连…" : "处理中…"}
+          </span>
+        ) : null}
         <button type="button" disabled={disabled} onClick={() => onDecide(approval, false)}>
-          拒绝
+          拒绝 <kbd>Esc</kbd>
         </button>
-        <button
-          type="button"
-          className="approval-allow"
-          disabled={disabled}
-          onClick={() => onDecide(approval, true)}
-        >
-          允许一次
+        <button type="button" className="approval-allow" disabled={disabled} onClick={() => onDecide(approval, true)}>
+          允许一次 <kbd aria-label="回车">↵</kbd>
         </button>
       </div>
     </section>

@@ -58,6 +58,9 @@ export const Composer = memo(function Composer({
 }: ComposerProps) {
   const composerRef = useRef<HTMLFormElement>(null);
   const accessoryRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const hasApproval = Boolean(approvalSlot);
+  const wasApproving = useRef(false);
   useLayoutEffect(() => {
     const composer = composerRef.current;
     const panel = composer?.closest<HTMLElement>(".main-panel");
@@ -76,9 +79,14 @@ export const Composer = memo(function Composer({
     };
   }, []);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  useLayoutEffect(() => {
+    if (hasApproval) setModelMenuOpen(false);
+    else if (wasApproving.current) inputRef.current?.focus({ preventScroll: true });
+    wasApproving.current = hasApproval;
+  }, [hasApproval]);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (disabled || disconnected || isStopping) return;
+    if (hasApproval || disabled || disconnected || isStopping) return;
     onSubmit();
   }
 
@@ -90,10 +98,9 @@ export const Composer = memo(function Composer({
   }
 
   return (
-    <form className="composer" onSubmit={submit} ref={composerRef}>
+    <form className={`composer${hasApproval ? " composer-approving" : ""}`} onSubmit={submit} ref={composerRef}>
       <div className="composer-accessory" ref={accessoryRef}>
         {questionSlot}
-        {approvalSlot}
         {pendingMessages.length > 0 ? (
           <div
             className="pending-messages"
@@ -134,93 +141,98 @@ export const Composer = memo(function Composer({
           </div>
         ) : null}
       </div>
-      {disconnected ? (
-        <div className="composer-connection" role="status">连接已中断，正在重新连接…</div>
-      ) : null}
-      <textarea
-        value={value}
-        disabled={disabled}
-        aria-label="输入任务"
-        placeholder={
-          isStreaming ? "继续输入，提交后排队，也可选择引导…" : "给 BumbleHive 一个任务…"
-        }
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={handleKeyDown}
-      />
-      <div className="composer-toolbar">
-        <button
-          className="workspace-button"
-          type="button"
-          aria-label={`新建工作空间，当前工作区 ${workspace}`}
-          title="新建工作空间"
-          disabled={disabled || isStreaming}
-          onClick={onAddWorkspace}
-        >
-          <span className="folder-icon" aria-hidden="true" />
-          <span>{workspace}</span>
-        </button>
-        <ApprovalModeSelect
-          mode={approvalMode}
-          disabled={disabled || isStreaming}
-          onSelect={onSelectApprovalMode}
-        />
-        <span className="toolbar-spacer" />
-        <div
-          className="composer-model-field"
-          onBlur={(event) => {
-            const nextTarget = event.relatedTarget;
-            if (
-              !(nextTarget instanceof Node) ||
-              !event.currentTarget.contains(nextTarget)
-            ) {
-              setModelMenuOpen(false);
-            }
-          }}
-        >
-          {modelMenuOpen && !modelSwitchDisabled ? (
-            <div className="model-dropdown composer-model-dropdown" role="listbox">
-              <ModelOptions
-                models={models}
-                selectedModel={model}
-                onSelect={(selectedModel) => {
-                  setModelMenuOpen(false);
-                  void onSelectModel(selectedModel);
-                }}
-              />
-            </div>
+      {hasApproval ? approvalSlot : (
+        <>
+          {disconnected ? (
+            <div className="composer-connection" role="status">连接已中断，正在重新连接…</div>
           ) : null}
-          <button
-            className="model-button"
-            type="button"
-            aria-label={`当前模型 ${model}`}
-            aria-expanded={modelMenuOpen}
-            disabled={disabled || modelSwitchDisabled}
-            onClick={() => setModelMenuOpen((open) => !open)}
-          >
-            <span>{model}</span>
-            <span className="chevron" aria-hidden="true" />
-          </button>
-        </div>
-        {isStreaming && value.trim() ? (
-          <button className="queue-submit" type="submit" disabled={disabled || disconnected || isStopping}>
-            排队发送
-          </button>
-        ) : null}
-        <button
-          className="send-button"
-          type={isStreaming ? "button" : "submit"}
-          disabled={
-            disabled || disconnected || isStopping || (!isStreaming && !value.trim())
-          }
-          aria-label={isStreaming ? "停止运行" : "发送任务"}
-          onClick={isStreaming ? onStop : undefined}
-        >
-          <span
-            className={isStreaming ? "stop-icon" : "send-arrow"}
-            aria-hidden="true"
+          <textarea
+            ref={inputRef}
+            value={value}
+            disabled={disabled}
+            aria-label="输入任务"
+            placeholder={
+              isStreaming ? "继续输入，提交后排队，也可选择引导…" : "给 BumbleHive 一个任务…"
+            }
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={handleKeyDown}
           />
-        </button>
-      </div>
+          <div className="composer-toolbar">
+            <button
+              className="workspace-button"
+              type="button"
+              aria-label={`新建工作空间，当前工作区 ${workspace}`}
+              title="新建工作空间"
+              disabled={disabled || isStreaming}
+              onClick={onAddWorkspace}
+            >
+              <span className="folder-icon" aria-hidden="true" />
+              <span>{workspace}</span>
+            </button>
+            <ApprovalModeSelect
+              mode={approvalMode}
+              disabled={disabled || isStreaming}
+              onSelect={onSelectApprovalMode}
+            />
+            <span className="toolbar-spacer" />
+            <div
+              className="composer-model-field"
+              onBlur={(event) => {
+                const nextTarget = event.relatedTarget;
+                if (
+                  !(nextTarget instanceof Node) ||
+                  !event.currentTarget.contains(nextTarget)
+                ) {
+                  setModelMenuOpen(false);
+                }
+              }}
+            >
+              {modelMenuOpen && !modelSwitchDisabled ? (
+                <div className="model-dropdown composer-model-dropdown" role="listbox">
+                  <ModelOptions
+                    models={models}
+                    selectedModel={model}
+                    onSelect={(selectedModel) => {
+                      setModelMenuOpen(false);
+                      void onSelectModel(selectedModel);
+                    }}
+                  />
+                </div>
+              ) : null}
+              <button
+                className="model-button"
+                type="button"
+                aria-label={`当前模型 ${model}`}
+                aria-expanded={modelMenuOpen}
+                disabled={disabled || modelSwitchDisabled}
+                onClick={() => setModelMenuOpen((open) => !open)}
+              >
+                <span>{model}</span>
+                <span className="chevron" aria-hidden="true" />
+              </button>
+            </div>
+            {isStreaming && value.trim() ? (
+              <button className="queue-submit" type="submit" disabled={disabled || disconnected || isStopping}>
+                排队发送
+              </button>
+            ) : null}
+            <button
+              className="send-button"
+              type={isStreaming ? "button" : "submit"}
+              disabled={
+                disabled || disconnected || isStopping || (!isStreaming && !value.trim())
+              }
+              aria-label={isStreaming ? "停止运行" : "发送任务"}
+              onClick={isStreaming ? onStop : undefined}
+            >
+              <span
+                className={isStreaming ? "stop-icon" : "send-arrow"}
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+        </>
+      )}
     </form>
   );
 });

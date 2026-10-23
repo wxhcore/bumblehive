@@ -741,13 +741,12 @@ export default function App() {
                   onPendingAction={actOnPending}
                   approvalSlot={pendingApprovals[0] ? (
                     <ApprovalCard
-                      embedded
                       key={pendingApprovals[0].approval_id}
                       approval={pendingApprovals[0]}
                       count={pendingApprovals.length}
                       isStopping={isViewingStoppingSession}
+                      disconnected={isDisconnected}
                       onDecide={decideApproval}
-                      onStop={handleComposerStop}
                     />
                   ) : null}
                   approvalMode={approvalMode}

@@ -793,17 +793,20 @@ test("pending and rejected terminal input stays separate from the running proces
 });
 
 test("approval card displays actual operation, decision controls, and submitting state", () => {
-  const props = { count: 2, isStopping: false, onDecide() {}, onStop() {} };
+  const props = { count: 2, isStopping: false, onDecide() {} };
   const html = renderToStaticMarkup(createElement(approvalCard.ApprovalCard, {
     ...props,
     approval: { ...approvalFrame(), submitting: false, sourceSessionId: "session-1" },
   }));
-  for (const text of ["/outside.txt", "/workspace", "hello", "拒绝", "允许一次", "停止任务", "2 项待确认"]) assert.ok(html.includes(text));
+  for (const text of ["/outside.txt", "hello", "拒绝", "允许一次", "2 项待确认"]) assert.ok(html.includes(text));
+  assert.doesNotMatch(html, /操作详情|停止任务|工作目录：|<details/);
   const shellHtml = renderToStaticMarkup(createElement(approvalCard.ApprovalCard, {
     ...props,
     approval: { ...approvalFrame("shell", "exec"), command: "echo <hello> > /tmp/outside", working_dir: "/workspace", submitting: true },
   }));
   assert.match(shellHtml, /echo &lt;hello&gt; &gt; \/tmp\/outside/);
+  assert.doesNotMatch(shellHtml, /操作详情|停止任务|工作目录：|<details/);
+  assert.equal((shellHtml.match(/echo &lt;hello&gt; &gt; \/tmp\/outside/g) ?? []).length, 1);
   assert.match(shellHtml, /处理中/);
   assert.match(shellHtml, /disabled=""[^>]*>允许一次/);
 });
@@ -1143,4 +1146,53 @@ test("running background children can be deleted while foreground branches remai
   const foreground = render(new Set(["child"]));
   assert.doesNotMatch(background, /class="session-delete"[^>]*disabled/);
   assert.match(foreground, /class="session-delete"[^>]*disabled/);
+});
+
+test("exec approval uses justification and falls back for missing or blank explanations", () => {
+  for (const justification of ["  是否允许安装依赖？  ", undefined, "   ", 123]) {
+    const html = renderToStaticMarkup(createElement(approvalCard.ApprovalCard, {
+      count: 1, isStopping: false, onDecide() {},
+      approval: {
+        ...approvalFrame("shell", "exec"), submitting: false,
+        command: "npm install", arguments: { command: "npm install", justification },
+      },
+    }));
+    const prompt = html.match(/class="approval-prompt">([^<]*)<\/p>/)?.[1];
+    assert.equal(prompt, typeof justification === "string" && justification.trim()
+      ? justification.trim() : "是否允许执行以下命令？");
+    assert.match(html, /aria-expanded="true"/);
+  }
+});
+
+test("disconnected approvals disable decisions", () => {
+  const html = renderToStaticMarkup(createElement(approvalCard.ApprovalCard, {
+    count: 1, isStopping: false, disconnected: true, onDecide() {},
+    approval: { ...approvalFrame(), submitting: false },
+  }));
+  assert.match(html, /连接已中断，等待重连/);
+  for (const label of ["拒绝", "允许一次"]) {
+    assert.match(html, new RegExp(`disabled=""[^>]*>${label}`));
+  }
+});
+
+test("approval replaces composer input and toolbar while keeping questions and queued messages", async () => {
+  const { Composer } = await server.ssrLoadModule("/src/components/Composer.tsx");
+  const props = {
+    value: "保留的草稿", model: "model", models: [], workspace: "demo", disabled: false,
+    isStreaming: true, isStopping: false, modelSwitchDisabled: true,
+    approvalMode: "request", onSelectApprovalMode() {}, onChange() {},
+    onSubmit() {}, onStop() {}, onAddWorkspace() {}, async onSelectModel() {},
+    questionSlot: createElement("div", null, "待回答的问题"),
+    pendingMessages: [{ message_id: "queued", content: "待发送的消息", submitting: false }],
+  };
+  const html = renderToStaticMarkup(createElement(Composer, {
+    ...props, approvalSlot: createElement("section", null, "审批卡片"),
+  }));
+  assert.match(html, /composer-approving/);
+  for (const label of ["审批卡片", "待回答的问题", "待发送的消息"]) assert.ok(html.includes(label));
+  assert.doesNotMatch(html, /输入任务|composer-toolbar|保留的草稿/);
+  const normal = renderToStaticMarkup(createElement(Composer, props));
+  assert.match(normal, /输入任务/);
+  assert.match(normal, /保留的草稿/);
+  assert.match(normal, /composer-toolbar/);
 });
