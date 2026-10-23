@@ -54,9 +54,16 @@ python -m pytest server/tests
 pnpm --filter bumblehive-webui run test
 pnpm --filter bumblehive-webui run build
 
+# One WebUI test file
+pnpm --filter bumblehive-webui run test tests/components/approval-card.test.mjs
+
 # Desktop, when the platform toolchain is installed
 pnpm run build:desktop
 ```
+
+WebUI tests live in `webui/tests/`, mirroring the modules in `webui/src/`.
+Name test files `*.test.mjs` so Node discovers them automatically. Shared Vite
+setup lives in `tests/helpers/`, and reusable test data lives in `tests/fixtures/`.
 
 ## Open a Pull Request
 
