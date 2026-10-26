@@ -37,6 +37,7 @@ import { useStableCallback } from "./hooks/useStableCallback";
 import { useToast } from "./hooks/useToast";
 import {
   isMacDesktop,
+  isWindowsDesktop,
   pickWorkspaceDirectory,
 } from "./lib/platform";
 import {
@@ -631,7 +632,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell${isMacDesktop ? " platform-macos" : ""}${settingsMode ? " settings-mode" : ""}${initialSetupMode ? " initial-setup-mode" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}${searchOpen ? " search-open" : ""}`}
+      className={`app-shell${isMacDesktop ? " platform-macos" : ""}${isWindowsDesktop ? " platform-windows" : ""}${settingsMode ? " settings-mode" : ""}${initialSetupMode ? " initial-setup-mode" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}${searchOpen ? " search-open" : ""}`}
       aria-label="BumbleHive 对话工作台"
       style={sidebar.style}
     >

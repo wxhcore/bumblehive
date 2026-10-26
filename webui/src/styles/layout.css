@@ -20,6 +20,44 @@
   --titlebar-controls-min-width: 128px;
 }
 
+.platform-windows .desktop-titlebar {
+  position: relative;
+  padding-right: 138px;
+}
+
+.window-caption-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  height: 100%;
+}
+
+.window-caption-button {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+}
+
+.window-caption-button svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.window-caption-button:hover { background: var(--selected-surface); }
+.window-caption-button:active { background: var(--pressed-surface); }
+.window-caption-close:hover { background: #c42b1c; color: white; }
+.window-caption-close:active { background: #a92316; color: white; }
+.window-caption-button:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+
 .sidebar-collapsed .desktop-titlebar, .initial-setup-mode .desktop-titlebar {
   grid-template-columns: var(--titlebar-controls-min-width, 48px) minmax(0, 1fr);
 }

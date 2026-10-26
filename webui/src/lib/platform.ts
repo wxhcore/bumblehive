@@ -1,5 +1,10 @@
 interface TauriWindowHandle {
   startDragging: () => Promise<void>;
+  minimize: () => Promise<void>;
+  toggleMaximize: () => Promise<void>;
+  close: () => Promise<void>;
+  isMaximized: () => Promise<boolean>;
+  onResized: (handler: () => void) => Promise<() => void>;
 }
 
 interface TauriInternals {
@@ -26,6 +31,14 @@ export const isMacOS = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod
 
 export const isMacDesktop =
   isMacOS && typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+export const isWindowsDesktop =
+  typeof navigator !== "undefined" && /Win/.test(navigator.platform) &&
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+export function getDesktopWindow(): TauriWindowHandle | undefined {
+  return window.__TAURI__?.window?.getCurrentWindow?.();
+}
 
 export function startWindowDrag(): void {
   const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
