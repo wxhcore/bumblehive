@@ -2,11 +2,13 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type FormEvent,
+  type Ref,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -60,7 +62,12 @@ interface McpEditorState {
   server: McpServerSettings;
 }
 
+export interface SettingsViewHandle {
+  requestClose: () => Promise<boolean>;
+}
+
 interface SettingsViewProps {
+  ref?: Ref<SettingsViewHandle>;
   settings: Settings;
   mode: "setup" | "settings";
   focusWorkspace?: boolean;
@@ -166,6 +173,7 @@ function sameMcpServer(
 }
 
 export function SettingsView({
+  ref,
   settings,
   mode,
   focusWorkspace = false,
@@ -523,9 +531,11 @@ export function SettingsView({
   }
 
   async function requestClose() {
-    if (dirty && !await confirmAction("放弃尚未保存的设置更改？")) return;
+    if (dirty && !await confirmAction("放弃尚未保存的设置更改？")) return false;
     onCancel();
+    return true;
   }
+  useImperativeHandle(ref, () => ({ requestClose }));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

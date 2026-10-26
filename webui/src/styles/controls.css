@@ -1,176 +1,179 @@
 .model-dropdown {
-  max-height: 240px;
-  padding: 6px;
   display: grid;
   gap: 3px;
+  max-height: min(300px, 45vh);
+  padding: 6px;
   overflow-y: auto;
-  border: 1px solid rgba(23, 24, 26, 0.13);
+  border: 1px solid var(--soft-line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  background: var(--main-surface);
+  box-shadow: 0 8px 28px #00000014;
 }
 
 .model-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
   width: 100%;
   min-height: 36px;
   padding: 8px 10px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   color: var(--ink);
   background: transparent;
-  font: 500 13px/1.4 inherit;
+  font-size: 13px;
   text-align: left;
-  cursor: pointer;
+  transition: background-color var(--feedback-time);
 }
 
-.model-option:hover,
-.model-option:focus-visible,
+.model-option:hover {
+  background: var(--hover-surface);
+}
+
 .model-option.active {
-  outline: none;
-  background: rgba(var(--hive-yellow-rgb), 0.13);
+  background: var(--selected-surface);
+}
+
+.model-option:active {
+  background: var(--pressed-surface);
 }
 
 .model-option-id {
-  display: block;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.model-option-check {
+  flex: 0 0 13px;
 }
 
 .model-option-empty {
   padding: 10px;
-  color: rgba(23, 24, 26, 0.58);
+  color: var(--muted);
   font-size: 13px;
-  line-height: 1.45;
 }
 
-.primary-button,
-.secondary-button {
-  min-width: 106px;
-  height: 43px;
-  padding: 0 18px;
+.primary-button, .secondary-button, .danger-button {
+  min-width: 90px;
+  height: 36px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 13px;
-  font: 650 14px/1 inherit;
-  cursor: pointer;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color var(--feedback-time);
 }
 
-.primary-button:disabled {
-  opacity: 0.55;
+.primary-button {
+  color: #fff;
+  background: var(--primary-surface);
+}
+
+.primary-button:not(:disabled):hover {
+  background: #404641;
+}
+
+.primary-button:not(:disabled):active {
+  background: #141815;
 }
 
 .secondary-button {
   color: var(--ink);
-  background: rgba(23, 24, 26, 0.06);
+  background: var(--hover-surface);
 }
 
-.composer textarea:disabled {
-  color: rgba(23, 24, 26, 0.52);
+.secondary-button:not(:disabled):hover, .close-settings:not(:disabled):hover {
+  background: var(--selected-surface);
 }
 
-.workspace-button:disabled,
-.model-button:disabled {
-  opacity: 0.5;
+.secondary-button:not(:disabled):active {
+  background: var(--pressed-surface);
 }
 
-.model-button > span:first-child,
-.workspace-button > span:last-child {
-  max-width: 190px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.danger-button {
+  color: #fff;
+  background: #b23b30;
 }
 
-.send-button:disabled {
-  opacity: 0.38;
-  transform: none;
+.danger-button:not(:disabled):hover {
+  background: #982f27;
 }
 
-button:not(:disabled) {
-  transform-origin: center;
-  transition-property: transform, background-color, color, border-color,
-    box-shadow, opacity;
-  transition-duration: 190ms;
-  transition-timing-function: cubic-bezier(0.22, 0.7, 0.25, 1);
-  will-change: transform;
+.confirm-dialog {
+  width: min(420px, calc(100% - 40px));
+  padding: 24px;
+  border: 1px solid var(--soft-line);
+  border-radius: 16px;
+  color: var(--ink);
+  background: var(--main-surface);
+  box-shadow: 0 24px 70px #00000026;
 }
 
-button:not(:disabled):active {
-  transform: translateY(0.5px) scale(0.995);
-  transition-duration: 90ms;
-  transition-timing-function: cubic-bezier(0.2, 0.65, 0.3, 1);
+.confirm-dialog::backdrop {
+  background: #25272833;
 }
 
-.nav-button:not(:disabled):active,
-.conversation:not(:disabled):active,
-.settings-button:not(:disabled):active {
-  background: rgba(255, 255, 255, 0.3);
-  box-shadow: inset 0 1px 2px rgba(78, 57, 10, 0.045);
+.confirm-dialog h2 {
+  font-size: 19px;
+  font-weight: 500;
 }
 
-.workspace-button:not(:disabled):active,
-.model-button:not(:disabled):active,
-.reasoning-toggle:not(:disabled):active,
-.execution-process-toggle:not(:disabled):active,
-.secondary-button:not(:disabled):active,
-.close-settings:not(:disabled):active {
-  background: rgba(23, 24, 26, 0.045);
+.confirm-dialog p {
+  margin: 12px 0 24px;
+  color: var(--muted);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 
-.secondary-button:not(:disabled):hover,
-.secondary-button:not(:disabled):focus-visible,
-.close-settings:not(:disabled):hover,
-.close-settings:not(:disabled):focus-visible {
-  outline: none;
-  background: rgba(23, 24, 26, 0.09);
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
-.send-button:not(:disabled):active {
-  transform: translateY(0.5px) scale(0.975);
-  box-shadow:
-    0 0 0 1.5px var(--hive-yellow),
-    0 2px 6px rgba(23, 24, 26, 0.18);
+.toast {
+  position: fixed;
+  z-index: 40;
+  left: 50%;
+  bottom: 24px;
+  max-width: calc(100vw - 40px);
+  padding: 10px 17px;
+  border-radius: 10px;
+  color: #fff;
+  background: #252728;
+  opacity: 0;
+  pointer-events: none;
+  font-size: 13px;
+  transform: translateX(-50%);
+  transition: opacity 120ms;
 }
 
-.session-delete:not(:disabled):active {
-  transform: translateY(-50%) scale(0.96);
+.toast.show {
+  opacity: 1;
 }
 
-.session-toggle:not(:disabled):active {
-  transform: translateY(-50%);
+.tooltip-anchor {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
-@media (max-width: 1180px) {
-  :root {
-        --content-shift: -20px;
-      }
+.tooltip-bubble {
+  position: fixed;
+  z-index: 100;
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: #252728;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+  overflow-wrap: anywhere;
+}
 
-      .sidebar {
-        padding-left: 38px;
-        padding-right: 27px;
-      }
-
-      .brand {
-        font-size: 20px;
-      }
-
-      .composer {
-        width: calc(100% - 80px);
-      }
-
-      .chat-view {
-        padding-inline: 36px;
-      }
-
-      .message-list {
-        width: 100%;
-      }
-
-      .suggestion {
-        padding-inline: 15px 20px;
-        gap: 11px;
-        font-size: 16px;
-      }
-
-      .suggestion + .suggestion {
-        padding-left: 25px;
-      }
-    }
+.tooltip-bubble.below {
+  transform: translateX(-50%);
+}

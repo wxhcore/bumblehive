@@ -1,5 +1,6 @@
 import {
   memo,
+  useCallback,
   useState,
   useRef,
   useLayoutEffect,
@@ -9,6 +10,7 @@ import {
 } from "react";
 import type { ApprovalMode, PendingChatMessage } from "../types/api";
 import { ApprovalModeSelect } from "./ApprovalModeSelect";
+import { useMenuNavigation } from "../hooks/useMenuNavigation";
 import { ModelOptions } from "./ModelOptions";
 
 interface ComposerProps {
@@ -22,7 +24,7 @@ interface ComposerProps {
   value: string;
   model: string;
   models: string[];
-  workspace: string;
+  modelSwitching?: boolean;
   disabled: boolean;
   isStreaming: boolean;
   isStopping: boolean;
@@ -30,7 +32,6 @@ interface ComposerProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   onStop: () => void;
-  onAddWorkspace: () => void;
   onSelectModel: (model: string) => Promise<void>;
 }
 
@@ -45,7 +46,7 @@ export const Composer = memo(function Composer({
   value,
   model,
   models,
-  workspace,
+  modelSwitching = false,
   disabled,
   isStreaming,
   isStopping,
@@ -53,7 +54,6 @@ export const Composer = memo(function Composer({
   onChange,
   onSubmit,
   onStop,
-  onAddWorkspace,
   onSelectModel,
 }: ComposerProps) {
   const composerRef = useRef<HTMLFormElement>(null);
@@ -65,10 +65,10 @@ export const Composer = memo(function Composer({
     const composer = composerRef.current;
     const panel = composer?.closest<HTMLElement>(".main-panel");
     if (!composer || !panel) return;
-    const measure = () => panel.style.setProperty(
-      "--composer-space",
-      `${composer.offsetHeight + (accessoryRef.current?.offsetHeight ?? 0)}px`,
-    );
+    const measure = () => {
+      composer.style.setProperty("--composer-body-height", `${composer.offsetHeight}px`);
+      panel.style.setProperty("--composer-space", `${composer.offsetHeight + (accessoryRef.current?.offsetHeight ?? 0)}px`);
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(composer);
     if (accessoryRef.current) observer.observe(accessoryRef.current);
@@ -78,9 +78,21 @@ export const Composer = memo(function Composer({
       panel.style.removeProperty("--composer-space");
     };
   }, []);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [menu, setMenu] = useState<"model" | "approval" | null>(null);
+  const modelFieldRef = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const setApprovalOpen = useCallback((open: boolean) => setMenu(open ? "approval" : null), []);
+  useMenuNavigation(menu === "model" && !modelSwitchDisabled && !hasApproval, modelFieldRef, closeMenu);
   useLayoutEffect(() => {
-    if (hasApproval) setModelMenuOpen(false);
+    const input = inputRef.current;
+    if (!input) return;
+    input.style.height = "0px";
+    input.style.height = `${Math.min(180, Math.max(44, input.scrollHeight))}px`;
+    input.style.overflowY = input.scrollHeight > 180 ? "auto" : "hidden";
+  }, [value, hasApproval]);
+  useLayoutEffect(() => { if (modelSwitchDisabled || disabled) setMenu(null); }, [modelSwitchDisabled, disabled]);
+  useLayoutEffect(() => {
+    if (hasApproval) setMenu(null);
     else if (wasApproving.current) inputRef.current?.focus({ preventScroll: true });
     wasApproving.current = hasApproval;
   }, [hasApproval]);
@@ -98,7 +110,9 @@ export const Composer = memo(function Composer({
   }
 
   return (
-    <form className={`composer${hasApproval ? " composer-approving" : ""}`} onSubmit={submit} ref={composerRef}>
+    <form className={`composer${hasApproval ? " composer-approving" : ""}`} onSubmit={submit} ref={composerRef} onClick={(event) => {
+      if (event.target === event.currentTarget || (event.target instanceof HTMLElement && event.target.classList.contains("composer-surface"))) inputRef.current?.focus();
+    }}>
       <div className="composer-accessory" ref={accessoryRef}>
         {questionSlot}
         {pendingMessages.length > 0 ? (
@@ -146,54 +160,37 @@ export const Composer = memo(function Composer({
           {disconnected ? (
             <div className="composer-connection" role="status">连接已中断，正在重新连接…</div>
           ) : null}
+          <div className="composer-surface">
           <textarea
+            className="composer-input"
             ref={inputRef}
             value={value}
             disabled={disabled}
             aria-label="输入任务"
             placeholder={
-              isStreaming ? "继续输入，提交后排队，也可选择引导…" : "给 BumbleHive 一个任务…"
+              isStreaming ? "继续输入，提交后排队，也可选择引导…" : "随心输入"
             }
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={handleKeyDown}
           />
           <div className="composer-toolbar">
-            <button
-              className="workspace-button"
-              type="button"
-              aria-label={`新建工作空间，当前工作区 ${workspace}`}
-              title="新建工作空间"
-              disabled={disabled || isStreaming}
-              onClick={onAddWorkspace}
-            >
-              <span className="folder-icon" aria-hidden="true" />
-              <span>{workspace}</span>
-            </button>
             <ApprovalModeSelect
               mode={approvalMode}
               disabled={disabled || isStreaming}
               onSelect={onSelectApprovalMode}
+              open={menu === "approval"}
+              onOpenChange={setApprovalOpen}
             />
             <span className="toolbar-spacer" />
-            <div
-              className="composer-model-field"
-              onBlur={(event) => {
-                const nextTarget = event.relatedTarget;
-                if (
-                  !(nextTarget instanceof Node) ||
-                  !event.currentTarget.contains(nextTarget)
-                ) {
-                  setModelMenuOpen(false);
-                }
-              }}
-            >
-              {modelMenuOpen && !modelSwitchDisabled ? (
-                <div className="model-dropdown composer-model-dropdown" role="listbox">
+            <div className="composer-model-field" ref={modelFieldRef}>
+              {menu === "model" && !modelSwitchDisabled ? (
+                <div className="model-dropdown composer-model-dropdown" data-menu role="listbox" aria-label="选择模型">
                   <ModelOptions
                     models={models}
                     selectedModel={model}
                     onSelect={(selectedModel) => {
-                      setModelMenuOpen(false);
+                      setMenu(null);
+                      modelFieldRef.current?.querySelector<HTMLButtonElement>(".model-button")?.focus();
                       void onSelectModel(selectedModel);
                     }}
                   />
@@ -203,11 +200,13 @@ export const Composer = memo(function Composer({
                 className="model-button"
                 type="button"
                 aria-label={`当前模型 ${model}`}
-                aria-expanded={modelMenuOpen}
+                aria-expanded={menu === "model" && !modelSwitchDisabled}
+                aria-haspopup="listbox"
+                aria-busy={modelSwitching}
                 disabled={disabled || modelSwitchDisabled}
-                onClick={() => setModelMenuOpen((open) => !open)}
+                onClick={() => setMenu((current) => current === "model" ? null : "model")}
               >
-                <span>{model}</span>
+                <span>{modelSwitching ? "切换中…" : model}</span>
                 <span className="chevron" aria-hidden="true" />
               </button>
             </div>
@@ -222,7 +221,8 @@ export const Composer = memo(function Composer({
               disabled={
                 disabled || disconnected || isStopping || (!isStreaming && !value.trim())
               }
-              aria-label={isStreaming ? "停止运行" : "发送任务"}
+              aria-label={isStopping ? "正在停止" : isStreaming ? "停止运行" : "发送任务"}
+              title={isStopping ? "正在停止" : isStreaming ? "停止运行" : "发送任务"}
               onClick={isStreaming ? onStop : undefined}
             >
               <span
@@ -230,6 +230,7 @@ export const Composer = memo(function Composer({
                 aria-hidden="true"
               />
             </button>
+          </div>
           </div>
         </>
       )}

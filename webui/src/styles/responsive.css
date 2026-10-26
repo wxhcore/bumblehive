@@ -1,73 +1,90 @@
-@media (max-width: 1040px) {
-  :root {
-    --conversation-width: calc(90cqw - 47px);
+@media (max-width: 900px) {
+  .desktop-titlebar {
+    grid-template-columns: var(--titlebar-controls-min-width, 48px) minmax(0, 1fr);
   }
-
-  .hero {
-    width: calc(100% - 52px);
+  .chat-workspace {
+    grid-template-columns: minmax(0, 1fr);
   }
-}
-
-@media (max-width: 820px) {
-  .suggestions {
-    gap: 7px;
+  .chat-workspace .main-panel {
+    grid-column: 1;
+    grid-row: 1;
   }
-
-  .suggestion,
-  .suggestion + .suggestion,
-  .suggestion:last-child {
-    padding-inline: 10px;
-    gap: 8px;
-    font-size: 12.5px;
+  .chat-workspace .sidebar, .sidebar-resizer {
+    display: none;
+  }
+  .rail-new-chat {
+    display: block;
+  }
+  .search-open .chat-workspace .sidebar {
+    display: flex;
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 8;
+    width: var(--sidebar-width);
+    box-shadow: 8px 0 30px #00000012;
+  }
+  .search-open .sidebar-scrim {
+    display: block;
+    position: absolute;
+    z-index: 7;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: #25272818;
+  }
+  .settings-layout {
+    --settings-sidebar-width: 200px;
+  }
+  .settings-content-header, .settings-page, .settings-busy-banner {
+    width: calc(100% - 40px);
+  }
+  .settings-savebar {
+    padding-inline: 20px;
+  }
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 10px;
+  }
+  .setting-row.setting-row-inline-control {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+  }
+  .tool-browser {
+    grid-template-columns: 148px minmax(0, 1fr);
   }
 }
 
 @media (max-height: 720px) {
   :root {
-    --composer-bottom: 18px;
-    --composer-height: 106px;
+    --composer-bottom: 12px;
   }
-
   .sidebar {
-    padding-top: 14px;
+    padding-top: 12px;
+  }
+  .brand {
     padding-bottom: 10px;
   }
-
-  .nav {
-        gap: 12px;
-    margin-top: 10px;
+  .project-tree {
+    margin-top: 14px;
   }
+}
 
-  .recent {
-    margin-top: 18px;
-  }
-
-  .hero {
-    top: 21vh;
-  }
-
-  .suggestions {
-    margin-top: 26px;
-  }
-
-  textarea {
-    height: 61px;
-    padding-top: 13px;
-  }
-
-  .composer-toolbar {
-    height: 45px;
-    padding-block: 3px 5px;
+@media (pointer: coarse) {
+  .workspace-actions, .project-add-workspace, .session-delete {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
+    animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: .01ms !important;
   }
 }

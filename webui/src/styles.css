@@ -1,10 +1,11 @@
 @import "./styles/foundation.css";
-@import "./styles/conversation.css";
-@import "./styles/controls.css";
 @import "./styles/theme.css";
+@import "./styles/layout.css";
+@import "./styles/controls.css";
 @import "./styles/sidebar.css";
 @import "./styles/home.css";
 @import "./styles/composer.css";
+@import "./styles/conversation.css";
 @import "./styles/chat.css";
 @import "./styles/math.css";
 @import "./styles/settings.css";

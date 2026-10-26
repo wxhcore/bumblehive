@@ -67,6 +67,7 @@ export function SessionBranch({
             session.id === activeSessionId ? " active" : ""
           }${running ? " running" : ""}`}
           type="button"
+          aria-current={session.id === activeSessionId ? "page" : undefined}
           disabled={sessionSelectionDisabled}
           onClick={() => onSelect(session.id)}
           title={session.title}

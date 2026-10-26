@@ -13,6 +13,7 @@ import {
   getSessions,
   updateSettings,
 } from "./api/http";
+import { ActivityRail } from "./components/ActivityRail";
 import { ChatView } from "./components/ChatView";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { QuestionCard } from "./components/QuestionCard";
@@ -20,7 +21,7 @@ import { Composer } from "./components/Composer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DesktopTitlebar } from "./components/DesktopTitlebar";
 import { HomeView } from "./components/HomeView";
-import { SettingsView } from "./components/SettingsView";
+import { SettingsView, type SettingsViewHandle } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { useChatRuntime } from "./hooks/useChatRuntime";
 import { useBlankSessions } from "./hooks/useBlankSessions";
@@ -91,6 +92,14 @@ export default function App() {
   );
   const { message: toast, notify } = useToast();
   const sidebar = useSidebarWidth();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [loadingSessionId, setLoadingSessionId] = useState<string | null>(null);
+  const searchTriggerRef = useRef<HTMLElement | null>(null);
+  const settingsViewRef = useRef<SettingsViewHandle>(null);
+  function focusComposer() {
+    window.requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(".composer-input")?.focus({ preventScroll: true }));
+  }
 
   const sessionsLoadVersionRef = useRef(0);
   const sessionSelectionVersionRef = useRef(0);
@@ -210,16 +219,17 @@ export default function App() {
     writeSelectedWorkspace(selectedWorkspace);
   }, [selectedWorkspace]);
 
+  const newChatShortcut = useStableCallback(() => { if (bootstrapStatus === "ready" && !showSettings) void newChat(); });
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
-        document.getElementById("newChat")?.click();
+        newChatShortcut();
       }
     }
     document.addEventListener("keydown", handleShortcut);
     return () => document.removeEventListener("keydown", handleShortcut);
-  }, []);
+  }, [newChatShortcut]);
 
   function workspaceForSession(sessionId: string | null): string | null {
     if (!sessionId) return null;
@@ -275,17 +285,19 @@ export default function App() {
       notify("请先在设置中添加工作空间");
       return;
     }
-    rememberWorkspace(workspace);
-    setSelectedWorkspace(workspace);
+    const selectionVersion = ++sessionSelectionVersionRef.current;
+    setLoadingSessionId(null);
     try {
-      const selectionVersion = ++sessionSelectionVersionRef.current;
       const reusableSessionId = blankSessions.reusableSession(workspace);
       if (reusableSessionId) {
+        rememberWorkspace(workspace);
+        setSelectedWorkspace(workspace);
         if (reusableSessionId !== activeSessionId) {
           displaySession(reusableSessionId, []);
           setInput("");
         }
         setShowSettings(false);
+        focusComposer();
         return;
       }
 
@@ -298,38 +310,34 @@ export default function App() {
       );
       rememberWorkspace(created.workspace, Date.now() / 1000);
       if (selectionVersion !== sessionSelectionVersionRef.current) return;
+      setSelectedWorkspace(created.workspace);
       displaySession(created.session_id, []);
       setInput("");
       setShowSettings(false);
+      focusComposer();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "新建会话失败");
+      if (selectionVersion === sessionSelectionVersionRef.current) notify(error instanceof Error ? error.message : "新建会话失败");
     }
   }
 
   async function selectSession(sessionId: string) {
     const selectionVersion = ++sessionSelectionVersionRef.current;
-    const sessionWorkspace = workspaceForSession(sessionId);
-    if (sessionWorkspace) {
-      rememberWorkspace(sessionWorkspace);
-      setSelectedWorkspace(sessionWorkspace);
-    }
+    setLoadingSessionId(null);
     if (sessionId === activeSessionId) {
       setShowSettings(false);
       return;
     }
-
-    if (
-      isSessionRunning(sessionId) ||
-      pendingSessionInfo.has(sessionId)
-    ) {
-      displaySession(
-        sessionId,
-        getSessionMessages(sessionId) ?? [],
-      );
+    if (isSessionRunning(sessionId) || pendingSessionInfo.has(sessionId)) {
+      const workspace = workspaceForSession(sessionId);
+      if (workspace) {
+        rememberWorkspace(workspace);
+        setSelectedWorkspace(workspace);
+      }
+      displaySession(sessionId, getSessionMessages(sessionId) ?? []);
       setShowSettings(false);
       return;
     }
-
+    setLoadingSessionId(sessionId);
     try {
       const detail = await getSession(sessionId);
       if (selectionVersion !== sessionSelectionVersionRef.current) return;
@@ -338,7 +346,9 @@ export default function App() {
       displaySession(sessionId, historyMessages(detail.messages));
       setShowSettings(false);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "会话加载失败");
+      if (selectionVersion === sessionSelectionVersionRef.current) notify(error instanceof Error ? error.message : "会话加载失败");
+    } finally {
+      if (selectionVersion === sessionSelectionVersionRef.current) setLoadingSessionId(null);
     }
   }
 
@@ -579,11 +589,6 @@ export default function App() {
     selectedWorkspace?.trim() ??
     workspaceForSession(activeSessionId) ??
     null;
-  const isBlankChat =
-    isMacDesktop &&
-    bootstrapStatus === "ready" &&
-    !showSettings &&
-    messages.length === 0;
   const handleSidebarNewChat = useStableCallback(() => void newChat());
   const handleSidebarAddWorkspace = useStableCallback(
     () => void addWorkspace(),
@@ -595,10 +600,15 @@ export default function App() {
     requestRemoveWorkspace,
   );
   const handleSidebarSelectSession = useStableCallback(
-    (sessionId: string) => void selectSession(sessionId),
+    (sessionId: string) => {
+      void selectSession(sessionId);
+      if (window.matchMedia("(max-width: 900px)").matches) setSearchOpen(false);
+    },
   );
   const handleSidebarDeleteSession = useStableCallback(requestDeleteSession);
   const handleSidebarOpenSettings = useStableCallback(() => {
+    ++sessionSelectionVersionRef.current;
+    setLoadingSessionId(null);
     setFocusSettingsWorkspace(false);
     setShowSettings(true);
   });
@@ -611,7 +621,7 @@ export default function App() {
     }
   }
 
-  const handleComposerSubmit = useStableCallback(() => void sendMessage());
+  const handleComposerSubmit = useStableCallback(() => { void sendMessage(); focusComposer(); });
   const handleComposerStop = useStableCallback(stopActiveRun);
   const handleComposerSelectModel = useStableCallback(selectModel);
   const settingsMode =
@@ -620,17 +630,19 @@ export default function App() {
     settingsMode && settings !== null && !isProviderConfigured(settings);
 
   return (
-    <main
-      className={`app-shell${isMacDesktop ? " platform-macos" : ""}${
-        isBlankChat ? " blank-chat" : ""
-      }${settingsMode ? " settings-mode" : ""}${
-        initialSetupMode ? " initial-setup-mode" : ""
-      }`}
+    <div
+      className={`app-shell${isMacDesktop ? " platform-macos" : ""}${settingsMode ? " settings-mode" : ""}${initialSetupMode ? " initial-setup-mode" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}${searchOpen ? " search-open" : ""}`}
       aria-label="BumbleHive 对话工作台"
       style={sidebar.style}
     >
-      {isMacDesktop ? (
-        <DesktopTitlebar
+      <DesktopTitlebar
+          nativeDrag={isMacDesktop}
+          collapsed={sidebar.compact ? !searchOpen : sidebarCollapsed}
+          hideSidebarToggle={settingsMode}
+          onToggleSidebar={() => {
+            if (sidebar.compact) { setSidebarCollapsed(false); setSearchOpen((open) => !open); }
+            else setSidebarCollapsed((collapsed) => !collapsed);
+          }}
           title={
             settingsMode
               ? initialSetupMode
@@ -639,10 +651,25 @@ export default function App() {
               : activeSessionTitle
           }
         />
-      ) : null}
-
+      <div className="workbench">
+        {!initialSetupMode && <ActivityRail
+          settingsOpen={settingsMode}
+          sidebarCollapsed={sidebarCollapsed || sidebar.compact}
+          disabled={bootstrapStatus !== "ready"}
+          onChat={() => { if (settingsMode) void settingsViewRef.current?.requestClose(); }}
+          onSearch={async () => {
+            if (settingsMode && !await settingsViewRef.current?.requestClose()) return;
+            searchTriggerRef.current = document.activeElement as HTMLElement;
+            setSidebarCollapsed(false);
+            setSearchOpen(true);
+          }}
+          onSettings={handleSidebarOpenSettings}
+          onNewChat={handleSidebarNewChat}
+        />}
+        <div className="content-panel">
       {settingsMode && settings ? (
-        <SettingsView
+        <div className={`settings-layout${initialSetupMode ? " setup-layout" : ""}`}><SettingsView
+          ref={settingsViewRef}
           settings={settings}
           mode={initialSetupMode ? "setup" : "settings"}
           focusWorkspace={focusSettingsWorkspace}
@@ -652,9 +679,10 @@ export default function App() {
             setShowSettings(false);
           }}
           onSave={saveSettings}
-        />
-      ) : (
-        <>
+        /></div>
+      ) : null}
+        <div className="chat-workspace" hidden={settingsMode}>
+          <button className="sidebar-scrim" type="button" aria-label="关闭项目搜索" onClick={() => setSearchOpen(false)} />
           <Sidebar
             workspaces={workspaceRegistry.items}
             sessions={sessions}
@@ -664,7 +692,6 @@ export default function App() {
             runningSessionIds={runningSessionIds}
             backgroundSessionIds={backgroundSessionIds}
             disabled={bootstrapStatus !== "ready"}
-            settingsDisabled={bootstrapStatus !== "ready"}
             sessionSelectionDisabled={bootstrapStatus !== "ready"}
             onNewChat={handleSidebarNewChat}
             onAddWorkspace={handleSidebarAddWorkspace}
@@ -672,7 +699,13 @@ export default function App() {
             onRemoveWorkspace={handleSidebarRemoveWorkspace}
             onSelectSession={handleSidebarSelectSession}
             onDeleteSession={handleSidebarDeleteSession}
-            onOpenSettings={handleSidebarOpenSettings}
+            visible={!settingsMode && !sidebarCollapsed}
+            searchOpen={searchOpen}
+            onSearchOpenChange={(open) => {
+              if (open) searchTriggerRef.current = document.activeElement as HTMLElement;
+              setSearchOpen(open);
+              if (!open) window.requestAnimationFrame(() => searchTriggerRef.current?.focus());
+            }}
           />
 
           <div
@@ -691,6 +724,7 @@ export default function App() {
           <section
             className={`main-panel${messages.length ? " chat-active" : ""}`}
           >
+            {loadingSessionId && <div className="session-loading" role="status">正在加载会话…</div>}
             {bootstrapStatus === "loading" ? (
               <div className="connection-state">
                 <span className="connection-spinner" aria-hidden="true" />
@@ -722,7 +756,7 @@ export default function App() {
                     isStreaming={isViewingRunningSession}
                   />
                 ) : (
-                  <HomeView onSelectPrompt={setInput} />
+                  <HomeView workspace={activeWorkspace ? workspaceLabel(activeWorkspace) : null} />
                 )}
                 <Composer
                   questionSlot={questions.length > 0 ? (
@@ -756,7 +790,7 @@ export default function App() {
                   value={input}
                   model={settings.provider.model ?? ""}
                   models={selectableModels}
-                  workspace={workspaceLabel(activeWorkspace)}
+                  modelSwitching={modelSwitching}
                   disabled={bootstrapStatus !== "ready" || Boolean(activeSessionId && backgroundSessionIds.has(activeSessionId))}
                   isStreaming={isViewingRunningSession}
                   isStopping={isViewingStoppingSession}
@@ -765,13 +799,13 @@ export default function App() {
                   onSubmit={handleComposerSubmit}
                   onStop={handleComposerStop}
                   onSelectModel={handleComposerSelectModel}
-                  onAddWorkspace={handleSidebarAddWorkspace}
                 />
               </>
             ) : null}
           </section>
-        </>
-      )}
+        </div>
+        </div>
+      </div>
 
       {deleteSessionId ? (
         <ConfirmDialog
@@ -811,6 +845,6 @@ export default function App() {
       >
         {toast}
       </div>
-    </main>
+    </div>
   );
 }

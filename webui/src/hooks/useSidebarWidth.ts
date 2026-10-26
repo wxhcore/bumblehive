@@ -7,9 +7,9 @@ import {
   type PointerEvent,
 } from "react";
 
-export const DEFAULT_SIDEBAR_WIDTH = 276;
-export const MIN_SIDEBAR_WIDTH = 224;
-export const MAX_SIDEBAR_WIDTH = 420;
+export const DEFAULT_SIDEBAR_WIDTH = 211;
+export const MIN_SIDEBAR_WIDTH = 200;
+export const MAX_SIDEBAR_WIDTH = 360;
 
 const STORAGE_KEY = "bumblehive.sidebar-width";
 
@@ -30,6 +30,13 @@ function initialWidth(): number {
 
 export function useSidebarWidth() {
   const [width, setWidth] = useState(initialWidth);
+  const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 900px)");
+    const update = () => setCompact(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const resizeRef = useRef<{
     pointerId: number;
     startX: number;
@@ -92,6 +99,7 @@ export function useSidebarWidth() {
 
   return {
     width,
+    compact,
     style: { "--sidebar-width": `${width}px` } as CSSProperties,
     reset: () => setWidth(DEFAULT_SIDEBAR_WIDTH),
     resizerProps: {

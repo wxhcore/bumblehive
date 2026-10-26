@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { useMenuNavigation } from "../hooks/useMenuNavigation";
 import type { ApprovalMode } from "../types/api";
 
 const OPTIONS = [
@@ -10,37 +11,21 @@ interface ApprovalModeSelectProps {
   mode: ApprovalMode;
   disabled: boolean;
   onSelect: (mode: ApprovalMode) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function ApprovalModeSelect({ mode, disabled, onSelect }: ApprovalModeSelectProps) {
-  const [open, setOpen] = useState(false);
+export function ApprovalModeSelect({ mode, disabled, onSelect, open: controlledOpen, onOpenChange }: ApprovalModeSelectProps) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = onOpenChange ?? setLocalOpen;
+  const close = useCallback(() => setOpen(false), [setOpen]);
   const fieldRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open || disabled) return;
-    function closeOnOutsidePointer(event: PointerEvent) {
-      if (event.target instanceof Node && !fieldRef.current?.contains(event.target)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [open, disabled]);
+  useMenuNavigation(open && !disabled, fieldRef, close);
 
   const selected = OPTIONS.find((option) => option.value === mode)!;
   return (
-    <div
-      ref={fieldRef}
-      className="approval-mode-field"
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          setOpen(false);
-          event.currentTarget.querySelector<HTMLButtonElement>(".approval-mode-button")?.focus();
-        }
-      }}
-    >
+    <div ref={fieldRef} className="approval-mode-field">
       <button
         type="button"
         className={`workspace-button approval-mode-button${mode === "full_access" ? " full-access" : ""}`}
@@ -49,7 +34,7 @@ export function ApprovalModeSelect({ mode, disabled, onSelect }: ApprovalModeSel
         aria-haspopup="dialog"
         title={disabled ? "本轮任务使用启动时的审批模式" : selected.description}
         disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => setOpen(!open)}
       >
         <svg viewBox="0 0 20 20" aria-hidden="true">
           <path d="M10 2 17 5v5c0 4-7 8-7 8s-7-4-7-8V5Z" />
@@ -58,7 +43,7 @@ export function ApprovalModeSelect({ mode, disabled, onSelect }: ApprovalModeSel
         <span>{selected.label}</span>
       </button>
       {open && !disabled ? (
-        <div className="approval-mode-menu" role="dialog" aria-label="选择审批模式">
+        <div className="approval-mode-menu" data-menu role="dialog" aria-label="选择审批模式">
           {OPTIONS.map((option) => (
             <button
               key={option.value}
@@ -68,6 +53,7 @@ export function ApprovalModeSelect({ mode, disabled, onSelect }: ApprovalModeSel
               onClick={() => {
                 onSelect(option.value);
                 setOpen(false);
+                fieldRef.current?.querySelector<HTMLButtonElement>(".approval-mode-button")?.focus();
               }}
             >
               <span className="approval-mode-copy">

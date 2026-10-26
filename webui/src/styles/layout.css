@@ -1,0 +1,269 @@
+.app-shell {
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr);
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--window-surface);
+}
+
+.desktop-titlebar {
+  display: grid;
+  grid-template-columns: max(var(--titlebar-controls-min-width, 48px), calc(var(--rail-width) + var(--sidebar-width) + 2px)) minmax(0, 1fr);
+  min-width: 0;
+  align-items: stretch;
+  user-select: none;
+}
+
+.platform-macos {
+  --titlebar-controls-min-width: 128px;
+}
+
+.sidebar-collapsed .desktop-titlebar, .initial-setup-mode .desktop-titlebar {
+  grid-template-columns: var(--titlebar-controls-min-width, 48px) minmax(0, 1fr);
+}
+
+.titlebar-controls {
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+}
+
+.platform-macos .titlebar-controls {
+  padding-left: 88px;
+}
+
+.titlebar-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  transition: background-color var(--feedback-time);
+}
+
+.titlebar-button:hover {
+  background: var(--selected-surface);
+}
+
+.titlebar-button:active {
+  background: var(--pressed-surface);
+}
+
+.titlebar-drag-region {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+}
+
+.desktop-titlebar-icon {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
+.desktop-titlebar-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  min-height: 0;
+  padding: 0 5px 5px 0;
+}
+
+.activity-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.rail-button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  transition: background-color var(--feedback-time), color 100ms;
+}
+
+.rail-button[aria-current] {
+  background: #e4e8e7;
+  color: var(--ink);
+}
+
+.rail-button:not(:disabled):hover {
+  background: var(--selected-surface);
+  color: var(--ink);
+}
+
+.rail-button:not(:disabled):active {
+  background: var(--pressed-surface);
+}
+
+.rail-bottom {
+  margin-top: auto;
+}
+
+.rail-new-chat {
+  display: none;
+}
+
+.rail-new-chat.is-visible {
+  display: block;
+}
+
+.content-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--soft-line);
+  border-radius: 16px;
+  background: var(--main-surface);
+  overflow: hidden;
+}
+
+.chat-workspace {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.chat-workspace[hidden] {
+  display: none;
+}
+
+.sidebar {
+  grid-column: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 10px 10px;
+  overflow: hidden;
+  background: var(--sidebar-surface);
+}
+
+.sidebar-resizer {
+  position: relative;
+  z-index: 5;
+  grid-column: 2;
+  width: 9px;
+  height: 100%;
+  margin-left: -4px;
+  touch-action: none;
+  cursor: col-resize;
+}
+
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 4px;
+  width: 1px;
+  background: var(--soft-line);
+  transition: background-color var(--feedback-time);
+}
+
+.sidebar-resizer:hover::after, .sidebar-resizer:focus-visible::after, .sidebar-is-resizing .sidebar-resizer::after {
+  background: var(--focus-ring);
+}
+
+.sidebar-is-resizing, .sidebar-is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+.main-panel {
+  position: relative;
+  grid-column: 3;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  container-type: size;
+  background: var(--main-surface);
+}
+
+.sidebar-collapsed .chat-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sidebar-collapsed .sidebar, .sidebar-collapsed .sidebar-resizer {
+  display: none;
+}
+
+.sidebar-collapsed .main-panel {
+  grid-column: 1;
+}
+
+.sidebar-scrim {
+  display: none;
+}
+
+.initial-setup-mode .workbench {
+  grid-template-columns: minmax(0, 1fr);
+  padding-left: 5px;
+}
+
+.settings-mode .rail-new-chat {
+  display: none;
+}
+
+.session-loading {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  right: 18px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--selected-surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.connection-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 30px;
+  text-align: center;
+}
+
+.connection-state h1 {
+  font-size: 24px;
+}
+
+.connection-state p {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
+.connection-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--soft-line);
+  border-top-color: var(--muted);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}

@@ -3,6 +3,7 @@ import { workspaceKey, type KnownWorkspace } from "../lib/workspaces";
 import type { SessionSummary } from "../types/api";
 import { buildWorkspaceGroups } from "./sidebar/session-tree";
 import type { PendingSession } from "./sidebar/types";
+import { Icon } from "./Icon";
 import { WorkspaceSection } from "./sidebar/WorkspaceSection";
 
 export type { PendingSession } from "./sidebar/types";
@@ -16,7 +17,9 @@ interface SidebarProps {
   runningSessionIds: ReadonlySet<string>;
   backgroundSessionIds: ReadonlySet<string>;
   disabled: boolean;
-  settingsDisabled: boolean;
+  visible: boolean;
+  searchOpen: boolean;
+  onSearchOpenChange: (open: boolean) => void;
   sessionSelectionDisabled: boolean;
   onNewChat: () => void;
   onAddWorkspace: () => void;
@@ -24,7 +27,6 @@ interface SidebarProps {
   onRemoveWorkspace: (workspace: string) => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
-  onOpenSettings: () => void;
 }
 
 export const Sidebar = memo(function Sidebar({
@@ -36,7 +38,9 @@ export const Sidebar = memo(function Sidebar({
   runningSessionIds,
   backgroundSessionIds,
   disabled,
-  settingsDisabled,
+  visible,
+  searchOpen,
+  onSearchOpenChange,
   sessionSelectionDisabled,
   onNewChat,
   onAddWorkspace,
@@ -44,9 +48,8 @@ export const Sidebar = memo(function Sidebar({
   onRemoveWorkspace,
   onSelectSession,
   onDeleteSession,
-  onOpenSettings,
 }: SidebarProps) {
-  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<
     ReadonlySet<string>
@@ -54,6 +57,11 @@ export const Sidebar = memo(function Sidebar({
   const [expandedSessionIds, setExpandedSessionIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  useEffect(() => {
+    if (searchOpen && visible) searchRef.current?.focus();
+    if (!searchOpen) setQuery("");
+  }, [searchOpen, visible]);
+
   const seenPendingSessionIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -73,12 +81,33 @@ export const Sidebar = memo(function Sidebar({
     });
   }, [pendingSessions]);
 
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const parents = new Map([
+      ...sessions.map((session) => [session.session_id, session.parent_session_id] as const),
+      ...pendingSessions.map((session) => [session.sessionId, session.parentSessionId] as const),
+    ]);
+    const ancestors = new Set<string>();
+    let id = parents.get(activeSessionId);
+    while (id && id !== activeSessionId && !ancestors.has(id)) {
+      ancestors.add(id);
+      id = parents.get(id);
+    }
+    if (ancestors.size) setExpandedSessionIds((current) => new Set([...current, ...ancestors]));
+    setCollapsedWorkspaces((current) => {
+      if (!current.has(workspaceKey(currentWorkspace))) return current;
+      const next = new Set(current); next.delete(workspaceKey(currentWorkspace)); return next;
+    });
+    // Expand the selected path on navigation, not on every streamed list update.
+  }, [activeSessionId]);
+
   const groups = useMemo(
     () => buildWorkspaceGroups(workspaces, sessions, pendingSessions, query),
     [pendingSessions, query, sessions, workspaces],
   );
 
   function toggleWorkspace(key: string) {
+    if (query.trim()) return;
     setCollapsedWorkspaces((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
@@ -88,6 +117,7 @@ export const Sidebar = memo(function Sidebar({
   }
 
   function toggleSession(sessionId: string) {
+    if (query.trim()) return;
     setExpandedSessionIds((current) => {
       const next = new Set(current);
       if (next.has(sessionId)) next.delete(sessionId);
@@ -100,11 +130,11 @@ export const Sidebar = memo(function Sidebar({
   const blockingSessionIds = new Set([...runningSessionIds].filter((id) => !backgroundSessionIds.has(id)));
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" id="projectSidebar" aria-label="项目与会话">
       <div className="brand" aria-label="BumbleHive">
         <img
           className="brand-lockup"
-          src="/brand/bumblehive-sidebar.png"
+          src="/brand/bumblehive-wordmark.png"
           alt=""
           aria-hidden="true"
         />
@@ -118,32 +148,23 @@ export const Sidebar = memo(function Sidebar({
           disabled={disabled}
           onClick={onNewChat}
         >
-          <span className="nav-icon plus-icon" aria-hidden="true" />
-          <span>新建对话</span>
-        </button>
-        <button
-          className="nav-button"
-          type="button"
-          aria-expanded={searchOpen}
-          onClick={() => setSearchOpen((open) => !open)}
-        >
-          <span className="nav-icon search-icon" aria-hidden="true" />
-          <span>搜索</span>
+          <Icon name="compose" />
+          <span>新聊天</span>
         </button>
       </nav>
 
-      {searchOpen ? (
-        <input
-          className="session-search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索项目或会话"
-          aria-label="搜索项目或会话"
-          autoFocus
-        />
-      ) : null}
+      {searchOpen && <div className="session-search-field">
+        <input ref={searchRef} className="session-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索项目或会话" aria-label="搜索项目或会话" onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            if (query) setQuery("");
+            else onSearchOpenChange(false);
+          }
+        }} />
+        {query && <button className="search-clear" type="button" aria-label="清空搜索" onClick={() => { setQuery(""); searchRef.current?.focus(); }}><Icon name="close" /></button>}
+      </div>}
 
-      <section className="recent" aria-labelledby="projectTitle">
+      <section className="project-tree" aria-labelledby="projectTitle">
         <div className="project-heading-row">
           <span className="project-heading-label" id="projectTitle">
             项目
@@ -193,17 +214,6 @@ export const Sidebar = memo(function Sidebar({
         </div>
       </section>
 
-      <footer className="sidebar-footer">
-        <button
-          className="settings-button"
-          type="button"
-          disabled={settingsDisabled}
-          onClick={onOpenSettings}
-        >
-          <span className="gear" aria-hidden="true" />
-          <span>设置</span>
-        </button>
-      </footer>
     </aside>
   );
 });

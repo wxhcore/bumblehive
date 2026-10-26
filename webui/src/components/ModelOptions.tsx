@@ -25,6 +25,7 @@ export function ModelOptions({
       onClick={() => onSelect(model)}
     >
       <span className="model-option-id">{model}</span>
+      <span className="model-option-check" aria-hidden="true">{model === selectedModel ? "✓" : ""}</span>
     </button>
   ));
 }

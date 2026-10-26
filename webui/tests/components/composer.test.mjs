@@ -7,10 +7,10 @@ import { server } from "../helpers/vite.mjs";
 test("approval replaces composer input and toolbar while keeping questions and queued messages", async () => {
   const { Composer } = await server.ssrLoadModule("/src/components/Composer.tsx");
   const props = {
-    value: "保留的草稿", model: "model", models: [], workspace: "demo", disabled: false,
+    value: "保留的草稿", model: "model", models: [], disabled: false,
     isStreaming: true, isStopping: false, modelSwitchDisabled: true,
     approvalMode: "request", onSelectApprovalMode() {}, onChange() {},
-    onSubmit() {}, onStop() {}, onAddWorkspace() {}, async onSelectModel() {},
+    onSubmit() {}, onStop() {}, async onSelectModel() {},
     questionSlot: createElement("div", null, "待回答的问题"),
     pendingMessages: [{ message_id: "queued", content: "待发送的消息", submitting: false }],
   };
@@ -26,16 +26,16 @@ test("approval replaces composer input and toolbar while keeping questions and q
   assert.match(normal, /composer-toolbar/);
 });
 
-test("composer places approval mode after workspace and disables changes during a run", async () => {
+test("composer omits the workspace strip and locks approval during a run", async () => {
   const { Composer } = await server.ssrLoadModule("/src/components/Composer.tsx");
   const props = {
-    value: "", model: "model", models: [], workspace: "demo", disabled: false,
+    value: "", model: "model", models: [], disabled: false,
     isStreaming: false, isStopping: false, modelSwitchDisabled: false,
     approvalMode: "request", onSelectApprovalMode() {}, onChange() {},
-    onSubmit() {}, onStop() {}, onAddWorkspace() {}, async onSelectModel() {},
+    onSubmit() {}, onStop() {}, async onSelectModel() {},
   };
   const html = renderToStaticMarkup(createElement(Composer, props));
-  assert.ok(html.indexOf(">demo</span>") < html.indexOf("审批模式：请求批准"));
+  assert.doesNotMatch(html, /composer-context|demo|新建工作空间|此计算机/);
   const running = renderToStaticMarkup(createElement(Composer, {
     ...props, approvalMode: "full_access", isStreaming: true,
   }));
@@ -45,10 +45,10 @@ test("composer places approval mode after workspace and disables changes during 
 test("composer renders multiple pending rows with independent steer and delete controls", async () => {
   const { Composer } = await server.ssrLoadModule("/src/components/Composer.tsx");
   const html = renderToStaticMarkup(createElement(Composer, {
-    value: "第三条", model: "model", models: [], workspace: "demo", disabled: false,
+    value: "第三条", model: "model", models: [], disabled: false,
     isStreaming: true, isStopping: false, modelSwitchDisabled: true,
     approvalMode: "request", onSelectApprovalMode() {}, onChange() {},
-    onSubmit() {}, onStop() {}, onAddWorkspace() {}, async onSelectModel() {},
+    onSubmit() {}, onStop() {}, async onSelectModel() {},
     pendingMessages: [{ message_id: "B", content: "只修改后端" }, { message_id: "C", content: "保留原样式", submitting: true }],
     onPendingAction() {},
   }));
@@ -58,4 +58,17 @@ test("composer renders multiple pending rows with independent steer and delete c
   assert.match(html, /引导/);
   assert.match(html, /排队发送/);
   assert.doesNotMatch(html, /<textarea[^>]*disabled/);
+});
+
+test("switching and stopping expose the actual pending action instead of an enabled replacement", async () => {
+  const { Composer } = await server.ssrLoadModule("/src/components/Composer.tsx");
+  const html = renderToStaticMarkup(createElement(Composer, {
+    value: "草稿", model: "old-model", models: ["old-model", "new-model"], disabled: false,
+    modelSwitching: true, isStreaming: true, isStopping: true, modelSwitchDisabled: true,
+    approvalMode: "request", onSelectApprovalMode() {}, onChange() {}, onSubmit() {}, onStop() {}, async onSelectModel() {},
+  }));
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /切换中…/);
+  assert.match(html, /disabled="" aria-label="正在停止"/);
+  assert.doesNotMatch(html, /role="listbox"/);
 });
