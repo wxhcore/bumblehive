@@ -17,6 +17,7 @@ import {
   testMcpServer,
 } from "../api/http";
 import { detectSystemTimeZone } from "../lib/default-settings";
+import { confirmAction } from "../lib/platform";
 import type {
   McpServerSettings,
   Settings,
@@ -521,8 +522,8 @@ export function SettingsView({
     setSavedMessage(null);
   }
 
-  function requestClose() {
-    if (dirty && !window.confirm("放弃尚未保存的设置更改？")) return;
+  async function requestClose() {
+    if (dirty && !await confirmAction("放弃尚未保存的设置更改？")) return;
     onCancel();
   }
 
@@ -712,9 +713,9 @@ export function SettingsView({
     }
   }
 
-  function deleteMcpServer() {
+  async function deleteMcpServer() {
     if (!mcpEditor || mcpEditor.index === null) return;
-    if (!window.confirm(`删除 MCP 服务“${mcpEditor.server.name}”？`)) return;
+    if (!await confirmAction(`删除 MCP 服务“${mcpEditor.server.name}”？`)) return;
     const removedIndex = mcpEditor.index;
     setDraft((current) => ({
       ...current,

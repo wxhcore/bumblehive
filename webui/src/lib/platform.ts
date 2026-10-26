@@ -20,12 +20,12 @@ declare global {
   }
 }
 
-export const isMacOS = /Mac|iPhone|iPad|iPod/.test(
+export const isMacOS = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(
   `${navigator.platform} ${navigator.userAgent}`,
 );
 
 export const isMacDesktop =
-  isMacOS && "__TAURI_INTERNALS__" in window;
+  isMacOS && typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export function startWindowDrag(): void {
   const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
@@ -33,6 +33,22 @@ export function startWindowDrag(): void {
   void currentWindow.startDragging().catch(() => {
     // The data-tauri-drag-region attribute remains the native fallback.
   });
+}
+
+export async function confirmAction(message: string): Promise<boolean> {
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  try {
+    if (!invoke) return await window.confirm(message);
+    const result = await invoke<string>("plugin:dialog|message", {
+      title: "BumbleHive",
+      message,
+      kind: "warning",
+      buttons: "OkCancel",
+    });
+    return result === "Ok";
+  } catch {
+    return false;
+  }
 }
 
 export async function pickWorkspaceDirectory(): Promise<

@@ -7,6 +7,7 @@ import {
   type DragEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { confirmAction } from "../../lib/platform";
 import {
   ApiError,
   deleteSkill,
@@ -129,7 +130,7 @@ export function SkillsSettings({
         if (
           reason instanceof ApiError &&
           reason.status === 409 &&
-          window.confirm("存在同名技能。要使用导入的版本覆盖吗？")
+          await confirmAction("存在同名技能。要使用导入的版本覆盖吗？")
         ) {
           options = await importSkillArchives(files, true);
         } else {
@@ -204,7 +205,7 @@ export function SkillsSettings({
 
   async function removeSelectedSkill() {
     if (!selectedSkill) return;
-    if (!window.confirm(`删除技能“${selectedSkill.name}”？`)) return;
+    if (!await confirmAction(`删除技能“${selectedSkill.name}”？`)) return;
     const name = selectedSkill.name;
     setAction(`delete:${name}`);
     setMessage(null);
