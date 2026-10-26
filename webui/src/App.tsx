@@ -493,14 +493,16 @@ export default function App() {
 
       blankSessions.release(sessionId);
       setInput("");
-      await startRun({
+      const sent = await startRun({
         sessionId,
         task,
         workspace: taskWorkspace,
         approvalMode,
         fallbackMessages: messages,
       });
+      if (!sent) setInput((current) => current || task);
     } catch (error) {
+      setInput((current) => current || task);
       notify(error instanceof Error ? error.message : "消息发送失败");
     }
   }

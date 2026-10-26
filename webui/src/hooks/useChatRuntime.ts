@@ -606,16 +606,18 @@ export function useChatRuntime({
           backgroundParentsRef.current.has(sessionId) || !socketsRef.current.has(sessionId)
         )) {
           notify("子任务仍在运行，请等待完成后再发送消息");
-          return;
+          return false;
         }
         const socket = await connectSocket(sessionId);
         await socket.whenSynced();
         updatePending(sessionId, [...(pendingRef.current.get(sessionId) ?? []),
           { message_id: messageId, content: task, submitting: true }]);
         socket.send(task, workspace, approvalMode, messageId);
+        return true;
       } catch (error) {
         updatePending(sessionId, (pendingRef.current.get(sessionId) ?? []).filter((item) => item.message_id !== messageId));
         notify(error instanceof Error ? error.message : "消息发送失败");
+        return false;
       }
     },
     [connectSocket, notify, parentSessionIdFor, updatePending],
