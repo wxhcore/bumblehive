@@ -1,4 +1,5 @@
 import { WS_URL } from "./config";
+import { createMessageId } from "../lib/chat-events";
 import type { ApprovalMode, ChatFrame } from "../types/api";
 
 interface ChatSocketCallbacks {
@@ -84,7 +85,7 @@ export class ChatSocket {
     content: string,
     workspace: string | null,
     approvalMode: ApprovalMode,
-    messageId: string = crypto.randomUUID(),
+    messageId: string = createMessageId(),
   ): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error("聊天服务尚未连接");
