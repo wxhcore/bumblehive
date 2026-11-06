@@ -327,14 +327,16 @@ class OpenAIChatCompletionsProvider(ModelProvider):
         if callbacks is None:
             return
 
+        # A boundary chunk can contain the end of reasoning and the start of
+        # the answer. Emit reasoning first so consumers see that order too.
+        if parsed_chunk.reasoning_delta and callbacks.on_reasoning_delta:
+            await callbacks.on_reasoning_delta(parsed_chunk.reasoning_delta)
+
         if parsed_chunk.content_delta and callbacks.on_content_delta:
             await callbacks.on_content_delta(parsed_chunk.content_delta)
 
         if parsed_chunk.refusal_delta and callbacks.on_refusal_delta:
             await callbacks.on_refusal_delta(parsed_chunk.refusal_delta)
-
-        if parsed_chunk.reasoning_delta and callbacks.on_reasoning_delta:
-            await callbacks.on_reasoning_delta(parsed_chunk.reasoning_delta)
 
         if callbacks.on_tool_call_delta:
             for tool_delta in parsed_chunk.tool_call_deltas:

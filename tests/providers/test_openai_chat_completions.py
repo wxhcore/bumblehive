@@ -312,6 +312,39 @@ async def test_stream_aggregates_content_reasoning_tools_and_usage() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reasoning_field", ["reasoning", "reasoning_content"])
+async def test_stream_emits_reasoning_before_content_in_a_boundary_chunk(reasoning_field) -> None:
+    chunks = [
+        {"choices": [{"delta": {reasoning_field: "Present the result"}}]},
+        {"choices": [{"delta": {"content": "你 ", reasoning_field: "."}}]},
+        {"choices": [{"delta": {"content": "2026 年的账单"}, "finish_reason": "stop"}]},
+    ]
+    observed = []
+
+    async def content(delta):
+        observed.append(("content", delta))
+
+    async def reasoning(delta):
+        observed.append(("reasoning", delta))
+
+    result = await OpenAIChatCompletionsProvider(
+        client=FakeClient(FakeCompletions(FakeStream(chunks)))
+    ).generate_stream(
+        ModelRequest(messages=[{"role": "user", "content": "查询账单"}], model="test-model"),
+        callbacks=ModelStreamCallbacks(on_content_delta=content, on_reasoning_delta=reasoning),
+    )
+
+    assert observed == [
+        ("reasoning", "Present the result"),
+        ("reasoning", "."),
+        ("content", "你 "),
+        ("content", "2026 年的账单"),
+    ]
+    assert result.reasoning_content == "Present the result."
+    assert result.content == "你 2026 年的账单"
+
+
+@pytest.mark.asyncio
 async def test_stream_supports_mapping_chunks_and_refusal_deltas() -> None:
     completions = FakeCompletions(
         FakeStream(
