@@ -44,6 +44,12 @@ class RunEventForwarder(SubagentRunObserver):
             }
         )
 
+    async def on_followup(self, *, session_id: str, message_id: str, content: str) -> None:
+        await self._send({
+            "type": "message_status", "status": "started", "session_id": session_id,
+            "message_id": message_id, "content": content,
+        })
+
     async def on_event(self, event: AgentEvent) -> None:
         frame = ui_event_frame(event)
         if frame is not None:

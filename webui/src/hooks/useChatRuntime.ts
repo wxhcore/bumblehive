@@ -228,6 +228,8 @@ export function useChatRuntime({
     if (frame.type === "question_request" || frame.type === "question_closed" ||
       (frame.type === "error" && frame.scope === "input" && frame.task_id)) return;
     if (frame.type === "ready") {
+      // The parent socket owns snapshots and events for a background child.
+      if (backgroundParentsRef.current.has(sessionId)) return;
       flushPendingAgentFrames(sessionId);
       await restoreHistory(sessionId);
       updatePending(sessionId, frame.pending ?? []);
@@ -263,6 +265,7 @@ export function useChatRuntime({
       }
       for (const child of children) {
         backgroundParentsRef.current.set(child.session_id, sessionId);
+        activeMessageIdsRef.current.set(child.session_id, child.message_id);
         reportSessionCreated(child.session_id, {
           workspace: child.workspace, title: child.title, parentSessionId: sessionId,
         });
@@ -272,8 +275,8 @@ export function useChatRuntime({
           const restored = restoreRunningMessages(current, {
             type: "ready", session_id: child.session_id, running: true,
             started_at: child.started_at,
-            active_message: { message_id: child.session_id, content: child.content },
-          });
+            active_message: { message_id: child.message_id, content: child.content },
+          }, true);
           assistantIdsRef.current.set(child.session_id, restored.at(-1)!.id);
           return restored;
         });
@@ -287,14 +290,27 @@ export function useChatRuntime({
       const items = pendingRef.current.get(sessionId) ?? [];
       updatePending(sessionId, applyPendingMessageStatus(items, frame));
       if (frame.status === "started") {
+        if (sourceSessionId !== sessionId) {
+          backgroundParentsRef.current.set(sessionId, sourceSessionId);
+          if (!messagesBySessionRef.current.has(sessionId)) await restoreHistory(sessionId);
+        }
         if (activeMessageIdsRef.current.get(sessionId) === frame.message_id) return;
         activeMessageIdsRef.current.set(sessionId, frame.message_id);
-        const assistantId = createMessageId();
-        assistantIdsRef.current.set(sessionId, assistantId);
-        updateSessionMessages(sessionId, (current) => [...current,
-          { id: frame.message_id, role: "user", content: frame.content },
-          { id: assistantId, role: "assistant", content: "", iterations: [], startedAt: Date.now() },
-        ]);
+        updateSessionMessages(sessionId, (current) => {
+          if (sourceSessionId !== sessionId) {
+            const restored = restoreRunningMessages(current, {
+              type: "ready", session_id: sessionId, active_message: frame,
+            }, true);
+            assistantIdsRef.current.set(sessionId, restored.at(-1)!.id);
+            return restored;
+          }
+          const assistantId = createMessageId();
+          assistantIdsRef.current.set(sessionId, assistantId);
+          return [...current,
+            { id: frame.message_id, role: "user", content: frame.content },
+            { id: assistantId, role: "assistant", content: "", iterations: [], startedAt: Date.now() },
+          ];
+        });
         setSessionRunning(sessionId, true);
         setSessionStopping(sessionId, false);
       } else if (frame.status === "steered") {

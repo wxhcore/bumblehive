@@ -305,3 +305,21 @@ test("sub-agent history keeps task text separate from model-only handoff instruc
   assert.equal(restored.filter((message) => message.role === "user").length, 1);
   assert.equal(restored.at(-1).startedAt, 123000);
 });
+
+test("reconnecting to a Bee distinguishes follow-ups with identical text", () => {
+  const stored = [
+    {role: "user", content: "Check again", _bumblehive_ui: {message_id: "first"}},
+    {role: "assistant", content: "First report", _bumblehive_ui: {duration_s: 1}},
+  ];
+  const frame = {
+    type: "ready", session_id: "bee", active_message: {message_id: "second", content: "Check again"},
+  };
+  for (const persisted of [false, true]) {
+    const messages = persisted
+      ? [...stored, {role: "user", content: "Check again", _bumblehive_ui: {message_id: "second"}}]
+      : stored;
+    const restored = chatEvents.restoreRunningMessages(chatEvents.historyMessages(messages), frame, true);
+    assert.deepEqual(restored.filter(m => m.role === "user").map(m => m.id), ["first", "second"]);
+    assert.equal(restored.at(-1).role, "assistant");
+  }
+});

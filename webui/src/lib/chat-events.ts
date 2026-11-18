@@ -66,10 +66,10 @@ export function applyPendingMessageStatus(
     : [...items, message];
 }
 
-export function restoreRunningMessages(messages: UiMessage[], frame: ReadyFrame): UiMessage[] {
+export function restoreRunningMessages(messages: UiMessage[], frame: ReadyFrame, matchById = false): UiMessage[] {
   const next = [...messages];
   const active = frame.active_message;
-  if (active && !next.some((item) => item.role === "user" && item.content === active.content)) {
+  if (active && !next.some((item) => item.role === "user" && (matchById ? item.id === active.message_id : item.content === active.content))) {
     next.push({ id: active.message_id, role: "user", content: active.content });
   }
   const startedAt = (frame.started_at ?? Date.now() / 1000) * 1000;
@@ -147,10 +147,11 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
 
   messages.forEach((message, index) => {
     if (message.role === "user") {
+      const ui = asRecord(message._bumblehive_ui);
       const previous = result.at(-1);
       const lastIteration = previous?.iterations?.at(-1);
       // Input between tool execution and the next model response stays in this turn.
-      if (previous?.role === "assistant" && (
+      if (!ui?.message_id && previous?.role === "assistant" && (
         lastIteration?.tools?.length || lastIteration?.kind === "steering"
       )) {
         previous.iterations = [...(previous.iterations ?? []), {
@@ -162,9 +163,9 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
         return;
       }
       result.push({
-        id: `history-${index}`,
+        id: typeof ui?.message_id === "string" ? ui.message_id : `history-${index}`,
         role: "user",
-        content: messageContent(asRecord(message._bumblehive_ui)?.content ?? message.content),
+        content: messageContent(ui?.content ?? message.content),
       });
       return;
     }

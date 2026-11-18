@@ -155,9 +155,10 @@ class RuntimeService:
         started_at = perf_counter()
         try:
             await self.close_session(session_id)
-            await self.subagents.cancel(session_id)
-            async with self.lease() as runtime:
-                deleted = await runtime.delete_session(session_id)
+            async with self.subagents.dispatch_lock:
+                await self.subagents.cancel(session_id)
+                async with self.lease() as runtime:
+                    deleted = await runtime.delete_session(session_id)
             self._session_controllers.pop(session_id, None)
         except Exception:
             logger.exception(

@@ -3,12 +3,13 @@ import logging
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import perf_counter, time
 from typing import Protocol
+from uuid import uuid4
 
 from bumblehive import BumblehiveRuntime
-from bumblehive.agent import AgentRunResult
+from bumblehive.agent import AgentRunResult, AgentRunStream
 from bumblehive.observability import AgentEvent
 from bumblehive.tools.scope import current_tool_session_id, current_tool_workspace
 
@@ -51,6 +52,8 @@ class SubagentRunObserver(Protocol):
         content: str,
     ) -> None: ...
 
+    async def on_followup(self, *, session_id: str, message_id: str, content: str) -> None: ...
+
     async def on_event(self, event: AgentEvent) -> None: ...
 
     async def on_result(
@@ -91,6 +94,10 @@ class BackgroundSubagent:
     workspace: str
     content: str
     started_at: float
+    message_id: str
+    followup: bool = False
+    stream: AgentRunStream | None = None
+    changed: asyncio.Event = field(default_factory=asyncio.Event)
     running: bool = True
     task: asyncio.Task[None] | None = None
 
@@ -102,6 +109,8 @@ class SubagentTasks:
         self._lease = lease
         self._notify = notify
         self._tasks: dict[str, BackgroundSubagent] = {}
+        # Coordinate persisted lookup and startup with deletion of the same sessions.
+        self.dispatch_lock = asyncio.Lock()
 
     def is_running(self, session_id: str) -> bool:
         entry = self._tasks.get(session_id)
@@ -111,11 +120,39 @@ class SubagentTasks:
         return [
             {
                 key: getattr(entry, key)
-                for key in ("session_id", "title", "workspace", "content", "started_at")
+                for key in ("session_id", "title", "workspace", "content", "started_at", "message_id")
             }
             for entry in self._tasks.values()
             if entry.parent_session_id == parent_session_id and entry.running
         ]
+
+    async def send(
+        self, reader: SessionReader, parent_session_id: str, task_id: str, message: str,
+    ) -> None:
+        while True:
+            async with self.dispatch_lock:
+                child = await reader.find_child(parent_session_id, task_id)
+                entry = self._tasks.get(child.session_id)
+                if entry is None:
+                    await self.start(
+                        task_id=task_id,
+                        session_id=child.session_id,
+                        parent_session_id=parent_session_id,
+                        title=child.title,
+                        workspace=child.workspace,
+                        content=message,
+                        observer=_CURRENT_OBSERVER.get(),
+                        followup=True,
+                    )
+                    return
+                if entry.stream is not None:
+                    try:
+                        entry.stream.steer(message)
+                        return
+                    except RuntimeError:
+                        pass  # The stream closed before its terminal events were delivered.
+                changed = entry.changed
+            await changed.wait()
 
     async def start(
         self,
@@ -127,9 +164,11 @@ class SubagentTasks:
         workspace: str,
         content: str,
         observer: SubagentRunObserver | None,
+        followup: bool = False,
     ) -> None:
         entry = BackgroundSubagent(
-            task_id, session_id, parent_session_id, title, workspace, content, time()
+            task_id, session_id, parent_session_id, title, workspace, content, time(),
+            message_id=uuid4().hex if followup else session_id, followup=followup,
         )
         ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self._tasks[session_id] = entry
@@ -137,6 +176,7 @@ class SubagentTasks:
 
         def finished(task: asyncio.Task[None]) -> None:
             self._tasks.pop(session_id, None)
+            entry.changed.set()
             if not ready.done():
                 ready.set_exception(
                     RuntimeError("Background sub-agent stopped before startup")
@@ -154,7 +194,6 @@ class SubagentTasks:
         except BaseException:
             entry.task.cancel()
             await asyncio.gather(entry.task, return_exceptions=True)
-            self._tasks.pop(session_id, None)
             if entry.running and observer is not None:
                 await observer.on_cancelled(session_id=session_id)
             if ready.done() and not ready.cancelled():
@@ -169,16 +208,32 @@ class SubagentTasks:
     ) -> None:
         try:
             async with self._lease() as runtime:
-                ready.set_result(None)
-                try:
-                    result = await _run_subagent(runtime, entry, observer)
-                    report = result.final_content or ""
-                except Exception as exc:
-                    report = f"Error:\n{exc}"
-                content = format_background_tool_result(entry.task_id, report)
-                await self._notify(
-                    entry.parent_session_id, f"subagent:{entry.task_id}", content
-                )
+                remaining: list[str] = []
+                while True:
+                    if entry.followup and observer is not None:
+                        await observer.on_followup(
+                            session_id=entry.session_id,
+                            message_id=entry.message_id,
+                            content=entry.content,
+                        )
+                    try:
+                        result, remaining = await _run_subagent(runtime, entry, observer, remaining, ready)
+                        report = result.final_content or ""
+                    except Exception as exc:
+                        if not ready.done():
+                            raise
+                        report = f"Error:\n{exc}"
+                        remaining = []
+                    content = format_background_tool_result(entry.task_id, report)
+                    notification_id = entry.message_id if entry.followup else entry.task_id
+                    await self._notify(entry.parent_session_id, f"subagent:{notification_id}", content)
+                    if not remaining:
+                        break
+                    entry.followup = True
+                    entry.content = remaining.pop(0)
+                    entry.message_id = uuid4().hex
+                    entry.started_at = time()
+                    entry.running = True
         except Exception as exc:
             if not ready.done():
                 entry.running = False
@@ -212,7 +267,9 @@ async def _run_subagent(
     runtime: BumblehiveRuntime,
     entry: BackgroundSubagent,
     observer: SubagentRunObserver | None,
-) -> AgentRunResult:
+    remaining: list[str],
+    ready: asyncio.Future[None],
+) -> tuple[AgentRunResult, list[str]]:
     session_id, workspace, task = entry.session_id, entry.workspace, entry.content
     started_at = perf_counter()
     try:
@@ -221,8 +278,8 @@ async def _run_subagent(
                 [
                     {
                         "role": "user",
-                        "content": SUBAGENT_INSTRUCTIONS + task,
-                        "_bumblehive_ui": {"content": task},
+                        "content": task if entry.followup else SUBAGENT_INSTRUCTIONS + task,
+                        "_bumblehive_ui": {"content": task, "message_id": entry.message_id},
                     }
                 ],
                 session_id=session_id,
@@ -232,11 +289,19 @@ async def _run_subagent(
                 },
             )
             try:
+                for message in remaining:
+                    stream.steer(message)
+                entry.stream = stream
+                if not ready.done():
+                    ready.set_result(None)
+                entry.changed.set()
+                entry.changed = asyncio.Event()
                 async for event in stream:
                     if observer is not None:
                         await observer.on_event(event)
                 result = await stream.result()
             finally:
+                entry.stream = None
                 await stream.aclose()
         finally:
             entry.running = False
@@ -245,7 +310,7 @@ async def _run_subagent(
             await observer.on_cancelled(session_id=session_id)
         raise
     except Exception as exc:
-        if observer is not None:
+        if ready.done() and observer is not None:
             await observer.on_error(session_id=session_id, message=str(exc))
         raise
     if observer is not None:
@@ -256,7 +321,7 @@ async def _run_subagent(
         )
     if result.error is not None:
         raise RuntimeError(result.error.message)
-    return result
+    return result, [message["content"] for message in stream.take_pending()]
 
 
 def register_subagent_tool(
@@ -279,7 +344,8 @@ def register_subagent_tool(
             "the same task_id. Continue work that does not depend on the result; if all "
             "remaining work depends on it, end the current turn and await the notification. "
             "Do not poll, duplicate delegated work, or claim results you have not received. "
-            "Independent tasks may run concurrently."
+            "Independent tasks may run concurrently. Use send_to_sub_agent with the original "
+            "task_id to contact the same sub-agent again."
         ),
         parameters={
             "type": "object",
@@ -322,6 +388,7 @@ def register_subagent_tool(
             workspace_path,
             title=title,
             parent_session_id=parent_session_id,
+            task_id=task_id,
         )
         observer = _CURRENT_OBSERVER.get()
         if observer is not None:
@@ -341,3 +408,31 @@ def register_subagent_tool(
             observer=observer,
         )
         return {"status": "pending", "task_id": task_id}
+
+    @runtime.tools.tool(
+        name="send_to_sub_agent",
+        description=(
+            "Send additional instructions or a follow-up question to a sub-agent you created. "
+            "A running child receives the message at its next model step. An idle child starts "
+            "a new turn with its existing history. Returns status=sent with the original task_id. The child "
+            "reports back automatically under the original task_id."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "The task_id returned by sub_agent."},
+                "message": {"type": "string", "description": "New instructions or a question for this child."},
+            },
+            "required": ["task_id", "message"],
+            "additionalProperties": False,
+        },
+    )
+    async def send_to_sub_agent(task_id: str, message: str) -> dict[str, str]:
+        task_id, message = task_id.strip(), message.strip()
+        if not task_id or not message:
+            raise ValueError("task_id and message must not be blank")
+        parent_session_id = current_tool_session_id()
+        if parent_session_id is None:
+            raise RuntimeError("send_to_sub_agent requires an active server conversation")
+        await background_tasks.send(session_reader, parent_session_id, task_id, message)
+        return {"status": "sent", "task_id": task_id}

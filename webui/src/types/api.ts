@@ -156,6 +156,7 @@ export interface ReadyFrame {
 }
 
 export interface RunningSubagent {
+  message_id: string;
   session_id: string;
   title: string;
   workspace: string;

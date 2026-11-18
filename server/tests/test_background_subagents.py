@@ -504,3 +504,107 @@ async def test_parent_failure_does_not_auto_resume_for_late_report(delegation):
     await controller.steer(controller.pending[0].request.message_id)
     await receive(queue, "result", parent)
     assert "REPORT:parent-error-0" in str((await reader.get(parent)).messages)
+
+
+@pytest.mark.asyncio
+async def test_message_existing_bee_while_running_and_after_restart(delegation, monkeypatch):
+    service, provider, reader, _ = delegation
+    generate = provider.generate
+
+    async def send_or_answer(request):
+        last = request.messages[-1]
+        if last["role"] == "user" and last["content"].startswith("Send: "):
+            message = last["content"].splitlines()[0].removeprefix("Send: ")
+            return ModelResponse(None, [
+                ToolCall("send-" + message, "send_to_sub_agent", {
+                    "task_id": "delegate-0", "message": message,
+                })
+            ], "tool_calls")
+        if last["role"] == "user" and last["content"].splitlines()[0] == "Explain the evidence":
+            assert any("DATA:message" in m["content"] for m in request.messages if m["role"] == "tool")
+            return ModelResponse(content="Evidence from the first turn.")
+        return await generate(request)
+
+    monkeypatch.setattr(provider, "generate", send_or_answer)
+    parent, controller, queue, children = await begin(delegation, "message", 2)
+    await receive(queue, "result", parent)
+    child = await reader.find_child(parent, "delegate-0")
+    assert child.session_id in {c["session_id"] for c in children}
+    await controller.submit(ChatRequest(content="Send: Check the file"))
+    await receive(queue, "result", parent)
+    history = (await reader.get(parent)).messages
+    expected_receipt = {"status": "sent", "task_id": "delegate-0"}
+    assert [json.loads(m["content"]) for m in history if m.get("name") == "send_to_sub_agent"] == [expected_receipt]
+
+    provider.children.setdefault("message-1", asyncio.Event()).set()
+    await receive(queue, "result", parent)
+    provider.children.setdefault("message-0", asyncio.Event()).set()
+    await receive(queue, "result", parent)
+    child_history = (await reader.get(child.session_id)).messages
+    assert [m["content"] for m in child_history if m["role"] == "user"].count("Check the file") == 1
+
+    await service.shutdown()
+    await service.startup()
+    controller = service.get_session_controller(parent)
+    queue, _ = controller.subscribe()
+    await controller.submit(ChatRequest(content="Send: Explain the evidence"))
+    frame = await receive(queue, "message_status", child.session_id, "started")
+    assert frame["content"] == "Explain the evidence"
+    async with asyncio.timeout(4):
+        while service.subagents._tasks or controller.active_task:
+            await asyncio.sleep(0.001)
+    history = (await reader.get(parent)).messages
+    reports = [m["content"] for m in history if m["role"] == "user"
+               and m["content"].startswith("[Background tool result]")]
+    assert [r.splitlines()[1] for r in reports] == [
+        "Task ID: delegate-1", "Task ID: delegate-0", "Task ID: delegate-0",
+    ]
+    assert reports[-1].endswith("Evidence from the first turn.")
+    receipts = [json.loads(m["content"]) for m in history if m.get("name") == "send_to_sub_agent"]
+    assert receipts == [expected_receipt, expected_receipt]
+    assert len(await reader.descendant_ids(parent)) == 2
+
+
+@pytest.mark.asyncio
+async def test_sending_at_child_close_does_not_lose_message(delegation, monkeypatch):
+    service, provider, reader, _ = delegation
+    closing = asyncio.Event()
+    release = asyncio.Event()
+    notify = service.subagents._notify
+
+    async def hold_first_report(*args):
+        closing.set()
+        await release.wait()
+        await notify(*args)
+
+    monkeypatch.setattr(service.subagents, "_notify", hold_first_report)
+    parent, _, _, children = await begin(delegation, "closing", 1)
+    provider.children.setdefault("closing-0", asyncio.Event()).set()
+    await asyncio.wait_for(closing.wait(), 4)
+    with pytest.raises(ValueError, match="No sub-agent"):
+        await service.subagents.send(reader, "another-parent", "delegate-0", "Wrong owner")
+    with pytest.raises(ValueError, match="No sub-agent"):
+        await service.subagents.send(reader, parent, "unknown-task", "Unknown")
+    looked_up = asyncio.Event()
+    find_child = reader.find_child
+
+    async def observe_lookup(*args):
+        child = await find_child(*args)
+        looked_up.set()
+        return child
+
+    monkeypatch.setattr(reader, "find_child", observe_lookup)
+    send = asyncio.create_task(service.subagents.send(reader, parent, "delegate-0", "One more question"))
+    await asyncio.wait_for(looked_up.wait(), 4)
+    assert not send.done()
+    release.set()
+    await asyncio.wait_for(send, 4)
+    async with asyncio.timeout(4):
+        while service.subagents._tasks:
+            await asyncio.sleep(0.001)
+    child = children[0]["session_id"]
+    history = (await reader.get(child)).messages
+    assert sum(m["content"] == "One more question" for m in history if m["role"] == "user") == 1
+    await service.delete_session(child)
+    with pytest.raises(ValueError, match="No sub-agent"):
+        await service.subagents.send(reader, parent, "delegate-0", "Deleted")

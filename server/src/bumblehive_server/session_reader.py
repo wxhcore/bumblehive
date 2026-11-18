@@ -5,6 +5,7 @@ import json
 import os
 from collections import deque
 from contextlib import suppress
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from time import time
@@ -18,6 +19,13 @@ from .schemas import SessionDetail, SessionSummary
 
 class SessionNotFoundError(KeyError):
     """Raised when a persisted session does not exist."""
+
+
+@dataclass(frozen=True)
+class ChildSession:
+    session_id: str
+    title: str
+    workspace: str
 
 
 class SessionReader:
@@ -44,13 +52,36 @@ class SessionReader:
         *,
         title: str,
         parent_session_id: str,
+        task_id: str | None = None,
     ) -> str:
         return await asyncio.to_thread(
             self._create,
             workspace,
             title,
             parent_session_id,
+            task_id,
         )
+
+    async def find_child(self, parent_session_id: str, task_id: str) -> ChildSession:
+        return await asyncio.to_thread(self._find_child, parent_session_id, task_id)
+
+    def _find_child(self, parent_session_id: str, task_id: str) -> ChildSession:
+        for path in self.metadata_directory.glob("*.json"):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict) or raw.get("parent_session_id") != parent_session_id:
+                    continue
+                if raw.get("task_id") != task_id:
+                    continue
+                session_id = raw["session_id"]
+                if not isinstance(session_id, str) or path != self._metadata_path(session_id):
+                    continue
+                workspace = raw.get("workspace")
+                if isinstance(workspace, str) and workspace.strip() and self._path(session_id).is_file():
+                    return ChildSession(session_id, _normalized_title(raw.get("title")), workspace)
+            except (OSError, KeyError, TypeError, ValueError):
+                continue
+        raise ValueError(f"No sub-agent with task_id {task_id!r} in this conversation")
 
     async def migrate_missing_workspace(self, workspace: str | Path) -> int:
         return await asyncio.to_thread(self._migrate_missing_workspace, workspace)
@@ -115,6 +146,7 @@ class SessionReader:
         workspace: str | Path,
         title: str | None,
         parent_session_id: str | None,
+        task_id: str | None = None,
     ) -> str:
         session_id = str(uuid4())
         session_path = self._path(session_id)
@@ -130,6 +162,8 @@ class SessionReader:
             metadata["title"] = display_title
         if parent_session_id:
             metadata["parent_session_id"] = parent_session_id
+        if task_id:
+            metadata["task_id"] = task_id
         try:
             self._write_json(
                 session_path,

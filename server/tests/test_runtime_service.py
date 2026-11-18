@@ -117,6 +117,7 @@ class RecordingSessionReader:
         *,
         title: str,
         parent_session_id: str,
+        task_id: str,
     ) -> str:
         self.created_workspaces.append(workspace)
         self.created_titles.append(title)
@@ -131,6 +132,7 @@ class SequentialSessionReader(RecordingSessionReader):
         *,
         title: str,
         parent_session_id: str,
+        task_id: str,
     ) -> str:
         self.created_workspaces.append(workspace)
         self.created_titles.append(title)
@@ -210,6 +212,9 @@ class SubagentFakeStream:
         await self.runtime.run_release.wait()
         if self.runtime.run_exception is not None:
             raise self.runtime.run_exception
+
+    def take_pending(self) -> list:
+        return []
 
     async def result(self) -> Any:
         return self.runtime.run_result
@@ -1011,7 +1016,7 @@ async def test_subagent_tool_runs_a_read_only_child_session(tmp_path) -> None:
             "message": [{
                 "role": "user",
                 "content": SUBAGENT_INSTRUCTIONS + "Inspect the project",
-                "_bumblehive_ui": {"content": "Inspect the project"},
+                "_bumblehive_ui": {"content": "Inspect the project", "message_id": "child-session"},
             }],
             "session_id": "child-session",
             "config": {

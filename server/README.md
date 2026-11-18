@@ -110,9 +110,15 @@ steering while running, or a new turn when naturally idle. After a stop or error
 reports stay queued until the user resumes. Background work survives disconnects
 and parent-turn cancellation; deleting its session cancels it.
 
-The parent's `ready.running_subagents` lists active background children for
-reconnection. Child events retain their own session IDs. Task ownership and
-pending reports are in memory; conversation history is saved as usual.
+The parent can call `send_to_sub_agent(task_id, message)` with the ID from
+creation. It steers an active child or starts another turn in the same child
+session. Successful delivery returns `{"status":"sent","task_id":"..."}`
+Each subsequent report uses the original task ID.
+
+The parent's `ready.running_subagents` lists active children for reconnection.
+Child events retain their own session IDs. New child sessions save their task ID
+and parent in session metadata so the parent can follow up after a restart.
+Active runs and pending reports live in memory.
 
 ### Background result messages
 
