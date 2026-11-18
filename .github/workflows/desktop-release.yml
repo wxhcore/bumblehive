@@ -47,7 +47,7 @@ jobs:
       matrix:
         include:
           - name: macOS Apple Silicon
-            os: macos-14
+            os: macos-15
             artifact-name: bumblehive-desktop-macos-arm64
             artifact-path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
           - name: macOS Intel
