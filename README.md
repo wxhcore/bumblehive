@@ -65,6 +65,28 @@ asyncio.run(main())
 - Give an Agent Python functions, built-in tools, or MCP servers.
 - Add streaming events, conversation history, persisted sessions, Skills, and observability hooks when needed.
 
+## Hive Collaboration
+
+BumbleHive Desktop uses the BumbleHive Python SDK to implement Hive, a multi-agent architecture for coordinating long-running tasks that can be split into parallel work.
+
+- **Two-level agent architecture.** The main agent acts as the Router. It delegates tasks, coordinates work, and brings the results together. Bees act as Workers, handling their assigned tasks in parallel in the shared workspace, each in its own conversation.
+- **Asynchronous two-way messaging.** After delegating, the main agent can keep talking with you or send follow-up instructions to a specific Bee. The Bee sends its results back to the main conversation.
+- **Event-driven coordination.** Each Bee triggers a notification when it finishes or fails, so the main agent can act on an early finding while other investigations are still running.
+
+> “We’re moving existing customers from v1 to v3. Use the customer configurations, migration scripts, and test records in this repository to propose a phased rollout. Which customers need more verification first?”
+
+```mermaid
+flowchart TB
+    user["User"] <-->|Goals, follow-ups, and interim findings| main["Main agent · Coordinate upgrade review"]
+    main <-->|Identify affected customers| a["Bee · Customer configurations"]
+    main <-->|Trace data migrations across versions| b["Bee · Migration scripts"]
+    main <-->|Check upgrade and rollback coverage| c["Bee · Test evidence"]
+```
+
+**Keep working while a slower investigation runs.** While the configuration Bee is still tracing customer settings, you can ask “What risks have we found so far?” or add “The first group must be able to roll back to v1.” The main agent can share confirmed findings and pass the new constraint to the migration and test Bees while the configuration review continues.
+
+Suppose the migration Bee finds that v3 drops a legacy field. As soon as that Bee finishes, its report reaches the main conversation. The main agent can ask the configuration Bee which customers still use that field and the test Bee whether rollback restores its value. The final plan can then identify who can upgrade first, who should wait, and what still needs verification.
+
 ## Next Steps
 
 The English documentation is in progress. See the [English overview](https://wxhcore.github.io/bumblehive/en/), the [complete Chinese documentation](https://wxhcore.github.io/bumblehive/), or the runnable [examples](examples/README.md).
