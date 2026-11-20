@@ -73,19 +73,7 @@ BumbleHive Desktop uses the BumbleHive Python SDK to implement Hive, a multi-age
 - **Asynchronous two-way messaging.** After delegating, the main agent can keep talking with you or send follow-up instructions to a specific Bee. The Bee sends its results back to the main conversation.
 - **Event-driven coordination.** Each Bee triggers a notification when it finishes or fails, so the main agent can act on an early finding while other investigations are still running.
 
-> “We’re moving existing customers from v1 to v3. Use the customer configurations, migration scripts, and test records in this repository to propose a phased rollout. Which customers need more verification first?”
-
-```mermaid
-flowchart TB
-    user["User"] <-->|Goals, follow-ups, and interim findings| main["Main agent · Coordinate upgrade review"]
-    main <-->|Identify affected customers| a["Bee · Customer configurations"]
-    main <-->|Trace data migrations across versions| b["Bee · Migration scripts"]
-    main <-->|Check upgrade and rollback coverage| c["Bee · Test evidence"]
-```
-
-**Keep working while a slower investigation runs.** While the configuration Bee is still tracing customer settings, you can ask “What risks have we found so far?” or add “The first group must be able to roll back to v1.” The main agent can share confirmed findings and pass the new constraint to the migration and test Bees while the configuration review continues.
-
-Suppose the migration Bee finds that v3 drops a legacy field. As soon as that Bee finishes, its report reaches the main conversation. The main agent can ask the configuration Bee which customers still use that field and the test Bee whether rollback restores its value. The final plan can then identify who can upgrade first, who should wait, and what still needs verification.
+![Hive architecture and message sequence showing the main agent delegating parallel tasks and following up with Bee B after Bee A reports](./assets/hive-bees.svg)
 
 ## Next Steps
 
