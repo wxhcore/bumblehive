@@ -47,8 +47,6 @@ async def test_agent_returns_expected_answer(tmp_path) -> None:
         provider=provider,
         model="fake-model",
         workspace=tmp_path,
-        skill_names=[],
-        tool_names=[],
     )
 
     assert result.final_content == "这是固定回答"
@@ -75,10 +73,7 @@ from bumblehive.tools import ToolManager
 async def test_add_tool() -> None:
     tools = ToolManager()
 
-    @tools.tool(
-        name="add",
-        description="计算两个整数的和。",
-    )
+    @tools.tool(description="计算两个整数的和。")
     def add(left: int, right: int) -> int:
         return left + right
 

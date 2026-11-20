@@ -41,8 +41,6 @@ async def main():
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        skill_names=[],
-        tool_names=[],
     )
     async with bumblehive.from_config(config) as runtime:
         await runtime.run_console("请用一句话解释什么是 Agent Runtime。")
@@ -51,7 +49,7 @@ async def main():
 asyncio.run(main())
 ```
 
-`run_console()` 会直接在终端显示回答。这里用空列表关闭 Skills 和工具，先体验一次最简单的调用。完整安装和环境变量设置见[快速开始](https://wxhcore.github.io/bumblehive/getting-started/installation/)。
+`run_console()` 会直接在终端显示回答。完整安装和环境变量设置见[快速开始](https://wxhcore.github.io/bumblehive/getting-started/installation/)。
 
 ## 选择运行方式
 

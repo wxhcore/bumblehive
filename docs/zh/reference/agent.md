@@ -2,7 +2,7 @@
 
 直接组装底层对象时，需要自行管理 Provider、工具与资源生命周期。普通应用从 Runtime 开始。
 
-[Agent 如何工作](../concepts/mental-model.md) · [上下文指南](../how-to/context.md) · [消息与会话](protocols.md)
+[底层接口分工](../development/adding-a-provider.md) · [上下文指南](../how-to/context.md) · [消息与会话](protocols.md)
 
 ## 常用接口
 

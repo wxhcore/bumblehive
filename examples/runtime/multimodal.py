@@ -15,7 +15,6 @@ async def main(path: Path) -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        skill_names=[],
         tool_names=[],
     )
     async with bumblehive.from_config(config) as runtime:
@@ -28,7 +27,7 @@ async def main(path: Path) -> None:
                 }},
             ],
         }])
-        print(result.error.message if result.error else result.final_content)
+        print(result.final_content)
 
 
 if __name__ == "__main__":

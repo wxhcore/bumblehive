@@ -1,5 +1,4 @@
 import asyncio
-from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from bumblehive.protocols import ToolCall
@@ -8,12 +7,6 @@ from bumblehive.tools import ToolManager
 
 async def main() -> None:
     with TemporaryDirectory() as directory:
-        root = Path(directory)
-        workspace = root / "workspace"
-        output = root / "output"
-        workspace.mkdir()
-        output.mkdir()
-
         tools = ToolManager()
         tools.register_builtin_tools()
 
@@ -23,22 +16,22 @@ async def main() -> None:
                     id="write",
                     name="write_file",
                     arguments={
-                        "path": str(output / "notes.txt"),
+                        "path": "notes.txt",
                         "content": "hello",
                     },
                 ),
                 ToolCall(
                     id="read",
                     name="read_file",
-                    arguments={"path": str(output / "notes.txt")},
+                    arguments={"path": "notes.txt"},
                 ),
                 ToolCall(
                     id="list",
                     name="list_dir",
-                    arguments={"path": str(output)},
+                    arguments={"path": "."},
                 ),
             ],
-            workspace=workspace,
+            workspace=directory,
         )
 
         print("Written:", written.content)

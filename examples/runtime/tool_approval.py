@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 
 import bumblehive
+
+
 async def main() -> None:
     workspace = Path(__file__).resolve().parent
     print(f"工作目录：{workspace}")
@@ -23,7 +25,6 @@ async def main() -> None:
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
         workspace=workspace,
-        skill_names=[],
         tool_names=["write_file"],
     )
 
@@ -33,7 +34,7 @@ async def main() -> None:
             "如果调用被拒绝，不要重试，直接说明文件未创建。",
             approval_handler=approve_tool,
         )
-        print(result.error.message if result.error else result.final_content)
+        print(result.final_content)
 
 
 if __name__ == "__main__":

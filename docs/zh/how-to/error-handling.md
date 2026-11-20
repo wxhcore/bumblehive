@@ -52,27 +52,7 @@ else:
 
 工具不存在、参数不合法或工具函数抛出异常时，错误会作为工具结果交给模型。模型可能改正参数或换一种方法继续回答。
 
-因此可能出现：
-
-```text
-result.error is None
-但某个工具执行失败
-```
-
-`result.tools_used` 只记录成功执行的工具。需要检查单个工具失败时，可以使用事件 Hook：
-
-```python
-from bumblehive import EventRecorder
-from bumblehive.observability import TOOL_CALL_FINISHED
-
-
-recorder = EventRecorder()
-result = await runtime.run("执行任务", hooks=recorder)
-
-for event in recorder.by_kind(TOOL_CALL_FINISHED):
-    if not event.payload["ok"]:
-        print(event.payload["error"])
-```
+即使 `result.error` 为空，本轮也可能有工具调用失败。`result.tools_used` 只记录成功执行的工具。要定位失败的调用，见 [Hooks 指南中的工具事件示例](hooks.md#tool-results)。
 
 ## 不要忽略资源清理
 

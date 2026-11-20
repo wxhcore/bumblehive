@@ -24,9 +24,21 @@ python -m examples.runtime.background_tools
 
 示例包含两部分：本页的工具代码，以及共用的 `examples/runtime/background_support.py`。从仓库运行时无需额外安装辅助包。
 
+下面是报告工具的函数体。`jobs` 是完整脚本创建的 `BackgroundTools` 实例：
+
 ```python
---8<-- "examples/runtime/background_tools.py"
+async def work() -> dict:
+    await asyncio.sleep(3)
+    return {"orders": 12, "total_yuan": 360}
+
+return await jobs.submit(work(), wait_seconds=0 if background else None)
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/background_tools.py"
+    --8<-- "examples/runtime/background_tools.py"
+    ```
 
 `make_report` 用三秒延迟模拟计算。`background=True` 时立即返回 `pending` 和任务标识；`False` 时直接等待报告结果。
 

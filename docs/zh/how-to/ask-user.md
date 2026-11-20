@@ -10,11 +10,24 @@
 python examples/runtime/ask_user.py
 ```
 
+最简单的追问只需要一个返回用户输入的工具：
+
 ```python
---8<-- "examples/runtime/ask_user.py"
+@runtime.tools.tool(description="询问用户并等待回答。")
+async def ask_user(question: str) -> str:
+    return await asyncio.to_thread(input, question + " ")
+
+result = await runtime.run("先用 ask_user 询问目标读者，再写一段 Python 开场白。")
+print(result.final_content)
 ```
 
-工具描述告诉模型什么时候提问；`read_answer()` 接收用户输入；工具把答案返回给模型。本例一直等待，直到用户回答或输入 `/skip`。
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/ask_user.py"
+    --8<-- "examples/runtime/ask_user.py"
+    ```
+
+完整脚本中的 `read_answer()` 还支持选项和 `/skip`。
 
 ## 运行效果
 
@@ -38,9 +51,20 @@ python examples/runtime/ask_user.py
 python -m examples.runtime.ask_user_timeout
 ```
 
+进阶脚本用示例辅助对象 `background` 等待输入，超时后保留读取任务：
+
 ```python
---8<-- "examples/runtime/ask_user_timeout.py"
+async def read():
+    return {"question": question, **await read_answer(question, options)}
+
+return await background.submit(read(), wait_seconds=WAIT_SECONDS)
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/ask_user_timeout.py"
+    --8<-- "examples/runtime/ask_user_timeout.py"
+    ```
 
 修改 `WAIT_SECONDS` 调整等待时间，例如改为 `5` 方便体验。这里的等待时长和返回状态都是示例定义的，不是 SDK 内置配置。
 

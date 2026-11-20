@@ -10,9 +10,23 @@
 python examples/runtime/tool_approval.py
 ```
 
+为写文件的调用传入一个审批函数：
+
 ```python
---8<-- "examples/runtime/tool_approval.py"
+async def approve_tool(request):
+    answer = await asyncio.to_thread(input, f"允许 {request.name}({request.arguments})？[y/N] ")
+    if answer.strip().lower() in {"y", "yes"}:
+        return bumblehive.ToolApprovalDecision.approve()
+    return bumblehive.ToolApprovalDecision.reject("用户拒绝写入")
+
+result = await runtime.run("请将 hello 写入 approval-demo.txt。", approval_handler=approve_tool)
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/tool_approval.py"
+    --8<-- "examples/runtime/tool_approval.py"
+    ```
 
 `approve_tool()` 收到工具名称和参数，等待用户输入，再返回 `approve()` 或 `reject()`。把它传给 `runtime.run()` 的 `approval_handler` 即可启用。
 

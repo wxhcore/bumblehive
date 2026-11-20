@@ -1,27 +1,10 @@
 # 模型配置
 
-高层 Runtime 连接 OpenAI Chat Completions 兼容服务。开始时只需提供模型名、密钥和接口地址，完整程序见[快速开始](../getting-started/installation.md)。
-
-## 连接模型
-
-```python
-import os
-import bumblehive
-
-config = bumblehive.RuntimeArguments(
-    model=os.environ["BUMBLEHIVE_MODEL"],
-    api_key=os.environ["BUMBLEHIVE_API_KEY"],
-    base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-    skill_names=[],
-    tool_names=[],
-)
-```
-
-环境变量由这里的 `os.environ` 读取。`base_url` 填服务提供的 API 基地址；省略时使用 OpenAI SDK 的默认地址。工具调用需要模型支持 Tool Calling，图片输入需要视觉能力。
+模型名、密钥和接口地址的设置见[快速开始](../getting-started/installation.md#configure-model)。省略 `base_url` 时使用 OpenAI SDK 的默认地址。
 
 ## 按需增加配置
 
-在上面的 `RuntimeArguments(...)` 中加入所需参数即可：
+在快速开始的 `RuntimeArguments(...)` 中加入需要的参数：
 
 | 需求 | 示例 |
 | --- | --- |
@@ -42,14 +25,14 @@ result = await runtime.run(
     "解释什么是 Agent。",
     config={"agent": {"instructions": "使用中文，最多两句话。"}},
 )
-print(result.error.message if result.error else result.final_content)
+print(result.final_content)
 ```
 
 单次配置与基础配置合并，不修改后续调用的默认值。MCP 连接和 Skill 目录在创建 Runtime 时确定，不能按调用覆盖。
 
 ## 选择工具和 Skills { #capability-lists }
 
-| 配置值 | 含义 |
+| 创建 Runtime 时的配置值 | 含义 |
 | --- | --- |
 | 省略或 `None` | 全部可用项 |
 | `[]` | 不使用任何项 |

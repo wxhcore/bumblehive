@@ -9,8 +9,6 @@ async def main() -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        skill_names=[],
-        tool_names=[],
     )
     history = bumblehive.MessageHistory()
 
@@ -24,11 +22,8 @@ async def main() -> None:
             "What is my project named?",
             history=history,
         )
-        history.replace_run_messages(second.messages)
 
-    print("First:", first.final_content)
-    print("Second:", second.final_content)
-    print("History messages:", len(history.get_history()))
+    print(second.final_content)
 
 
 if __name__ == "__main__":

@@ -10,9 +10,22 @@
 python examples/runtime/multi_agent.py
 ```
 
+在主 Agent 的 Runtime 中注册一个工具，工具内再运行一次 Agent：
+
 ```python
---8<-- "examples/runtime/multi_agent.py"
+@runtime.tools.tool(description="委派独立的文件阅读任务。")
+async def sub_agent(task: str) -> str:
+    result = await runtime.run(task, config={"agent": {"tool_names": ["read_file"]}})
+    if result.error:
+        raise RuntimeError(result.error.message)
+    return result.final_content or ""
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/multi_agent.py"
+    --8<-- "examples/runtime/multi_agent.py"
+    ```
 
 主 Agent 调用 `sub_agent`，子 Agent 阅读 `README_zh.md` 并概括项目用途，主 Agent 再整理回答。
 
@@ -28,9 +41,17 @@ python examples/runtime/multi_agent.py
 python -m examples.runtime.multi_agent_background
 ```
 
+在工具内把子调用交给同一个后台任务管理器。这里的 `work()` 执行子任务并返回回答：
+
 ```python
---8<-- "examples/runtime/multi_agent_background.py"
+return await jobs.submit(work(), wait_seconds=0 if background else None)
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/multi_agent_background.py"
+    --8<-- "examples/runtime/multi_agent_background.py"
+    ```
 
 运行过程类似：
 

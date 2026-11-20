@@ -11,7 +11,6 @@ async def main() -> None:
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
         agent_instructions="回答课程问题前，先调用 get_course_info 查询，不要猜测。",
-        skill_names=[],
         tool_names=["get_course_info"],
     )
 
@@ -38,10 +37,7 @@ async def main() -> None:
         )
         result = await run
 
-    if result.error is not None:
-        print(f"运行失败：{result.error.message}")
-    else:
-        print("最终回答：", result.final_content)
+    print("最终回答：", result.final_content)
 
 
 if __name__ == "__main__":

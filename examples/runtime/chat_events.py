@@ -46,11 +46,10 @@ async def main() -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        skill_names=[],
         tool_names=["add"],
     )
     async with bumblehive.from_config(config) as runtime:
-        @runtime.tools.tool(name="add", description="计算两个整数的和。")
+        @runtime.tools.tool(description="计算两个整数的和。")
         def add(a: int, b: int) -> int:
             return a + b
 

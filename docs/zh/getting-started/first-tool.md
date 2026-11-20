@@ -10,33 +10,14 @@
 --8<-- "examples/runtime/custom_tool.py"
 ```
 
-从仓库根目录运行 `python examples/runtime/custom_tool.py`。输出类似：
+把上面的代码保存为 `course.py`，在配置过模型的终端运行 `python course.py`。输出类似：
 
 ```text
-工具：get_course_info
-回答：Python 入门课在周一 10:00，于教学楼 A101 上课。
+工具： ['get_course_info']
+Python 入门课在周一 10:00，于教学楼 A101 上课。
 ```
 
-装饰器注册函数，类型标注定义输入参数，返回值交给模型组织最终回答。`result.error` 表示本次运行的错误。
-
-## 定义输入和返回值
-
-`name` 是模型看到的名称，`description` 说明何时使用和需要什么输入。为每个参数提供准确的 Python 类型，工具返回值应包含模型完成任务所需的信息。
-
-以下代码在已创建的 `runtime` 中运行：
-
-```python
-@runtime.tools.tool(name="add", description="计算两个整数的和。")
-def add(a: int, b: int) -> int:
-    return a + b
-
-result = await runtime.run(
-    "请调用 add 计算 21 加 34。",
-    config={"agent": {"tool_names": ["add"]}},
-)
-```
-
-网络或数据库操作可以使用 `async def`；同步函数由 SDK 在线程中执行。
+`@runtime.tools.tool` 默认用函数名注册工具。`course: str` 定义输入，`description` 告诉模型何时查询，函数返回的时间和地点供模型组织回答。需要访问网络或数据库时，工具也可以写成 `async def`。
 
 ## 选择可用工具 { #tool-selection }
 

@@ -11,16 +11,6 @@ BumbleHive 是一个 Python Agent SDK。你提供模型、任务和工具，它�
 
 [开始使用](getting-started/installation.md){ .md-button .md-button--primary }
 
-## 第一个 Agent
-
-[安装并配置模型](getting-started/installation.md#configure-model)后，保存以下代码为 `agent.py`，运行 `python agent.py`：
-
-```python
---8<-- "examples/runtime/basic.py"
-```
-
-程序会打印模型的回答。接下来可以[添加一个 Python 工具](getting-started/first-tool.md)，让 Agent 查询数据或执行操作。
-
 ## 能做什么
 
 | 能力 | 用途 |
@@ -34,4 +24,4 @@ BumbleHive 是一个 Python Agent SDK。你提供模型、任务和工具，它�
 | [上下文](how-to/context.md)与[Hooks](how-to/hooks.md) | 提供任务信息，观察运行过程 |
 | [子 Agent 协作](examples/sub-agents.md) | 委派独立任务，等待结果或后台执行 |
 
-先读[快速开始](getting-started/installation.md)，再按需要选择功能。组合应用见[完整示例](examples/file-assistant.md)，参数查询见 [API 参考](reference/runtime.md)。
+想看完整应用，可以从[文件助手](examples/file-assistant.md)或[交互式聊天助手](examples/chat-interface.md)开始。

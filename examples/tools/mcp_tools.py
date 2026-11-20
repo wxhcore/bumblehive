@@ -10,16 +10,9 @@ async def main() -> None:
         name="example",
         url=os.environ["BUMBLEHIVE_MCP_URL"],
     )
-    tools = ToolManager(mcp_servers=[server])
-
-    registered = await tools.connect_mcp()
-    status = tools.get_mcp_server_status("example")
-
-    print("Registered tools:", registered)
-    print("Connected:", status.connected if status else False)
-    print("Available tools:", tools.tool_names)
-
-    await tools.close()
+    async with ToolManager(mcp_servers=[server]) as tools:
+        registered = await tools.connect_mcp()
+        print("Registered tools:", registered)
 
 
 if __name__ == "__main__":

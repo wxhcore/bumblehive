@@ -2,21 +2,26 @@
 
 用户在 Agent 工作期间补充要求，例如“改用中文回答”，可以通过 `steer()` 交给当前任务，不必重新开始。
 
-## 运行中补充要求
+## 追加要求
 
-下面的例子在 Agent 开始查询课程时追加要求，模拟应用收到用户输入。
-
-完成[模型配置](../getting-started/installation.md#configure-model)，运行 `python examples/runtime/steering_run.py`：
+下面的两条要求都会在第一次模型请求前送达，因为这时还没有 `await run`：
 
 ```python
---8<-- "examples/runtime/steering_run.py"
+run = runtime.run("用英文解释 Agent Loop。")
+run.steer("改用中文，只说两句话。")
+result = await run
+print(result.final_content)
 ```
 
-- `run = runtime.run(...)` 保存本次运行对象。
-- `run.steer(...)` 把新要求送入当前运行。
-- 例子用工具开始事件触发输入，便于直接观察效果；实际应用可以在用户提交消息时调用同一方法。
+## 运行中追加要求 { #steering-rules }
 
-## 运行效果 { #steering-rules }
+完成[模型配置](../getting-started/installation.md#configure-model)后，运行 `python examples/runtime/steering_run.py`。这个脚本在工具开始执行时调用 `run.steer()`，可以观察新要求何时生效。
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/steering_run.py"
+    --8<-- "examples/runtime/steering_run.py"
+    ```
 
 ```text
 模型开始调用工具，追加引导。

@@ -6,12 +6,9 @@ from bumblehive.providers import ModelRequest, ProviderManager
 
 async def main() -> None:
     providers = ProviderManager()
-    api_key = os.environ["BUMBLEHIVE_API_KEY"]
-    base_url = os.environ["BUMBLEHIVE_BASE_URL"]
-
     provider = await providers.get(
-        api_key=api_key,
-        base_url=base_url,
+        api_key=os.environ["BUMBLEHIVE_API_KEY"],
+        base_url=os.environ["BUMBLEHIVE_BASE_URL"],
     )
     response = await provider.generate_with_retry(
         ModelRequest(

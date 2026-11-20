@@ -35,8 +35,6 @@ async def main() -> None:
             "audience": "Python SDK developers",
         },
         agent_instructions="Answer in one sentence using the runtime context.",
-        skill_names=[],
-        tool_names=[],
     )
     await providers.close()
 

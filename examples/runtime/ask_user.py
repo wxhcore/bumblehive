@@ -29,7 +29,6 @@ async def main() -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        skill_names=[],
         tool_names=["ask_user"],
     )
     async with bumblehive.from_config(config) as runtime:
@@ -47,7 +46,7 @@ async def main() -> None:
             "帮我写一段介绍 Python 的开场白。请先用 ask_user 询问目标读者，"
             "收到回答后再写；如果用户跳过，就写一个通用版本。"
         )
-        print(result.error.message if result.error else result.final_content)
+        print(result.final_content)
 
 
 if __name__ == "__main__":

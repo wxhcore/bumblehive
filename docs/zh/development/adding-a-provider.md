@@ -46,8 +46,6 @@ result = await loop.run_turn(
     "你好",
     provider=StaticProvider(),
     model="offline-model",
-    tool_names=[],
-    skill_names=[],
 )
 ```
 

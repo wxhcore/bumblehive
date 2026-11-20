@@ -6,9 +6,19 @@
 
 完成[模型配置](../getting-started/installation.md#configure-model)，运行 `python examples/runtime/sessions.py`：
 
+在已有的 `runtime` 中，两次使用同一个会话 ID：
+
 ```python
---8<-- "examples/runtime/sessions.py"
+await runtime.run("记住：我的项目叫 BumbleHive。", session_id="hello-agent")
+result = await runtime.run("我的项目叫什么？", session_id="hello-agent")
+print(result.final_content)
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/sessions.py"
+    --8<-- "examples/runtime/sessions.py"
+    ```
 
 两次调用使用同一个 ID。第二次回答应包含 `BumbleHive`，因为 SDK 会读取第一轮的对话。
 
@@ -18,9 +28,21 @@
 
 临时对话可以使用 `MessageHistory`。运行 `python examples/runtime/conversation_history.py`：
 
+自己持有历史时，把第一轮的消息传给下一轮：
+
 ```python
---8<-- "examples/runtime/conversation_history.py"
+history = bumblehive.MessageHistory()
+first = await runtime.run("记住：我的项目叫 BumbleHive。", history=history)
+history.replace_run_messages(first.messages)
+second = await runtime.run("我的项目叫什么？", history=history)
+print(second.final_content)
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/conversation_history.py"
+    --8<-- "examples/runtime/conversation_history.py"
+    ```
 
 与 `session_id` 不同，Runtime 不会自动修改这个对象。每轮用 `history.replace_run_messages(result.messages)` 更新后，下一轮才能看到新内容。该方法会去除运行生成的系统上下文。
 

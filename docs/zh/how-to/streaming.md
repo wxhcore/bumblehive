@@ -6,13 +6,26 @@
 
 完成[模型配置](../getting-started/installation.md#configure-model)，运行 `python examples/runtime/streaming.py`：
 
+在已有的 `runtime` 中，逐段打印新增文本：
+
 ```python
---8<-- "examples/runtime/streaming.py"
+from bumblehive.observability import MODEL_STREAM_CONTENT_DELTA
+
+stream = runtime.stream("用三句话解释 Agent Loop。")
+async for event in stream:
+    if event.kind == MODEL_STREAM_CONTENT_DELTA:
+        print(event.payload["delta"], end="", flush=True)
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/streaming.py"
+    --8<-- "examples/runtime/streaming.py"
+    ```
 
 `MODEL_STREAM_CONTENT_DELTA` 事件中的 `delta` 是新增文本。程序边接收边打印，最终组成一段回答；具体分块由模型服务决定。
 
-完整消费事件后，`await stream.result()` 返回最终结果。`finally` 中关闭事件流，使提前退出时也能清理运行。
+如果还需要最终回答或用量，在循环结束后用 `result = await stream.result()` 取得。
 
 ## 显示工具进度
 

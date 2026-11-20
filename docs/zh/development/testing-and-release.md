@@ -1,6 +1,6 @@
 # 参与 SDK 开发
 
-Python SDK 的源码位于 `src/bumblehive/`，示例位于 `examples/`。先用[架构说明](sdk-architecture.md)定位模块，再修改对应实现和测试。添加内置工具时参考[工具开发说明](adding-a-tool.md)。
+Python SDK 的源码位于 `src/bumblehive/`，示例位于 `examples/`。底层接口的分工见[自定义 Provider 与底层组装](adding-a-provider.md)。修改内置工具时，实现在 `src/bumblehive/tools/builtins/`，对应测试在 `tests/tools/`。
 
 ## 安装开发依赖
 
@@ -25,17 +25,7 @@ python -m pytest tests/tools
 python -m pytest tests/agent
 ```
 
-## 测试 Agent
-
-不要让普通单元测试依赖真实模型服务。推荐使用一个按顺序返回 `ModelResponse` 的假 Provider。
-
-重点测试：
-
-- 模型能看到哪些工具。
-- 工具参数是否正确。
-- 工具失败后返回什么错误。
-- History 是否按预期更新。
-- 最大迭代和模型错误是否写入 `AgentRunResult.error`。
+用假 Provider 测试模型调用、验证工具参数的例子见[测试一个 Agent](../how-to/testing-an-agent.md)。
 
 ## 检查文档
 

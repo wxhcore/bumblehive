@@ -10,7 +10,6 @@ async def main() -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        skill_names=[],
         mcp_servers=(MCPServerConfig(
             name="courses",
             url="http://127.0.0.1:8000/mcp",
@@ -20,7 +19,7 @@ async def main() -> None:
     )
     async with bumblehive.from_config(config) as runtime:
         result = await runtime.run("请查询课程“Python 入门”的上课时间和地点。")
-        print(result.error.message if result.error else result.final_content)
+        print(result.final_content)
 
 
 if __name__ == "__main__":

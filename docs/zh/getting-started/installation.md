@@ -67,14 +67,14 @@ python agent.py
 输出类似：
 
 ```text
-回答：Agent Runtime 负责组织模型调用和工具执行，推动 Agent 完成任务。
+Agent Runtime 负责组织模型调用和工具执行，推动 Agent 完成任务。
 ```
 
-具体措辞由模型决定。如果运行失败，根据错误检查模型名、密钥和接口地址，详见[错误排查](../how-to/error-handling.md)。
+具体措辞由模型决定。如果打印出 `None`，可查看 `result.error` 获取错误信息，详见[错误排查](../how-to/error-handling.md)。
 
 ## 这段代码做了什么
 
-- `RuntimeArguments` 提供模型配置。`tool_names=[]` 和 `skill_names=[]` 让第一个例子只进行文本问答。
+- `RuntimeArguments` 设置模型名、密钥和接口地址。默认开放已注册工具和可用 Skills；只支持纯文本的服务可以设置 `tool_names=[]`。详见[能力选择](../how-to/configuration.md#capability-lists)。
 - `async with from_config(...)` 创建 Runtime，并在退出时释放连接。
 - `await runtime.run(...)` 执行任务，`final_content` 是最终回答，`error` 是运行错误。
 
@@ -82,4 +82,14 @@ python agent.py
 
 ## 下一步
 
-[给 Agent 添加一个工具](first-tool.md)，让它查询课程信息，而不只是生成文本。
+[给 Agent 添加一个工具](first-tool.md)，让它查询课程信息。
+
+后续教程中以 `python examples/...` 或 `python -m examples...` 开头的命令使用仓库里的示例文件。要运行它们，在当前虚拟环境中执行一次：
+
+```bash
+git clone https://github.com/wxhcore/bumblehive.git
+cd bumblehive
+python -m pip install -e .
+```
+
+之后从这个仓库目录运行示例命令。

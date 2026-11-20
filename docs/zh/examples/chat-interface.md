@@ -24,7 +24,7 @@ Agent：你的项目叫 BumbleHive。
 你：/quit
 ```
 
-同一个 `session_id` 保留对话，`stream()` 逐段输出回答。重新运行程序会继续 `chat-example` 会话；修改 ID 可以开始新对话。
+这个聊天助手用 `tool_names=[]` 关闭工具。同一个 `session_id` 保留对话，`stream()` 逐段输出回答。重新运行程序会继续 `chat-example` 会话；修改 ID 可以开始新对话。
 
 ## 接入界面 { #ui }
 
@@ -34,9 +34,20 @@ Agent：你的项目叫 BumbleHive。
 python examples/runtime/chat_events.py
 ```
 
+流式循环收到事件后，挑出界面关心的字段。例如把文本增量转换成 JSON 行：
+
 ```python
---8<-- "examples/runtime/chat_events.py"
+async for event in stream:
+    if event.kind == MODEL_STREAM_CONTENT_DELTA:
+        update = {"type": "text_delta", "text": event.payload["delta"]}
+        print(json.dumps(update, ensure_ascii=False), flush=True)
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python title="examples/runtime/chat_events.py"
+    --8<-- "examples/runtime/chat_events.py"
+    ```
 
 | 更新 | 用途 |
 | --- | --- |

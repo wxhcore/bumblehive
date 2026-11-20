@@ -12,14 +12,12 @@ async def main() -> None:
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        skill_names=[],
         workspace=".",
         tool_names=["sub_agent"],
     )
 
     async with bumblehive.from_config(config) as runtime:
         @runtime.tools.tool(
-            name="sub_agent",
             description="把独立的文件阅读任务交给子 Agent，等待并返回它的回答。",
         )
         async def sub_agent(task: str) -> str:

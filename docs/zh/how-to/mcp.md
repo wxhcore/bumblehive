@@ -22,9 +22,25 @@ python examples/tools/mcp_server.py
 python examples/runtime/mcp.py
 ```
 
+在 `RuntimeArguments(...)` 的 `mcp_servers` 中传入服务配置：
+
 ```python
---8<-- "examples/runtime/mcp.py"
+from bumblehive.protocols import MCPServerConfig
+
+courses = MCPServerConfig(
+    name="courses",
+    url="http://127.0.0.1:8000/mcp",
+    enabled_tools=["get_course_info"],
+)
 ```
+
+设置 `mcp_servers=(courses,)` 和 `tool_names=["mcp_courses_get_course_info"]` 后，照常调用 `runtime.run()` 即可。
+
+??? example "查看完整可运行脚本"
+
+    ```python
+    --8<-- "examples/runtime/mcp.py"
+    ```
 
 模型应通过 MCP 查到“周一 10:00，教学楼 A101”。这里有两个名称：
 

@@ -19,7 +19,7 @@ python examples/runtime/custom_tool.py
 python examples/runtime/sessions.py
 ```
 
-分别体验模型回答、课程查询工具和多轮记忆。
+分别体验模型回答、课程查询工具和多轮记忆。最小示例直接打印 `result.final_content`。如果输出为 `None`，查看 `result.error`，详见[错误处理](../docs/zh/how-to/error-handling.md)。
 
 ## 按功能选择
 

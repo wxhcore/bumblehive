@@ -6,9 +6,18 @@
 
 完成[模型配置](../getting-started/installation.md#configure-model)，运行 `python examples/runtime/context.py`：
 
+在 `RuntimeArguments(...)` 中加入这两项：
+
 ```python
---8<-- "examples/runtime/context.py"
+agent_instructions="你是项目助手。回答简洁，只依据给定的项目事实。",
+dynamic_context={"project": "BumbleHive", "stage": "文档整理"},
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python
+    --8<-- "examples/runtime/context.py"
+    ```
 
 `agent_instructions` 定义助手的职责与回答要求，`dynamic_context` 提供项目名称和当前阶段。回答应提到 BumbleHive 正在整理文档，并据此建议下一步。
 

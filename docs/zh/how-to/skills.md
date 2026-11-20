@@ -20,9 +20,20 @@ Skill 是可复用的任务说明，可以附带脚本、参考资料和模板�
 python examples/runtime/skills.py
 ```
 
+在仓库根目录运行时，把这些参数加入 `RuntimeArguments(...)`：
+
 ```python
---8<-- "examples/runtime/skills.py"
+skills_dir="examples/skills",
+workspace="examples/skills",
+skill_names=["course-summary"],
+tool_names=["read_file"],
 ```
+
+??? example "查看完整可运行脚本"
+
+    ```python
+    --8<-- "examples/runtime/skills.py"
+    ```
 
 `skills_dir` 指向存放各个 Skill 的根目录，`skill_names` 选择启用项。Agent 先看到名称、简介和路径，再使用 `read_file` 读取详细说明和笔记。
 

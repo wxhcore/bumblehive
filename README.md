@@ -41,8 +41,6 @@ async def main():
         model=os.environ["BUMBLEHIVE_MODEL"],
         api_key=os.environ["BUMBLEHIVE_API_KEY"],
         base_url=os.environ["BUMBLEHIVE_BASE_URL"],
-        skill_names=[],
-        tool_names=[],
     )
     async with bumblehive.from_config(config) as runtime:
         await runtime.run_console("Explain Agent Runtime in one sentence.")
@@ -51,7 +49,7 @@ async def main():
 asyncio.run(main())
 ```
 
-`run_console()` displays the answer directly in your terminal. The empty lists disable Skills and tools for this first call. See the [quickstart](https://wxhcore.github.io/bumblehive/getting-started/installation/) for installation and environment setup.
+`run_console()` displays the answer directly in your terminal. See the [quickstart](https://wxhcore.github.io/bumblehive/getting-started/installation/) for installation and environment setup.
 
 ## Choose a Run Method
 
