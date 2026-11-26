@@ -7,3 +7,7 @@ from typing import Any
 def format_background_tool_result(task_id: str, result: Any) -> str:
     content = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
     return f"[Background tool result]\nTask ID: {task_id}\n\n{content}"
+
+
+def format_subagent_update(task_id: str, message: str) -> str:
+    return f"[Sub-agent progress update]\nTask ID: {task_id}\n\n{message}"

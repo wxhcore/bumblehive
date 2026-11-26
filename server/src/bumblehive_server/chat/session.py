@@ -196,21 +196,22 @@ class SessionController:
         await self._status(request, "queued")
         return item
 
-    async def notify(self, message_id: str, content: str) -> None:
-        """Deliver a background report without resuming a stopped or failed run."""
+    async def notify(self, message_id: str, content: str) -> bool:
+        """Return whether the background input was accepted into this session."""
         async with self._lock:
             if self._closing or self._last_request is None:
-                return
+                return False
             request = self._last_request.model_copy(
                 update={"message_id": message_id, "content": content}
             )
             item = await self._enqueue(request)
             if self._paused or self._stopping:
-                return
+                return True
             if self.active_task is None:
                 self._start(self.pending[0])
             else:
                 await self._steer(item)
+            return True
 
     async def steer(self, message_id: str) -> None:
         async with self._lock:

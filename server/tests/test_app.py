@@ -595,8 +595,9 @@ class FakeService:
 
     async def notify_session(self, session_id, message_id, content):
         controller = self.controllers.get(session_id)
-        if controller is not None:
-            await controller.notify(message_id, content)
+        if controller is None:
+            return False
+        return await controller.notify(message_id, content)
 
     async def close_session(self, session_id):
         controller = self.controllers.get(session_id)

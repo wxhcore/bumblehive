@@ -960,6 +960,8 @@ async def test_runtime_service_registers_subagent_on_startup_and_replacement(
 
     assert len(runtimes) == 2
     assert all(runtime.tools.get_tool("sub_agent") is not None for runtime in runtimes)
+    for runtime in runtimes:
+        assert runtime.tools.get_tool("send_message").parameters["required"] == ["target", "message"]
     tool = runtimes[0].tools.get_tool("sub_agent")
     assert tool is not None
     assert tool.parameters["required"] == ["title", "task"]
@@ -1027,6 +1029,7 @@ async def test_subagent_tool_runs_a_read_only_child_session(tmp_path) -> None:
                         "list_dir",
                         "find_files",
                         "grep",
+                        "send_message",
                     )
                 },
             },

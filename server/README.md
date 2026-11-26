@@ -110,10 +110,13 @@ steering while running, or a new turn when naturally idle. After a stop or error
 reports stay queued until the user resumes. Background work survives disconnects
 and parent-turn cancellation; deleting its session cancels it.
 
-The parent can call `send_to_sub_agent(task_id, message)` with the ID from
-creation. It steers an active child or starts another turn in the same child
-session. Successful delivery returns `{"status":"sent","task_id":"..."}`
-Each subsequent report uses the original task ID.
+Both agents use `send_message(target, message)`. The parent uses the child's
+original task ID to steer an active child or start another turn in its session.
+A running child uses `"parent"` to send a finding or blocker and continue its
+work. Each update has its own message ID and appears as `[Sub-agent progress update]`
+with the original task ID. An update wakes an idle parent and stays queued after
+a stop or error. Both directions return `{"status":"sent","task_id":"..."}`
+on acceptance. The child's final report still arrives automatically.
 
 The parent's `ready.running_subagents` lists active children for reconnection.
 Child events retain their own session IDs. New child sessions save their task ID

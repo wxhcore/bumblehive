@@ -72,10 +72,11 @@ class RuntimeService:
         self._session_controllers: dict[str, SessionController] = {}
         self.subagents = SubagentTasks(self.lease, self.notify_session)
 
-    async def notify_session(self, session_id: str, message_id: str, content: str) -> None:
+    async def notify_session(self, session_id: str, message_id: str, content: str) -> bool:
         controller = self._session_controllers.get(session_id)
-        if controller is not None:
-            await controller.notify(message_id, content)
+        if controller is None:
+            return False
+        return await controller.notify(message_id, content)
 
     async def close_session(self, session_id: str) -> None:
         controller = self._session_controllers.get(session_id)

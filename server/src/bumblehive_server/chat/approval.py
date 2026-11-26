@@ -16,7 +16,7 @@ _AUTO_APPROVE = {
     "grep",
     "list_exec_sessions",
     "sub_agent",
-    "send_to_sub_agent",
+    "send_message",
     "ask_user",
 }
 

@@ -16,22 +16,25 @@ from bumblehive.tools.scope import current_tool_session_id, current_tool_workspa
 from .session_reader import SessionReader
 from .tool_context import current_task_id
 from .tool_results import format_background_tool_result
+from .tool_results import format_subagent_update
 
 
 RuntimeLease = Callable[[], AbstractAsyncContextManager[BumblehiveRuntime]]
-NotifySession = Callable[[str, str, str], Awaitable[None]]
+NotifySession = Callable[[str, str, str], Awaitable[bool]]
 logger = logging.getLogger("uvicorn.error.bumblehive")
 
 SUBAGENT_INSTRUCTIONS = """You are a read-only sub-agent carrying out the task below for a parent agent.
 You share its workspace, but not its conversation. Work from the supplied task
 and the files you can inspect using your available tools.
 
-Your final answer is your report to the parent and will be delivered
-automatically. The parent will not automatically receive your intermediate
-messages or tool outputs. Make the report self-contained: state your conclusion,
-include the key evidence or file references needed to use it, and identify any
-incomplete work, blockers, or uncertainty. Do not leave essential findings only
-in intermediate messages or tool outputs.
+If a finding or blocker could change the parent's next step, send it now with
+send_message(target="parent", message=...). Include the evidence the parent
+needs to act, then continue any work you can do independently.
+
+Your final answer goes to the parent automatically. Give a self-contained
+report with your conclusion, supporting evidence or file references, and any
+remaining blockers or uncertainty. The parent sees only the updates you send
+and your final report.
 
 Follow the task's requested output language and format. Otherwise, use concise
 text or Markdown. If blocked, report the limitation in your final answer.
@@ -39,7 +42,7 @@ text or Markdown. If blocked, report the limitation in your final answer.
 Task:
 """
 
-READ_ONLY_TOOLS = ("read_file", "list_dir", "find_files", "grep")
+SUBAGENT_TOOLS = ("read_file", "list_dir", "find_files", "grep", "send_message")
 
 
 class SubagentRunObserver(Protocol):
@@ -115,6 +118,19 @@ class SubagentTasks:
     def is_running(self, session_id: str) -> bool:
         entry = self._tasks.get(session_id)
         return entry is not None and entry.running
+
+    async def send_update(self, session_id: str, message: str) -> str:
+        entry = self._tasks.get(session_id)
+        if entry is None or not entry.running:
+            raise ValueError("Only a running sub-agent can send a message to its parent")
+        delivered = await self._notify(
+            entry.parent_session_id,
+            f"subagent-update:{uuid4().hex}",
+            format_subagent_update(entry.task_id, message),
+        )
+        if not delivered:
+            raise RuntimeError("Parent session could not accept the update")
+        return entry.task_id
 
     def snapshot(self, parent_session_id: str) -> list[dict]:
         return [
@@ -285,7 +301,7 @@ async def _run_subagent(
                 session_id=session_id,
                 config={
                     "runtime": {"workspace": workspace},
-                    "agent": {"tool_names": READ_ONLY_TOOLS},
+                    "agent": {"tool_names": SUBAGENT_TOOLS},
                 },
             )
             try:
@@ -339,13 +355,13 @@ def register_subagent_tool(
             "workspace. It can inspect and search files, but cannot modify files or execute "
             "commands. Use it for independent investigation, review, comparison, or planning. "
             "The sub-agent cannot see this conversation.\n\n"
-            "Runs in the background and returns status=pending with task_id matching this "
-            "tool call ID. Its final answer or execution error arrives automatically with "
-            "the same task_id. Continue work that does not depend on the result; if all "
-            "remaining work depends on it, end the current turn and await the notification. "
-            "Do not poll, duplicate delegated work, or claim results you have not received. "
-            "Independent tasks may run concurrently. Use send_to_sub_agent with the original "
-            "task_id to contact the same sub-agent again."
+            "Returns status=pending and a task_id matching the tool call ID. Continue independent "
+            "work and leave the delegated investigation to the child. A child may send "
+            "a [Sub-agent progress update] while it is still working. Use that finding to "
+            "adjust your plan or send_message to the relevant child by task_id. Its final "
+            "answer or error arrives automatically as a [Background tool result] with the same "
+            "task_id. If all remaining work depends on that result, end the turn and wait for "
+            "delivery. Use the child's evidence when preparing your answer to the user."
         ),
         parameters={
             "type": "object",
@@ -410,29 +426,34 @@ def register_subagent_tool(
         return {"status": "pending", "task_id": task_id}
 
     @runtime.tools.tool(
-        name="send_to_sub_agent",
+        name="send_message",
         description=(
-            "Send additional instructions or a follow-up question to a sub-agent you created. "
-            "A running child receives the message at its next model step. An idle child starts "
-            "a new turn with its existing history. Returns status=sent with the original task_id. The child "
-            "reports back automatically under the original task_id."
+            "Address a child by its original task_id. A running child receives the message at "
+            "its next model step. An idle child starts a turn with its existing history. "
+            "From a running child, target 'parent' to send an interim update. This can wake an "
+            "idle parent. A stopped or paused parent keeps the update queued. "
+            "A status=sent receipt means the message was accepted for delivery."
         ),
         parameters={
             "type": "object",
             "properties": {
-                "task_id": {"type": "string", "description": "The task_id returned by sub_agent."},
-                "message": {"type": "string", "description": "New instructions or a question for this child."},
+                "target": {"type": "string", "description": "A task_id returned by sub_agent, or 'parent'."},
+                "message": {"type": "string", "description": "The message to deliver."},
             },
-            "required": ["task_id", "message"],
+            "required": ["target", "message"],
             "additionalProperties": False,
         },
     )
-    async def send_to_sub_agent(task_id: str, message: str) -> dict[str, str]:
-        task_id, message = task_id.strip(), message.strip()
-        if not task_id or not message:
-            raise ValueError("task_id and message must not be blank")
-        parent_session_id = current_tool_session_id()
-        if parent_session_id is None:
-            raise RuntimeError("send_to_sub_agent requires an active server conversation")
-        await background_tasks.send(session_reader, parent_session_id, task_id, message)
+    async def send_message(target: str, message: str) -> dict[str, str]:
+        target, message = target.strip(), message.strip()
+        if not target or not message:
+            raise ValueError("target and message must not be blank")
+        session_id = current_tool_session_id()
+        if session_id is None:
+            raise RuntimeError("send_message requires an active server conversation")
+        if target == "parent":
+            task_id = await background_tasks.send_update(session_id, message)
+        else:
+            task_id = target
+            await background_tasks.send(session_reader, session_id, task_id, message)
         return {"status": "sent", "task_id": task_id}

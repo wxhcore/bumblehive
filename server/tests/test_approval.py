@@ -15,7 +15,7 @@ def request(workspace, name, **arguments):
 
 @pytest.mark.parametrize(
     "name",
-    ["read_file", "list_dir", "find_files", "grep", "list_exec_sessions", "sub_agent"],
+    ["read_file", "list_dir", "find_files", "grep", "list_exec_sessions", "sub_agent", "send_message"],
 )
 def test_reads_and_readonly_subagent_are_automatic(tmp_path, name):
     assert approval_details(request(tmp_path, name, path="/outside")) is None

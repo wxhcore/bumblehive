@@ -516,8 +516,8 @@ async def test_message_existing_bee_while_running_and_after_restart(delegation, 
         if last["role"] == "user" and last["content"].startswith("Send: "):
             message = last["content"].splitlines()[0].removeprefix("Send: ")
             return ModelResponse(None, [
-                ToolCall("send-" + message, "send_to_sub_agent", {
-                    "task_id": "delegate-0", "message": message,
+                ToolCall("send-" + message, "send_message", {
+                    "target": "delegate-0", "message": message,
                 })
             ], "tool_calls")
         if last["role"] == "user" and last["content"].splitlines()[0] == "Explain the evidence":
@@ -534,7 +534,7 @@ async def test_message_existing_bee_while_running_and_after_restart(delegation, 
     await receive(queue, "result", parent)
     history = (await reader.get(parent)).messages
     expected_receipt = {"status": "sent", "task_id": "delegate-0"}
-    assert [json.loads(m["content"]) for m in history if m.get("name") == "send_to_sub_agent"] == [expected_receipt]
+    assert [json.loads(m["content"]) for m in history if m.get("name") == "send_message"] == [expected_receipt]
 
     provider.children.setdefault("message-1", asyncio.Event()).set()
     await receive(queue, "result", parent)
@@ -560,9 +560,75 @@ async def test_message_existing_bee_while_running_and_after_restart(delegation, 
         "Task ID: delegate-1", "Task ID: delegate-0", "Task ID: delegate-0",
     ]
     assert reports[-1].endswith("Evidence from the first turn.")
-    receipts = [json.loads(m["content"]) for m in history if m.get("name") == "send_to_sub_agent"]
+    receipts = [json.loads(m["content"]) for m in history if m.get("name") == "send_message"]
     assert receipts == [expected_receipt, expected_receipt]
     assert len(await reader.descendant_ids(parent)) == 2
+
+
+@pytest.mark.asyncio
+async def test_worker_updates_wake_parent_and_queue_after_stop(delegation, monkeypatch):
+    service, provider, reader, _ = delegation
+    generate = provider.generate
+    first_update, second_update, finish = (asyncio.Event() for _ in range(3))
+    updates = ["Only on reconnect", "Confirmed after sleep"]
+
+    async def coordinate(request):
+        first_user = next(m["content"] for m in request.messages if m["role"] == "user")
+        last = request.messages[-1]
+        tools = {tool["function"]["name"]: tool["function"] for tool in request.tools}
+        assert "send_message" in tools
+        if "\nTask:\nCHILD:progress-0" in first_user:
+            assert "sub_agent" not in tools
+            assert 'send_message(target="parent"' in first_user
+            receipts = [m for m in request.messages if m.get("name") == "send_message"]
+            for receipt in receipts:
+                assert json.loads(receipt["content"]) == {"status": "sent", "task_id": "delegate-0"}
+            index = len(receipts)
+            if index == len(updates):
+                await finish.wait()
+                return ModelResponse(content="Investigation complete")
+            await (first_update, second_update)[index].wait()
+            return ModelResponse(None, [ToolCall(f"update-{index}", "send_message", {
+                "target": "parent", "message": updates[index],
+            })], "tool_calls")
+        if last["role"] == "user" and last["content"].startswith(
+            "[Sub-agent progress update]\nTask ID: delegate-0\n\nOnly on reconnect"
+        ):
+            assert "[Sub-agent progress update]" in tools["sub_agent"]["description"]
+            assert "[Background tool result]" in tools["sub_agent"]["description"]
+            return ModelResponse(None, [ToolCall("redirect", "send_message", {
+                "target": "delegate-1", "message": "Check reconnect",
+            })], "tool_calls")
+        return await generate(request)
+
+    monkeypatch.setattr(provider, "generate", coordinate)
+    parent, controller, queue, _ = await begin(delegation, "progress", 2)
+    await receive(queue, "result", parent)
+    first_update.set()
+    first = await receive(queue, "message_status", parent, "queued")
+    await receive(queue, "result", parent)
+    assert len(service.subagents.snapshot(parent)) == 2
+    child_b = await reader.find_child(parent, "delegate-1")
+    provider.children["progress-1"].set()
+    await receive(queue, "result", parent)
+    assert any(m["content"] == "Check reconnect" for m in (await reader.get(child_b.session_id)).messages)
+
+    await controller.cancel()
+    second_update.set()
+    second = await receive(queue, "message_status", parent, "queued")
+    assert first["message_id"] != second["message_id"]
+    assert second["content"].endswith(updates[1])
+    assert controller.active_task is None
+    assert len(service.subagents.snapshot(parent)) == 1
+
+    finish.set()
+    await receive(queue, "message_status", parent, "queued")
+    assert controller.active_task is None
+    assert [item.request.content for item in controller.pending] == [
+        second["content"], "[Background tool result]\nTask ID: delegate-0\n\nInvestigation complete",
+    ]
+    with pytest.raises(ValueError, match="Only a running sub-agent"):
+        await service.subagents.send_update(parent, "Wrong direction")
 
 
 @pytest.mark.asyncio
