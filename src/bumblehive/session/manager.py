@@ -3,11 +3,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from ..agent.context import (
-    MessageHistory,
-    repair_message_sequence,
-    run_messages_to_history,
-)
+from ..agent.context import MessageHistory, run_messages_to_history
+from ..agent.context.history import messages_with_valid_roles, repair_history_structure
 from ..agent.runner import CheckpointCallback
 from ..protocols import Message, UserMessage, normalize_user_message
 from .models import SessionState
@@ -115,7 +112,7 @@ class SessionManager:
     async def recover(self, session: SessionState) -> bool:
         """Close an interrupted message sequence before accepting a new turn."""
         original = self.get_history(session)
-        recovered = repair_message_sequence(original)
+        recovered = repair_history_structure(messages_with_valid_roles(original))
 
         if recovered:
             last_role = recovered[-1].get("role")

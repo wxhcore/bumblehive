@@ -206,8 +206,19 @@ def repair_message_sequence(
     missing_tool_result_content: str | None = None,
 ) -> list[Message]:
     """Return provider-ready message structure without applying size budgets."""
-    repaired = sanitize_messages(messages)
-    repaired = drop_empty_messages(repaired)
+    return repair_history_structure(
+        sanitize_messages(messages),
+        missing_tool_result_content=missing_tool_result_content,
+    )
+
+
+def repair_history_structure(
+    messages: Sequence[Mapping[str, Any]],
+    *,
+    missing_tool_result_content: str | None = None,
+) -> list[Message]:
+    """Repair message boundaries and tool pairs, retaining fields on surviving messages."""
+    repaired = drop_empty_messages(messages)
     repaired = merge_consecutive_text_messages(repaired)
     repaired = drop_orphan_tool_results(repaired)
     return backfill_missing_tool_results(
@@ -218,19 +229,16 @@ def repair_message_sequence(
 
 def sanitize_messages(messages: Sequence[Mapping[str, Any]]) -> list[Message]:
     """Clone messages and keep only provider-relevant fields with valid roles."""
-    sanitized: list[Message] = []
-    for message in messages:
-        role = message.get("role")
-        if role not in _ALLOWED_ROLES:
-            continue
-        sanitized.append(
-            {
-                key: value
-                for key, value in message.items()
-                if key in _BASE_MESSAGE_KEYS
-            }
-        )
-    return sanitized
+    return [
+        {key: value for key, value in message.items() if key in _BASE_MESSAGE_KEYS}
+        for message in messages_with_valid_roles(messages)
+    ]
+
+
+def messages_with_valid_roles(
+    messages: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    return [message for message in messages if message.get("role") in _ALLOWED_ROLES]
 
 
 def drop_empty_messages(messages: Sequence[Mapping[str, Any]]) -> list[Message]:

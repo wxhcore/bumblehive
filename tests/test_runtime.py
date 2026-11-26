@@ -710,6 +710,30 @@ async def test_runtime_sessions_persist_and_remain_isolated(monkeypatch, tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_session_metadata_survives_next_turn_but_is_hidden_from_model(monkeypatch, tmp_path):
+    _install_provider(monkeypatch)
+    first_message = {
+        "role": "user", "content": "first",
+        "_bumblehive_ui": {"message_id": "first-id"},
+        "custom_field": {"labels": ["sample"]},
+    }
+    async with _runtime(tmp_path) as runtime:
+        await runtime.run([first_message], session_id="metadata")
+    async with _runtime(tmp_path) as runtime:
+        await runtime.run("second", session_id="metadata")
+
+    for provider in FakeProvider.instances:
+        request, = provider.requests
+        assert any("first" in message["content"] for message in request.messages)
+        assert all(
+            "_bumblehive_ui" not in message and "custom_field" not in message
+            for message in request.messages
+        )
+    stored = await SessionManager().get("metadata")
+    assert stored.history.get_history()[0] == first_message
+
+
+@pytest.mark.asyncio
 async def test_cancelled_session_stream_releases_lock_and_recovers_on_next_turn(
     monkeypatch,
     tmp_path,

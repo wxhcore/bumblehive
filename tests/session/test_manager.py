@@ -131,6 +131,53 @@ async def test_manager_recovers_interrupted_user_and_tool_boundaries(tmp_path) -
 
 
 @pytest.mark.asyncio
+async def test_recovery_keeps_metadata_and_original_interruption_boundary(tmp_path) -> None:
+    manager = SessionManager(tmp_path)
+    session = await manager.get("after-tool")
+    call = _assistant_call("read")
+    result = {
+        "role": "tool", "tool_call_id": "read", "content": "ok",
+        "application_metadata": {"source": "fixture"},
+    }
+    await manager.replace_and_save(session, [
+        call,
+        result,
+        {"role": "unknown", "content": "invalid role"},
+        {"role": "assistant", "content": "", "_bumblehive_ui": {"duration_s": 2}},
+    ])
+
+    assert await manager.recover(session) is True
+    reloaded = await SessionManager(tmp_path).get("after-tool")
+    assert reloaded.history.get_history() == [
+        call, result,
+        {"role": "assistant", "content": "[Previous turn was interrupted after tool execution.]"},
+    ]
+    assert await manager.recover(session) is False
+
+
+@pytest.mark.asyncio
+async def test_recover_completed_turns_preserves_each_messages_metadata(tmp_path) -> None:
+    manager = SessionManager(tmp_path)
+    session = await manager.get("completed")
+    messages = []
+    for turn in range(3):
+        messages.extend([
+            {"role": "user", "content": "repeat", "_bumblehive_ui": {"message_id": str(turn)}},
+            {"role": "assistant", "content": "done", "_bumblehive_ui": {"duration_s": turn + 1}},
+        ])
+    await manager.replace_and_save(session, messages)
+
+    manager = SessionManager(tmp_path)
+    reopened = await manager.get("completed")
+    assert await manager.recover(reopened) is False
+    assert reopened.history.get_history() == messages
+    assert reopened.history.prepare() == [
+        {"role": message["role"], "content": message["content"]} for message in messages
+    ]
+    assert reopened.history.get_history() == messages
+
+
+@pytest.mark.asyncio
 async def test_manager_finishes_cancelled_save_before_publishing_the_same_snapshot(
     tmp_path,
     monkeypatch,
