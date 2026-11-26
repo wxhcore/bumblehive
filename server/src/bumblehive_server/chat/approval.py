@@ -73,7 +73,14 @@ class ToolApprovals:
         session_id: str,
         send: SendFrame,
         mode: Literal["request", "full_access"] = "request",
+        *,
+        worker_session_id: str | None = None,
+        worker_title: str | None = None,
     ) -> None:
+        self.origin = (
+            {"worker_session_id": worker_session_id, "worker_title": worker_title}
+            if worker_session_id else {}
+        )
         self.mode = mode
         self.session_id = session_id
         self.send = send
@@ -88,6 +95,7 @@ class ToolApprovals:
 
     def _frame(self, approval_id: str, request: ToolApprovalRequest) -> dict[str, Any]:
         return {
+            **self.origin,
             "type": "approval_request",
             "approval_id": approval_id,
             "session_id": self.session_id,
@@ -128,6 +136,7 @@ class ToolApprovals:
             return
         await self.send(
             {
+                **self.origin,
                 "type": "approval_resolved",
                 "approval_id": approval_id,
                 "session_id": self.session_id,

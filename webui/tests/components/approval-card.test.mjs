@@ -56,3 +56,11 @@ test("disconnected approvals disable decisions", () => {
     assert.match(html, new RegExp(`disabled=""[^>]*>${label}`));
   }
 });
+
+test("worker approval identifies the originating worker in the parent chat", () => {
+  const html = renderToStaticMarkup(createElement(approvalCard.ApprovalCard, {
+    count: 1, isStopping: false, onDecide() {},
+    approval: { ...approvalFrame(), worker_session_id: "child", worker_title: "检查构建" },
+  }));
+  assert.match(html, /Worker · 检查构建/);
+});

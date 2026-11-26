@@ -82,6 +82,7 @@ export function ApprovalCard({
               <rect x="3" y="3" width="18" height="18" rx="4" />
               {terminal ? <path d="m7 8 3 4-3 4m6 0h4" /> : <path d="m7 12 3 3 7-7" />}
             </svg>
+            {approval.worker_session_id && `Worker · ${approval.worker_title || approval.worker_session_id} · `}
             {terminal ? "终端" : `工具审批 · ${approval.name}`}
           </span>
           {count > 1 ? <span>{count} 项待确认</span> : null}

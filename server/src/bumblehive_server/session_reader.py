@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from bumblehive.paths import get_sessions_path
 
+from .agent_roles import AgentRole
 from .schemas import SessionDetail, SessionSummary
 
 
@@ -45,6 +46,34 @@ class SessionReader:
         workspace: str | Path,
     ) -> str:
         return await asyncio.to_thread(self._create, workspace, None, None)
+
+    async def role(self, session_id: str) -> AgentRole:
+        return await asyncio.to_thread(self._role, session_id)
+
+    def _role(self, session_id: str) -> AgentRole:
+        try:
+            _, _, _, parent, enabled = self._read_metadata(session_id)
+        except FileNotFoundError:
+            return "single"
+        if parent:
+            return "worker"
+        if enabled is None:
+            enabled = bool(self._descendant_ids(session_id))
+        return "router" if enabled else "single"
+
+    async def set_super_mode(self, session_id: str, enabled: bool) -> None:
+        await asyncio.to_thread(self._set_super_mode, session_id, enabled)
+
+    def _set_super_mode(self, session_id: str, enabled: bool) -> None:
+        path = self._metadata_path(session_id)
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise SessionNotFoundError(session_id) from exc
+        if metadata.get("parent_session_id"):
+            raise ValueError("只能在主会话切换 Super 模式")
+        metadata["super_mode"] = enabled
+        self._write_json(path, metadata)
 
     async def create_child(
         self,
@@ -94,6 +123,7 @@ class SessionReader:
 
     def _list(self) -> list[SessionSummary]:
         sessions: list[SessionSummary] = []
+        legacy = set()
         for path in self.directory.glob("*.json"):
             try:
                 document = self._read_document(path)
@@ -102,9 +132,12 @@ class SessionReader:
                     created_at,
                     title,
                     parent_session_id,
+                    enabled,
                 ) = self._read_metadata(
                     document["session_id"],
                 )
+                if enabled is None and not parent_session_id:
+                    legacy.add(document["session_id"])
                 sessions.append(
                     self._summary(
                         document,
@@ -113,10 +146,15 @@ class SessionReader:
                         path.stat().st_mtime,
                         title,
                         parent_session_id,
+                        bool(enabled),
                     )
                 )
             except (OSError, TypeError, ValueError):
                 continue
+        parents = {item.parent_session_id for item in sessions}
+        for item in sessions:
+            if item.session_id in legacy and item.session_id in parents:
+                item.super_mode = True
         sessions.sort(key=lambda item: item.updated_at, reverse=True)
         return sessions
 
@@ -128,7 +166,7 @@ class SessionReader:
             document = self._read_document(path)
             if document["session_id"] != session_id:
                 raise SessionNotFoundError(session_id)
-            workspace, created_at, _, _ = self._read_metadata(session_id)
+            workspace, created_at, _, _, _ = self._read_metadata(session_id)
             return SessionDetail(
                 session_id=session_id,
                 workspace=workspace,
@@ -162,6 +200,8 @@ class SessionReader:
             metadata["title"] = display_title
         if parent_session_id:
             metadata["parent_session_id"] = parent_session_id
+        else:
+            metadata["super_mode"] = False
         if task_id:
             metadata["task_id"] = task_id
         try:
@@ -263,7 +303,7 @@ class SessionReader:
     def _read_metadata(
         self,
         session_id: str,
-    ) -> tuple[str, float, str, str | None]:
+    ) -> tuple[str, float, str, str | None, bool | None]:
         metadata_path = self._metadata_path(session_id)
         with metadata_path.open(encoding="utf-8") as file:
             raw = json.load(file)
@@ -287,6 +327,7 @@ class SessionReader:
             float(created_at),
             _normalized_title(raw.get("title")),
             parent_session_id,
+            raw.get("super_mode"),
         )
 
     @staticmethod
@@ -311,6 +352,7 @@ class SessionReader:
         updated_at: float,
         metadata_title: str,
         parent_session_id: str | None,
+        super_mode: bool,
     ) -> SessionSummary:
         messages = document["messages"]
         title = metadata_title or next(
@@ -330,6 +372,7 @@ class SessionReader:
             "",
         )
         return SessionSummary(
+            super_mode=super_mode,
             session_id=document["session_id"],
             parent_session_id=parent_session_id,
             workspace=workspace,

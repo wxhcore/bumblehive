@@ -213,9 +213,15 @@ test("reconnect restores live tools, elapsed time and approval without duplicati
   const waitingHistory = chatEvents.historyMessages(stored.slice(0, 2));
   const running = chatEvents.restoreRunningMessages(waitingHistory, ready);
   assert.equal(running.at(-1).iterations[0].tools[0].status, "running");
-  const approval = { ...approvalFrame(), call_id: "live" };
+  const approval = { ...approvalFrame(), session_id: ready.session_id, call_id: "live" };
   const waiting = chatEvents.restoreRunningMessages(waitingHistory, { ...ready, approvals: [approval] });
   assert.equal(waiting.at(-1).iterations[0].tools[0].status, "waiting_approval");
+  const workerApproval = { ...approval, worker_session_id: "worker" };
+  const reconnect = { ...ready, approvals: [workerApproval] };
+  const parent = chatEvents.restoreRunningMessages(waitingHistory, reconnect);
+  assert.equal(parent.at(-1).iterations[0].tools[0].status, "running");
+  const worker = chatEvents.restoreRunningMessages(waitingHistory, { ...reconnect, session_id: "worker" });
+  assert.equal(worker.at(-1).iterations[0].tools[0].status, "waiting_approval");
   assert.equal(waiting.at(-1).startedAt, 123000);
 });
 

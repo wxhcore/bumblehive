@@ -18,7 +18,7 @@ from bumblehive.tools.scope import (
     reset_tool_session,
 )
 from bumblehive_server.runtime_service import RuntimeBusyError, RuntimeService
-from bumblehive_server.subagents import SUBAGENT_INSTRUCTIONS, observe_subagents
+from bumblehive_server.subagents import observe_subagents
 from bumblehive_server.tool_context import capture_tool_call, current_task_id
 
 
@@ -240,6 +240,7 @@ class SubagentFakeRuntime(FakeRuntime):
         *,
         session_id: str,
         config: dict[str, Any],
+        approval_handler,
     ) -> SubagentFakeStream:
         self.run_calls.append(
             {
@@ -968,12 +969,12 @@ async def test_runtime_service_registers_subagent_on_startup_and_replacement(
     assert tool.parameters["properties"]["title"]["maxLength"] == 80
     assert set(tool.parameters["properties"]) == {"title", "task"}
     assert "background=false" not in tool.description
-    assert "independent read-only sub-agent" in tool.description
+    assert "independent worker" in tool.description
     await service.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_subagent_tool_runs_a_read_only_child_session(tmp_path) -> None:
+async def test_subagent_tool_runs_a_worker_session(tmp_path) -> None:
     reader = RecordingSessionReader()
     observer = RecordingSubagentObserver()
     runtime: SubagentFakeRuntime | None = None
@@ -1013,28 +1014,15 @@ async def test_subagent_tool_runs_a_read_only_child_session(tmp_path) -> None:
         }
     ]
     assert [event.session_id for event in observer.events] == ["child-session"]
-    assert runtime.run_calls == [
-        {
-            "message": [{
-                "role": "user",
-                "content": SUBAGENT_INSTRUCTIONS + "Inspect the project",
-                "_bumblehive_ui": {"content": "Inspect the project", "message_id": "child-session"},
-            }],
-            "session_id": "child-session",
-            "config": {
-                "runtime": {"workspace": str(workspace.resolve())},
-                "agent": {
-                    "tool_names": (
-                        "read_file",
-                        "list_dir",
-                        "find_files",
-                        "grep",
-                        "send_message",
-                    )
-                },
-            },
-        }
-    ]
+    call, = runtime.run_calls
+    assert call["session_id"] == "child-session"
+    assert call["message"] == [{
+        "role": "user", "content": "Inspect the project",
+        "_bumblehive_ui": {"content": "Inspect the project", "message_id": "child-session"},
+    }]
+    assert call["config"]["runtime"]["workspace"] == str(workspace.resolve())
+    assert set(call["config"]["agent"]["tool_names"]) == set(runtime.tools.tool_names) - {"sub_agent", "ask_user"}
+    assert "assigned task" in call["config"]["agent"]["instructions"]
 
     result = await asyncio.wait_for(tool_task, 1)
     assert result.error is None
@@ -1102,8 +1090,8 @@ async def test_subagent_tool_runs_multiple_calls_in_parallel(tmp_path) -> None:
     await asyncio.wait_for(runtime.run_started.wait(), timeout=1)
 
     assert [call["message"][0]["content"] for call in runtime.run_calls] == [
-        SUBAGENT_INSTRUCTIONS + "Inspect task A",
-        SUBAGENT_INSTRUCTIONS + "Inspect task B",
+        "Inspect task A",
+        "Inspect task B",
     ]
     assert reader.created_titles == ["Inspect A", "Inspect B"]
     assert {
@@ -1209,3 +1197,26 @@ async def test_subagent_tool_cleans_running_state_on_error_and_cancellation(
     assert not service.subagents.is_running("child-session")
     assert observer.cancelled == ["child-session"]
     await service.shutdown()
+
+
+def test_role_tool_selection_respects_config_and_empty_request_allowlists():
+    from bumblehive_server.agent_roles import role_config
+
+    runtime = SimpleNamespace(
+        config=SimpleNamespace(agent=SimpleNamespace(
+            tool_names=["example_mcp", "read_file", "send_message", "sub_agent"], instructions="Project rules",
+        )),
+        tools=SimpleNamespace(tool_names=["read_file", "write_file", "sub_agent", "send_message", "example_mcp"]),
+    )
+    request = {"agent": {"tool_names": ["write_file", "example_mcp", "send_message", "sub_agent"]}}
+    assert role_config(runtime, request, "single")["agent"]["tool_names"] == ["example_mcp"]
+    router = role_config(runtime, request, "router")["agent"]
+    assert router["tool_names"] == ["send_message", "sub_agent"]
+    assert router["instructions"].startswith("Project rules")
+    worker = role_config(runtime, request, "worker", delegated=True)["agent"]
+    assert worker["tool_names"] == ["example_mcp", "send_message"]
+    assert "send_message(target='parent'" in worker["instructions"]
+    limited = role_config(runtime, {"agent": {"tool_names": ["read_file"]}}, "worker", delegated=True)["agent"]
+    assert "send_message" not in limited["instructions"]
+    for role in ("single", "router", "worker"):
+        assert role_config(runtime, {"agent": {"tool_names": []}}, role)["agent"]["tool_names"] == []

@@ -89,6 +89,9 @@ class FakeStream:
 
 
 class FakeRuntime:
+    config = SimpleNamespace(agent=SimpleNamespace(tool_names=None))
+    tools = SimpleNamespace(tool_names=[])
+
     def stream(self, *_args: Any, **_kwargs: Any) -> FakeStream:
         return FakeStream()
 
@@ -482,7 +485,7 @@ class BlockingFakeStream:
         self.closed = True
 
 
-class CancellableFakeRuntime:
+class CancellableFakeRuntime(FakeRuntime):
     def __init__(self) -> None:
         self.blocking_stream = BlockingFakeStream()
         self.calls = 0
@@ -494,7 +497,7 @@ class CancellableFakeRuntime:
         return FakeStream()
 
 
-class ParallelFakeRuntime:
+class ParallelFakeRuntime(FakeRuntime):
     def __init__(self) -> None:
         self.streams: dict[str, BlockingFakeStream] = {}
 
@@ -524,7 +527,7 @@ class FailingFakeStream:
         return None
 
 
-class FailingFakeRuntime:
+class FailingFakeRuntime(FakeRuntime):
     def stream(self, *_args: Any, **_kwargs: Any) -> FailingFakeStream:
         return FailingFakeStream()
 
@@ -540,7 +543,7 @@ class ErrorResultFakeStream(FakeStream):
         )
 
 
-class ErrorResultFakeRuntime:
+class ErrorResultFakeRuntime(FakeRuntime):
     def stream(self, *_args: Any, **_kwargs: Any) -> ErrorResultFakeStream:
         return ErrorResultFakeStream()
 
@@ -569,7 +572,7 @@ class FakeService:
     def __init__(self) -> None:
         self.runtime = FakeRuntime()
         self.controllers = {}
-        self.subagents = SubagentTasks(self.lease, self.notify_session)
+        self.subagents = SubagentTasks(self.lease, self.notify_session, self.get_session_controller)
         self.workspace = Path("/tmp/workspace")
         self.model_requests: list[Any] = []
         self.mcp_test_requests: list[Any] = []
@@ -1209,7 +1212,7 @@ class ApprovalFakeStream(FakeStream):
         self.closed = True
 
 
-class ApprovalFakeRuntime:
+class ApprovalFakeRuntime(FakeRuntime):
     def __init__(self, workspace, target):
         self.workspace = workspace
         self.target = target
@@ -1354,7 +1357,7 @@ def test_real_sdk_stream_recovers_steer_after_approval_cancel_and_reconnect(tmp_
     from bumblehive.agent.control import _RunControl
     from bumblehive.protocols.tool_approval import ToolApprovalRequest
 
-    class Runtime:
+    class Runtime(FakeRuntime):
         def __init__(self):
             self.requests = []
 
@@ -1422,7 +1425,78 @@ def test_real_sdk_stream_recovers_steer_after_approval_cancel_and_reconnect(tmp_
                 assert _receive_frame(reconnected)["type"] == "result"
                 assert _receive_frame(reconnected)["type"] == "result"
             assert runtime.requests == [
-                ("A", None, "request"),
-                ("same", config, "full_access"),
-                ("same", None, "request"),
+                ("A", {"agent": {"tool_names": []}}, "request"),
+                ("same", {**config, "agent": {"tool_names": []}}, "full_access"),
+                ("same", {"agent": {"tool_names": []}}, "request"),
             ]
+
+
+def test_super_mode_api_and_websocket_approval_survive_reconnect(tmp_path):
+    from bumblehive import BumblehiveRuntime
+    from bumblehive.protocols import ToolCall
+    from bumblehive.providers.base import ModelResponse
+    from bumblehive.session.manager import SessionManager
+    from bumblehive_server.runtime_service import RuntimeService
+    from bumblehive_server.session_reader import SessionReader
+    from test_background_subagents import DelegationProvider
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = tmp_path / "worker-output"
+    reader = SessionReader(tmp_path / "sessions")
+    provider = DelegationProvider()
+
+    async def generate(request):
+        last = request.messages[-1]
+        if last["role"] == "user" and last["content"].startswith("Delegate"):
+            return ModelResponse(None, [ToolCall("delegate", "sub_agent", {"title": "Writer", "task": "Write"})], "tool_calls")
+        if last["role"] == "user" and last["content"].startswith("Write"):
+            return ModelResponse(None, [ToolCall("write", "write_file", {"path": str(target), "content": "approved"})], "tool_calls")
+        return ModelResponse(content="Done")
+
+    provider.generate = generate
+
+    def factory(config):
+        runtime = BumblehiveRuntime(config)
+        runtime.sessions = SessionManager(reader.directory)
+
+        async def get_provider(_):
+            return provider
+
+        runtime._get_provider = get_provider
+        return runtime
+
+    service = RuntimeService(tmp_path / "config.json", session_reader=reader, runtime_factory=factory)
+    with TestClient(create_app(runtime_service=service, session_reader=reader)) as client:
+        sessions = "/api/v1/sessions"
+        root = client.post(sessions, json={"workspace": str(workspace)}).json()["session_id"]
+        endpoint = f"{sessions}/{root}/super-mode"
+        assert client.get(sessions).json()["sessions"][0]["super_mode"] is False
+        assert client.put(endpoint, json={"enabled": True}).json() == {"super_mode": True}
+        socket_url = f"/ws/v1/chat/{root}"
+        with client.websocket_connect(socket_url) as socket:
+            assert socket.receive_json()["type"] == "ready"
+            socket.send_json({"content": "Delegate", "config": {"runtime": {"workspace": str(workspace)}}})
+            idle = False
+            approval = None
+            while not idle or approval is None:
+                frame = socket.receive_json()
+                if frame["type"] == "approval_request":
+                    approval = frame
+                if frame["type"] == "result" and frame["session_id"] == root:
+                    idle = True
+        assert approval["worker_title"] == "Writer" and not target.exists()
+        assert client.put(endpoint, json={"enabled": False}).status_code == 409
+        with client.websocket_connect(socket_url) as socket:
+            snapshot = socket.receive_json()
+            assert not snapshot["running"] and snapshot["approvals"] == [approval]
+            socket.send_json({"type": "approval_decision", "approval_id": approval["approval_id"], "approved": True})
+            while True:
+                frame = socket.receive_json()
+                if frame["type"] == "result" and frame["session_id"] == root:
+                    break
+        assert target.read_text() == "approved"
+        assert client.put(endpoint, json={"enabled": False}).json() == {"super_mode": False}
+        child = approval["worker_session_id"]
+        assert client.put(f"{sessions}/{child}/super-mode", json={"enabled": True}).status_code == 400
+        assert client.put(f"{sessions}/absent/super-mode", json={"enabled": True}).status_code == 404

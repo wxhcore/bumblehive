@@ -14,6 +14,10 @@ import { useMenuNavigation } from "../hooks/useMenuNavigation";
 import { ModelOptions } from "./ModelOptions";
 
 interface ComposerProps {
+  superMode: boolean;
+  modeLocked: boolean;
+  isWorker: boolean;
+  onToggleSuper: () => void;
   approvalSlot?: ReactNode;
   questionSlot?: ReactNode;
   pendingMessages?: PendingChatMessage[];
@@ -36,6 +40,7 @@ interface ComposerProps {
 }
 
 export const Composer = memo(function Composer({
+  superMode, modeLocked, isWorker, onToggleSuper,
   approvalSlot,
   questionSlot,
   pendingMessages = [],
@@ -181,6 +186,14 @@ export const Composer = memo(function Composer({
               open={menu === "approval"}
               onOpenChange={setApprovalOpen}
             />
+            {isWorker ? <span className="worker-label">Worker</span> : (
+              <button className="workspace-button super-switch" type="button" role="switch"
+                aria-checked={superMode} disabled={disabled || modeLocked || disconnected}
+                title={modeLocked ? "当前会话和 Worker 空闲后可切换" : "开启后由 Router 协调，Worker 执行任务"}
+                onClick={onToggleSuper}>
+                <span aria-hidden="true" className="super-indicator" />Super 模式
+              </button>
+            )}
             <span className="toolbar-spacer" />
             <div className="composer-model-field" ref={modelFieldRef}>
               {menu === "model" && !modelSwitchDisabled ? (

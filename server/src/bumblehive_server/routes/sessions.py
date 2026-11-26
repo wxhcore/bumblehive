@@ -2,9 +2,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from ..chat.session import InputError
 from ..dependencies import get_runtime_service, get_session_reader
 from ..runtime_service import RuntimeService
-from ..schemas import CreateSessionRequest, SessionDetail, SessionSummary
+from ..schemas import CreateSessionRequest, SessionDetail, SessionSummary, SuperModeRequest
 from ..session_reader import SessionNotFoundError, SessionReader
 
 
@@ -42,6 +43,23 @@ async def get_session(
         return await reader.get(session_id)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
+
+
+@router.put("/{session_id}/super-mode")
+async def set_super_mode(
+    session_id: str, request: SuperModeRequest,
+    service: RuntimeService = Depends(get_runtime_service),
+    reader: SessionReader = Depends(get_session_reader),
+) -> dict[str, bool]:
+    try:
+        await service.set_super_mode(reader, session_id, request.enabled)
+    except SessionNotFoundError as exc:
+        raise HTTPException(404, "session not found") from exc
+    except InputError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"super_mode": request.enabled}
 
 
 @router.delete("/{session_id}")

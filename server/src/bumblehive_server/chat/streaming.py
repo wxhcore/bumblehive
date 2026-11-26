@@ -11,6 +11,7 @@ from fastapi import WebSocketDisconnect
 from bumblehive.agent import AgentRunResult, AgentRunStream
 from bumblehive.observability import AgentEvent
 
+from ..agent_roles import AgentRole, role_config
 from ..logging_utils import elapsed_since, format_token_usage, safe_log_value
 from ..schemas import ChatRequest
 from ..subagents import RuntimeLease, SubagentRunObserver, observe_subagents
@@ -86,6 +87,7 @@ async def stream_turn(
     request: ChatRequest,
     approvals: ToolApprovals,
     *,
+    role: AgentRole,
     on_stream_ready: Callable[[AgentRunStream], Awaitable[None]] | None = None,
 ) -> AgentRunResult:
     started_at = perf_counter()
@@ -98,7 +100,7 @@ async def stream_turn(
                 stream = runtime.stream(
                     request.content,
                     session_id=session_id,
-                    config=request.config,
+                    config=role_config(runtime, request.config, role),
                     approval_handler=approvals,
                     hooks=capture_tool_call,
                 )

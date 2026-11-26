@@ -5,7 +5,7 @@ from contextlib import AbstractAsyncContextManager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from time import perf_counter, time
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
 from bumblehive import BumblehiveRuntime
@@ -13,6 +13,8 @@ from bumblehive.agent import AgentRunResult, AgentRunStream
 from bumblehive.observability import AgentEvent
 from bumblehive.tools.scope import current_tool_session_id, current_tool_workspace
 
+from .agent_roles import role_config
+from .chat.approval import ToolApprovals
 from .session_reader import SessionReader
 from .tool_context import current_task_id
 from .tool_results import format_background_tool_result
@@ -23,26 +25,8 @@ RuntimeLease = Callable[[], AbstractAsyncContextManager[BumblehiveRuntime]]
 NotifySession = Callable[[str, str, str], Awaitable[bool]]
 logger = logging.getLogger("uvicorn.error.bumblehive")
 
-SUBAGENT_INSTRUCTIONS = """You are a read-only sub-agent carrying out the task below for a parent agent.
-You share its workspace, but not its conversation. Work from the supplied task
-and the files you can inspect using your available tools.
-
-If a finding or blocker could change the parent's next step, send it now with
-send_message(target="parent", message=...). Include the evidence the parent
-needs to act, then continue any work you can do independently.
-
-Your final answer goes to the parent automatically. Give a self-contained
-report with your conclusion, supporting evidence or file references, and any
-remaining blockers or uncertainty. The parent sees only the updates you send
-and your final report.
-
-Follow the task's requested output language and format. Otherwise, use concise
-text or Markdown. If blocked, report the limitation in your final answer.
-
-Task:
-"""
-
-SUBAGENT_TOOLS = ("read_file", "list_dir", "find_files", "grep", "send_message")
+if TYPE_CHECKING:
+    from .chat.session import SessionController
 
 
 class SubagentRunObserver(Protocol):
@@ -108,12 +92,16 @@ class BackgroundSubagent:
 class SubagentTasks:
     """Own live background executions; completed reports live in session history."""
 
-    def __init__(self, lease: RuntimeLease, notify: NotifySession) -> None:
+    def __init__(self, lease: RuntimeLease, notify: NotifySession, controller: Callable[[str], "SessionController"]) -> None:
         self._lease = lease
         self._notify = notify
+        self._controller = controller
         self._tasks: dict[str, BackgroundSubagent] = {}
         # Coordinate persisted lookup and startup with deletion of the same sessions.
         self.dispatch_lock = asyncio.Lock()
+
+    def has_children(self, session_id: str) -> bool:
+        return any(entry.parent_session_id == session_id for entry in self._tasks.values())
 
     def is_running(self, session_id: str) -> bool:
         entry = self._tasks.get(session_id)
@@ -150,6 +138,8 @@ class SubagentTasks:
                 child = await reader.find_child(parent_session_id, task_id)
                 entry = self._tasks.get(child.session_id)
                 if entry is None:
+                    if self._controller(child.session_id).active_task is not None:
+                        raise ValueError("Worker is busy in a user conversation")
                     await self.start(
                         task_id=task_id,
                         session_id=child.session_id,
@@ -224,32 +214,36 @@ class SubagentTasks:
     ) -> None:
         try:
             async with self._lease() as runtime:
-                remaining: list[str] = []
-                while True:
-                    if entry.followup and observer is not None:
-                        await observer.on_followup(
-                            session_id=entry.session_id,
-                            message_id=entry.message_id,
-                            content=entry.content,
-                        )
-                    try:
-                        result, remaining = await _run_subagent(runtime, entry, observer, remaining, ready)
-                        report = result.final_content or ""
-                    except Exception as exc:
-                        if not ready.done():
-                            raise
-                        report = f"Error:\n{exc}"
-                        remaining = []
-                    content = format_background_tool_result(entry.task_id, report)
-                    notification_id = entry.message_id if entry.followup else entry.task_id
-                    await self._notify(entry.parent_session_id, f"subagent:{notification_id}", content)
-                    if not remaining:
-                        break
-                    entry.followup = True
-                    entry.content = remaining.pop(0)
-                    entry.message_id = uuid4().hex
-                    entry.started_at = time()
-                    entry.running = True
+                parent = self._controller(entry.parent_session_id)
+                with parent.worker_approvals(entry.session_id, entry.title) as (approvals, inherited):
+                    config = role_config(runtime, inherited, "worker", delegated=True)
+                    config["runtime"] = {**(config.get("runtime") or {}), "workspace": entry.workspace}
+                    remaining: list[str] = []
+                    while True:
+                        if entry.followup and observer is not None:
+                            await observer.on_followup(
+                                session_id=entry.session_id,
+                                message_id=entry.message_id,
+                                content=entry.content,
+                            )
+                        try:
+                            result, remaining = await _run_subagent(runtime, entry, observer, remaining, ready, config, approvals)
+                            report = result.final_content or ""
+                        except Exception as exc:
+                            if not ready.done():
+                                raise
+                            report = f"Error:\n{exc}"
+                            remaining = []
+                        content = format_background_tool_result(entry.task_id, report)
+                        notification_id = entry.message_id if entry.followup else entry.task_id
+                        await self._notify(entry.parent_session_id, f"subagent:{notification_id}", content)
+                        if not remaining:
+                            break
+                        entry.followup = True
+                        entry.content = remaining.pop(0)
+                        entry.message_id = uuid4().hex
+                        entry.started_at = time()
+                        entry.running = True
         except Exception as exc:
             if not ready.done():
                 entry.running = False
@@ -285,8 +279,10 @@ async def _run_subagent(
     observer: SubagentRunObserver | None,
     remaining: list[str],
     ready: asyncio.Future[None],
+    config: dict,
+    approvals: ToolApprovals,
 ) -> tuple[AgentRunResult, list[str]]:
-    session_id, workspace, task = entry.session_id, entry.workspace, entry.content
+    session_id, task = entry.session_id, entry.content
     started_at = perf_counter()
     try:
         try:
@@ -294,15 +290,13 @@ async def _run_subagent(
                 [
                     {
                         "role": "user",
-                        "content": task if entry.followup else SUBAGENT_INSTRUCTIONS + task,
+                        "content": task,
                         "_bumblehive_ui": {"content": task, "message_id": entry.message_id},
                     }
                 ],
                 session_id=session_id,
-                config={
-                    "runtime": {"workspace": workspace},
-                    "agent": {"tool_names": SUBAGENT_TOOLS},
-                },
+                config=config,
+                approval_handler=approvals,
             )
             try:
                 for message in remaining:
@@ -351,17 +345,15 @@ def register_subagent_tool(
     @runtime.tools.tool(
         name="sub_agent",
         description=(
-            "Delegate a self-contained task to an independent read-only sub-agent in the same "
-            "workspace. It can inspect and search files, but cannot modify files or execute "
-            "commands. Use it for independent investigation, review, comparison, or planning. "
-            "The sub-agent cannot see this conversation.\n\n"
+            "Delegate a self-contained task to an independent worker in the shared workspace. "
+            "The worker receives your task and has its own conversation history.\n\n"
             "Returns status=pending and a task_id matching the tool call ID. Continue independent "
-            "work and leave the delegated investigation to the child. A child may send "
+            "work and leave the delegated task to the child. A child may send "
             "a [Sub-agent progress update] while it is still working. Use that finding to "
             "adjust your plan or send_message to the relevant child by task_id. Its final "
             "answer or error arrives automatically as a [Background tool result] with the same "
             "task_id. If all remaining work depends on that result, end the turn and wait for "
-            "delivery. Use the child's evidence when preparing your answer to the user."
+            "delivery."
         ),
         parameters={
             "type": "object",
@@ -376,10 +368,8 @@ def register_subagent_tool(
                     "type": "string",
                     "minLength": 1,
                     "description": (
-                        "Self-contained instructions with the objective, relevant context or paths, "
-                        "scope, constraints, and expected deliverable, including the desired output "
-                        "language or format when relevant. Specify the conclusion and supporting "
-                        "details needed in the final report."
+                        "Give the objective, relevant context and constraints, and the deliverable "
+                        "the worker should return. Include any requested language or format."
                     ),
                 },
             },
@@ -432,7 +422,8 @@ def register_subagent_tool(
             "its next model step. An idle child starts a turn with its existing history. "
             "From a running child, target 'parent' to send an interim update. This can wake an "
             "idle parent. A stopped or paused parent keeps the update queued. "
-            "A status=sent receipt means the message was accepted for delivery."
+            "A status=sent receipt means delivery was accepted. Leave the original request pending. "
+            "Follow up with new information, a changed assignment, or a question the reply leaves open."
         ),
         parameters={
             "type": "object",
@@ -454,6 +445,8 @@ def register_subagent_tool(
         if target == "parent":
             task_id = await background_tasks.send_update(session_id, message)
         else:
+            if background_tasks.is_running(session_id):
+                raise ValueError("A worker can only send messages to its parent")
             task_id = target
             await background_tasks.send(session_reader, session_id, task_id, message)
         return {"status": "sent", "task_id": task_id}

@@ -128,6 +128,10 @@ export async function getSessions(): Promise<SessionSummary[]> {
   return response.sessions;
 }
 
+export function setSuperMode(sessionId: string, enabled: boolean): Promise<{ super_mode: boolean }> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/super-mode`, jsonInit("PUT", { enabled }));
+}
+
 export function getSession(sessionId: string): Promise<SessionDetail> {
   return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}`);
 }

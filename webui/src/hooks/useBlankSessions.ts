@@ -50,7 +50,7 @@ export function useBlankSessions({
 
     for (const [sessionId, pending] of pendingSessions) {
       if (
-        workspaceKey(pending.workspace) === targetKey &&
+        !pending.parentSessionId && workspaceKey(pending.workspace) === targetKey &&
         !isSessionRunning(sessionId) &&
         (getSessionMessages(sessionId)?.length ?? 0) === 0
       ) {
@@ -61,7 +61,7 @@ export function useBlankSessions({
 
     const persisted = sessions.find(
       (session) =>
-        workspaceKey(session.workspace) === targetKey &&
+        !session.parent_session_id && workspaceKey(session.workspace) === targetKey &&
         session.message_count === 0 &&
         !isSessionRunning(session.session_id) &&
         (getSessionMessages(session.session_id)?.length ?? 0) === 0,

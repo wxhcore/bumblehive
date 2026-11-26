@@ -11,6 +11,7 @@ import {
   deleteSession,
   getSession,
   getSessions,
+  setSuperMode,
   updateSettings,
 } from "./api/http";
 import { ActivityRail } from "./components/ActivityRail";
@@ -82,6 +83,7 @@ export default function App() {
     ReadonlyMap<string, PendingSessionInfo>
   >(() => new Map());
   const [input, setInput] = useState("");
+  const [savingMode, setSavingMode] = useState(false);
   const [approvalMode, setApprovalMode] = useState(readApprovalMode);
 
   const [showSettings, setShowSettings] = useState(false);
@@ -464,6 +466,37 @@ export default function App() {
     notify(`${workspaceLabel(workspace)} 已从侧栏移除`);
   }
 
+  const selectedSession = sessions.find((item) => item.session_id === activeSessionId);
+  const isWorker = Boolean(selectedSession?.parent_session_id ||
+    (activeSessionId && pendingSessionInfo.get(activeSessionId)?.parentSessionId));
+  const branchRunning = Boolean(activeSessionId &&
+    [...sessionBranchIds(activeSessionId, sessions, pendingSessionInfo)].some(isSessionRunning));
+
+  async function toggleSuperMode() {
+    if (savingMode || branchRunning || isWorker) return;
+    const version = sessionSelectionVersionRef.current;
+    setSavingMode(true);
+    try {
+      let id = activeSessionId;
+      if (!id) {
+        const workspace = newChatWorkspace();
+        if (!workspace) throw new Error("请先选择工作空间");
+        const created = await blankSessions.create(workspace);
+        id = created.session_id;
+        if (version === sessionSelectionVersionRef.current) {
+          setSelectedWorkspace(created.workspace);
+          displaySession(id, []);
+        }
+      }
+      await setSuperMode(id, !selectedSession?.super_mode);
+      await loadSessions();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "模式切换失败");
+    } finally {
+      setSavingMode(false);
+    }
+  }
+
   async function sendMessage() {
     const task = input.trim();
     if (!task) return;
@@ -760,6 +793,10 @@ export default function App() {
                   <HomeView workspace={activeWorkspace ? workspaceLabel(activeWorkspace) : null} />
                 )}
                 <Composer
+                  superMode={Boolean(selectedSession?.super_mode)}
+                  isWorker={isWorker}
+                  modeLocked={branchRunning}
+                  onToggleSuper={toggleSuperMode}
                   questionSlot={questions.length > 0 ? (
                     <div className="question-cards" aria-label="用户提问">
                       {questions.map((question) => (
@@ -792,7 +829,7 @@ export default function App() {
                   model={settings.provider.model ?? ""}
                   models={selectableModels}
                   modelSwitching={modelSwitching}
-                  disabled={bootstrapStatus !== "ready" || Boolean(activeSessionId && backgroundSessionIds.has(activeSessionId))}
+                  disabled={savingMode || bootstrapStatus !== "ready" || Boolean(activeSessionId && backgroundSessionIds.has(activeSessionId))}
                   isStreaming={isViewingRunningSession}
                   isStopping={isViewingStoppingSession}
                   modelSwitchDisabled={hasRunningSessions || modelSwitching}

@@ -87,7 +87,9 @@ export function restoreRunningMessages(messages: UiMessage[], frame: ReadyFrame,
       })),
     };
   }
-  return (frame.approvals ?? []).reduce(
+  return (frame.approvals ?? []).filter((item) =>
+    (item.worker_session_id ?? item.session_id) === frame.session_id,
+  ).reduce(
     (current, approval) => applyApprovalFrame(current, next.at(-1)!.id, approval), next,
   );
 }

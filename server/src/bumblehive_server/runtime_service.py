@@ -70,7 +70,7 @@ class RuntimeService:
         self._active_runs = 0
         self._lock = asyncio.Lock()
         self._session_controllers: dict[str, SessionController] = {}
-        self.subagents = SubagentTasks(self.lease, self.notify_session)
+        self.subagents = SubagentTasks(self.lease, self.notify_session, self.get_session_controller)
 
     async def notify_session(self, session_id: str, message_id: str, content: str) -> bool:
         controller = self._session_controllers.get(session_id)
@@ -86,9 +86,18 @@ class RuntimeService:
     def get_session_controller(self, session_id: str) -> SessionController:
         if session_id not in self._session_controllers:
             self._session_controllers[session_id] = SessionController(
-                self.lease, session_id
+                self.lease, session_id, self._session_reader
             )
         return self._session_controllers[session_id]
+
+    async def set_super_mode(self, reader: SessionReader, session_id: str, enabled: bool) -> None:
+        async with self.subagents.dispatch_lock:
+            children = await reader.descendant_ids(session_id)
+            branch_busy = self.subagents.has_children(session_id) or any(
+                self._session_controllers[child].active_task is not None
+                for child in children if child in self._session_controllers
+            )
+            await self.get_session_controller(session_id).set_super_mode(reader, enabled, branch_busy)
 
     @property
     def ready(self) -> bool:

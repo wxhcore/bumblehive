@@ -123,7 +123,7 @@ export function useChatRuntime({
       else {
         next.delete(sessionId);
         setApprovals((current) =>
-          current.filter((item) => item.session_id !== sessionId),
+          current.filter((item) => (item.worker_session_id ?? item.session_id) !== sessionId),
         );
       }
       runningSessionIdsRef.current = next;
@@ -275,6 +275,7 @@ export function useChatRuntime({
           const restored = restoreRunningMessages(current, {
             type: "ready", session_id: child.session_id, running: true,
             started_at: child.started_at,
+            approvals: frame.approvals,
             active_message: { message_id: child.message_id, content: child.content },
           }, true);
           assistantIdsRef.current.set(child.session_id, restored.at(-1)!.id);
@@ -358,11 +359,12 @@ export function useChatRuntime({
     flushPendingAgentFrames(sessionId);
 
     if (frame.type === "approval_request" || frame.type === "approval_resolved") {
-      const assistantId = assistantIdsRef.current.get(sessionId);
-      if (!assistantId || !runningSessionIdsRef.current.has(sessionId)) return;
-      updateSessionMessages(sessionId, (current) =>
-        applyApprovalFrame(current, assistantId, frame),
-      );
+      const originId = frame.worker_session_id ?? sessionId;
+      flushPendingAgentFrames(originId);
+      const assistantId = assistantIdsRef.current.get(originId);
+      if (assistantId && runningSessionIdsRef.current.has(originId)) {
+        updateSessionMessages(originId, (current) => applyApprovalFrame(current, assistantId, frame));
+      }
       if (frame.type === "approval_request") {
         setApprovals((current) =>
           current.some((item) => item.approval_id === frame.approval_id)

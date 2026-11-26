@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from contextlib import nullcontext
 from time import perf_counter
 from typing import Any
 
@@ -67,17 +68,20 @@ async def chat(websocket: WebSocket, session_id: str) -> None:
                 if not isinstance(payload, dict):
                     raise InputError("invalid_message", "message must be an object")
                 kind = payload.get("type", "message")
-                if service.subagents.is_running(session_id):
-                    raise InputError(
-                        "subagent_running",
-                        "This background sub-agent is view-only while running",
-                    )
-                if kind == "message":
-                    await controller.submit(ChatRequest.model_validate(payload))
-                elif kind == "steer":
-                    request = SteerRequest.model_validate(payload)
-                    await controller.steer(request.message_id)
-                elif kind == "remove_pending":
+                # Serialize new turns with worker resumption and mode changes.
+                gate = service.subagents.dispatch_lock if kind in ("message", "steer") else nullcontext()
+                async with gate:
+                    if service.subagents.is_running(session_id):
+                        raise InputError(
+                            "subagent_running", "This background sub-agent is view-only while running"
+                        )
+                    if kind == "message":
+                        await controller.submit(ChatRequest.model_validate(payload))
+                        continue
+                    if kind == "steer":
+                        await controller.steer(SteerRequest.model_validate(payload).message_id)
+                        continue
+                if kind == "remove_pending":
                     request = RemovePendingRequest.model_validate(payload)
                     await controller.remove_pending(request.message_id)
                 elif kind == "cancel":

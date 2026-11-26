@@ -87,7 +87,12 @@ class McpServerTestRequest(BaseModel):
     original_name: str | None = None
 
 
+class SuperModeRequest(BaseModel):
+    enabled: bool
+
+
 class SessionSummary(BaseModel):
+    super_mode: bool = False
     session_id: str
     parent_session_id: str | None = None
     workspace: str

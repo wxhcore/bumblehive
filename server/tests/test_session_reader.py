@@ -141,3 +141,25 @@ async def test_session_reader_creates_and_migrates_workspace_documents(
 
     assert await reader.delete_metadata(legacy_id) is True
     assert await reader.delete_metadata(legacy_id) is False
+
+
+@pytest.mark.asyncio
+async def test_super_mode_persists_per_root_and_detects_legacy_workers(tmp_path):
+    reader = SessionReader(tmp_path)
+    root = await reader.create(tmp_path)
+    other = await reader.create(tmp_path)
+    assert await reader.role(root) == "single"
+    child = await reader.create_child(tmp_path, title="Worker", parent_session_id=root)
+    path = reader._metadata_path(root)
+    metadata = json.loads(path.read_text())
+    del metadata["super_mode"]
+    path.write_text(json.dumps(metadata))
+    assert await reader.role(root) == "router"
+    assert {s.session_id: s.super_mode for s in await reader.list()} == {
+        root: True, child: False, other: False,
+    }
+    await reader.set_super_mode(root, False)
+    assert await SessionReader(tmp_path).role(root) == "single"
+    assert await reader.role(child) == "worker"
+    with pytest.raises(ValueError):
+        await reader.set_super_mode(child, True)

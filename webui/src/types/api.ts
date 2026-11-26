@@ -103,6 +103,7 @@ export interface ModelListResponse {
 }
 
 export interface SessionSummary {
+  super_mode: boolean;
   session_id: string;
   parent_session_id: string | null;
   workspace: string;
@@ -237,6 +238,8 @@ export interface CancelledFrame {
 }
 
 export interface ApprovalRequestFrame {
+  worker_session_id?: string;
+  worker_title?: string;
   type: "approval_request";
   approval_id: string;
   session_id: string;
@@ -252,6 +255,7 @@ export interface ApprovalRequestFrame {
 }
 
 export interface ApprovalResolvedFrame {
+  worker_session_id?: string;
   type: "approval_resolved";
   approval_id: string;
   session_id: string;

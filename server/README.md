@@ -102,7 +102,20 @@ await controller.submit(request, steer=True)
 
 ### Sub-agents
 
-The server's read-only `sub_agent(title, task)` runs in the background and returns
+New root sessions start in single-agent mode. The desktop composer toggles Super mode
+per conversation via `PUT /api/v1/sessions/{session_id}/super-mode` with
+`{"enabled":true}`. The session tree must be idle to switch. Older root sessions
+with child sessions start in Super mode.
+
+In single-agent mode the main agent uses enabled execution tools and `ask_user`.
+In Super mode the Router gets file inspection, `ask_user`, `sub_agent`, and
+`send_message`. Its Workers use enabled execution tools in the shared workspace
+and can message the parent. Each delegated run inherits its initiating turn's
+approval mode and tool restrictions. Worker approval requests appear in the
+parent conversation and its reconnect snapshot, identified by `worker_session_id`
+and `worker_title`.
+
+The Router's `sub_agent(title, task)` runs in the background and returns
 `{"status":"pending","task_id":"..."}` after startup. The task ID is the
 originating tool call ID; success and failure reports include that same ID.
 The final report or failure is delivered automatically to the parent: through

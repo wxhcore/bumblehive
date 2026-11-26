@@ -1,6 +1,8 @@
 """Session-owned runs and pending input, independent of WebSocket connections."""
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from time import time
 from typing import Any
@@ -8,6 +10,7 @@ from typing import Any
 from bumblehive import AgentRunStream
 
 from ..schemas import ChatRequest
+from ..session_reader import SessionReader
 from ..subagents import RuntimeLease
 from ..tool_context import current_task_id
 from ..tool_results import format_background_tool_result
@@ -30,8 +33,10 @@ class PendingMessage:
 
 
 class SessionController:
-    def __init__(self, lease: RuntimeLease, session_id: str) -> None:
+    def __init__(self, lease: RuntimeLease, session_id: str, reader: SessionReader | None = None) -> None:
         self._lease = lease
+        self._reader = reader
+        self._worker_approvals: dict[str, ToolApprovals] = {}
         self.session_id = session_id
         self.active_task: asyncio.Task[None] | None = None
         self.active_stream: AgentRunStream | None = None
@@ -68,7 +73,7 @@ class SessionController:
             else None,
             "started_at": self._started_at,
             "pending": [self._message(item.request) for item in self.pending],
-            "approvals": self.approvals.snapshot() if self.approvals else [],
+            "approvals": [frame for handler in self._approval_handlers() for frame in handler.snapshot()],
             "questions": [question.snapshot() for question in self.questions.values()],
         }
 
@@ -285,6 +290,7 @@ class SessionController:
                 self.session_id,
                 item.request,
                 approvals,
+                role=await self._reader.role(self.session_id) if self._reader else "single",
                 on_stream_ready=ready,
             )
             successful = result.error is None
@@ -322,10 +328,36 @@ class SessionController:
                 ):
                     self._start(self.pending[0])
 
+    async def set_super_mode(self, reader: SessionReader, enabled: bool, branch_busy: bool) -> None:
+        async with self._lock:
+            if self._closing or self.active_task or branch_busy:
+                raise InputError("session_busy", "请等待当前会话和 Worker 运行结束后再切换模式")
+            await reader.set_super_mode(self.session_id, enabled)
+
+    @contextmanager
+    def worker_approvals(self, worker_id: str, title: str) -> Iterator[tuple[ToolApprovals, dict | None]]:
+        request = self.active_request
+        handler = ToolApprovals(
+            self.session_id, self.publish, request.approval_mode if request else "request",
+            worker_session_id=worker_id, worker_title=title,
+        )
+        self._worker_approvals[worker_id] = handler
+        try:
+            yield handler, request.config if request else None
+        finally:
+            handler.clear()
+            self._worker_approvals.pop(worker_id, None)
+
+    def _approval_handlers(self) -> Iterator[ToolApprovals]:
+        if self.approvals:
+            yield self.approvals
+        yield from self._worker_approvals.values()
+
     async def decide_approval(self, approval_id: str, approved: bool) -> None:
-        approvals = self.approvals
-        if approvals is not None:
-            await approvals.decide(approval_id, approved)
+        for handler in self._approval_handlers():
+            if approval_id in handler.pending:
+                await handler.decide(approval_id, approved)
+                return
 
     async def cancel(self) -> None:
         async with self._lock:

@@ -3,6 +3,7 @@
 import asyncio
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -25,14 +26,13 @@ class DelegationProvider(ModelProvider):
         self.requests = []
         self.child_error = False
         self.parent_error = False
-        self.approval_path = None
 
     async def generate(self, request):
         messages = request.messages
         self.requests.append(deepcopy(messages))
         users = [m["content"] for m in messages if m["role"] == "user"]
         first = users[0]
-        if "\nTask:\nCHILD:" in first:
+        if first.startswith("CHILD:"):
             name = first.rsplit("CHILD:", 1)[1].splitlines()[0]
             if messages[-1]["role"] == "tool":
                 return ModelResponse(
@@ -49,7 +49,7 @@ class DelegationProvider(ModelProvider):
             )
         root = first.removeprefix("ROOT:").splitlines()[0]
         if len(messages) == len([m for m in messages if m["role"] == "system"]) + 1:
-            count, approval = self.plans[root]
+            count, question = self.plans[root]
             calls = [
                 ToolCall(
                     f"delegate-{i}",
@@ -61,12 +61,12 @@ class DelegationProvider(ModelProvider):
                 )
                 for i in range(count)
             ]
-            if approval:
+            if question:
                 calls.append(
                     ToolCall(
-                        "write-parent",
-                        "write_file",
-                        {"path": str(self.approval_path), "content": "approved"},
+                        "ask-parent",
+                        "ask_user",
+                        {"question": "Continue?"},
                     )
                 )
             return ModelResponse(None, calls, "tool_calls")
@@ -90,7 +90,6 @@ class DelegationProvider(ModelProvider):
 async def delegation(tmp_path):
     reader = SessionReader(tmp_path / "sessions")
     provider = DelegationProvider()
-    provider.approval_path = tmp_path / "approval.txt"
     runtimes = []
 
     def factory(config):
@@ -128,18 +127,20 @@ async def receive(queue, kind, session_id=None, status=None):
                 return value
 
 
-async def begin(delegation, root, count, *, approval=False, workspace=None):
+async def begin(delegation, root, count, *, question=False, workspace=None, approval_mode="request"):
     service, provider, reader, tmp_path = delegation
     workspace = workspace or tmp_path / root
     workspace.mkdir(exist_ok=True)
     (workspace / "data.txt").write_text(f"DATA:{root}")
     session_id = await reader.create(workspace)
+    await service.set_super_mode(reader, session_id, True)
     controller = service.get_session_controller(session_id)
     queue, _ = controller.subscribe()
-    provider.plans[root] = (count, approval)
+    provider.plans[root] = (count, question)
     await controller.submit(
         ChatRequest(
             content=f"ROOT:{root}",
+            approval_mode=approval_mode,
             config={"runtime": {"workspace": str(workspace)}},
         )
     )
@@ -234,12 +235,12 @@ async def test_two_parent_sessions_keep_results_and_workspaces_separate(delegati
 
 
 @pytest.mark.asyncio
-async def test_completion_during_approval_is_steered_then_restored_on_stop(delegation):
+async def test_completion_during_question_is_steered_then_restored_on_stop(delegation):
     service, provider, reader, tmp_path = delegation
     parent, controller, queue, children = await begin(
-        delegation, "stop", 1, approval=True
+        delegation, "stop", 1, question=True
     )
-    await receive(queue, "approval_request", parent)
+    await receive(queue, "question_request", parent)
     provider.children.setdefault("stop-0", asyncio.Event()).set()
     await receive(queue, "message_status", parent, "steered")
     await controller.cancel()
@@ -249,7 +250,6 @@ async def test_completion_during_approval_is_steered_then_restored_on_stop(deleg
     _, snapshot = controller.subscribe()
     assert snapshot["pending"][0]["message_id"] == report_id
     assert not snapshot["running"]
-    assert not (tmp_path / "approval.txt").exists()
     await controller.steer(report_id)
     await receive(queue, "result", parent)
     history = (await reader.get(parent)).messages
@@ -371,16 +371,16 @@ async def test_report_arriving_during_final_model_response_follows_assistant(
 
 
 @pytest.mark.asyncio
-async def test_report_during_approval_is_consumed_after_complete_tool_batch(delegation):
+async def test_report_during_question_is_consumed_after_complete_tool_batch(delegation):
     _, provider, reader, _ = delegation
     parent, controller, queue, _ = await begin(
-        delegation, "approve", 1, approval=True
+        delegation, "approve", 1, question=True
     )
-    approval = await receive(queue, "approval_request", parent)
+    question = await receive(queue, "question_request", parent)
     provider.children.setdefault("approve-0", asyncio.Event()).set()
     await receive(queue, "message_status", parent, "steered")
     assert not controller.pending
-    await controller.decide_approval(approval["approval_id"], False)
+    await controller.answer_question(question["task_id"], "Continue")
     await receive(queue, "result", parent)
     history = (await reader.get(parent)).messages
     index = next(
@@ -433,7 +433,7 @@ async def test_background_cancel_before_lease_does_not_leave_startup_waiting():
         reports.append(args)
 
     observer = RecordingSubagentObserver()
-    tasks = SubagentTasks(blocked_lease, notify)
+    tasks = SubagentTasks(blocked_lease, notify, lambda _: pytest.fail("lease blocked"))
     startup = asyncio.create_task(
         tasks.start(
             task_id="delegate-blocked",
@@ -470,7 +470,7 @@ async def test_lease_startup_failure_is_one_tool_error_without_completion_notice
         reports.append(args)
 
     observer = RecordingSubagentObserver()
-    tasks = SubagentTasks(failed_lease, notify)
+    tasks = SubagentTasks(failed_lease, notify, lambda _: pytest.fail("lease failed"))
     with pytest.raises(RuntimeError, match="runtime unavailable"):
         await tasks.start(
             task_id="delegate-failed",
@@ -577,9 +577,9 @@ async def test_worker_updates_wake_parent_and_queue_after_stop(delegation, monke
         last = request.messages[-1]
         tools = {tool["function"]["name"]: tool["function"] for tool in request.tools}
         assert "send_message" in tools
-        if "\nTask:\nCHILD:progress-0" in first_user:
+        if first_user.startswith("CHILD:progress-0"):
             assert "sub_agent" not in tools
-            assert 'send_message(target="parent"' in first_user
+            assert "Your final report is delivered automatically" in request.messages[0]["content"]
             receipts = [m for m in request.messages if m.get("name") == "send_message"]
             for receipt in receipts:
                 assert json.loads(receipt["content"]) == {"status": "sent", "task_id": "delegate-0"}
@@ -674,3 +674,128 @@ async def test_sending_at_child_close_does_not_lose_message(delegation, monkeypa
     await service.delete_session(child)
     with pytest.raises(ValueError, match="No sub-agent"):
         await service.subagents.send(reader, parent, "delegate-0", "Deleted")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("approval_mode", "decision"), [
+    ("request", True), ("request", False), ("full_access", None),
+])
+async def test_worker_write_after_router_finishes(delegation, monkeypatch, approval_mode, decision):
+    from bumblehive_server.chat.session import InputError
+
+    service, provider, reader, tmp_path = delegation
+    target = tmp_path / "outside-workspace.txt"
+    generate = provider.generate
+    release = asyncio.Event()
+
+    async def do_work(request):
+        user = next(m["content"] for m in request.messages if m["role"] == "user")
+        names = {tool["function"]["name"] for tool in request.tools}
+        if not user.startswith("CHILD:"):
+            assert names == {"sub_agent", "send_message", "ask_user", "read_file", "grep", "list_dir", "find_files"}
+            return await generate(request)
+        assert {"exec", "write_file", "send_message"} <= names
+        assert not {"sub_agent", "ask_user"} & names
+        if request.messages[-1]["role"] == "tool":
+            return ModelResponse(content="Worker finished")
+        await release.wait()
+        return ModelResponse(None, [ToolCall("write", "write_file", {
+            "path": str(target), "content": "worker output",
+        })], "tool_calls")
+
+    monkeypatch.setattr(provider, "generate", do_work)
+    root, controller, queue, children = await begin(delegation, "write", 1, approval_mode=approval_mode)
+    await receive(queue, "result", root)
+    with pytest.raises(InputError, match="Worker"):
+        await service.set_super_mode(reader, root, False)
+    release.set()
+    if decision is not None:
+        approval = await receive(queue, "approval_request", root)
+        assert approval["worker_session_id"] == children[0]["session_id"]
+        assert approval["worker_title"] == children[0]["title"]
+        assert not target.exists()
+        controller.unsubscribe(queue)
+        queue, ready = controller.subscribe()
+        assert not ready["running"] and ready["approvals"] == [approval]
+        await controller.decide_approval(approval["approval_id"], decision)
+        resolved = await receive(queue, "approval_resolved", root)
+        assert resolved["approved"] is decision
+    await receive(queue, "result", root)
+    assert controller.subscribe()[1]["approvals"] == []
+    if decision is False:
+        assert not target.exists()
+    else:
+        assert target.read_text() == "worker output"
+
+
+@pytest.mark.asyncio
+async def test_two_worker_approvals_remain_independent_after_reconnect(delegation, monkeypatch):
+    _, provider, _, tmp_path = delegation
+    generate = provider.generate
+    release = asyncio.Event()
+
+    async def request_write(request):
+        first = next(m["content"] for m in request.messages if m["role"] == "user")
+        if not first.startswith("CHILD:"):
+            return await generate(request)
+        if request.messages[-1]["role"] == "tool":
+            return ModelResponse(content="Finished")
+        await release.wait()
+        name = first.splitlines()[0].removeprefix("CHILD:")
+        return ModelResponse(None, [ToolCall("write", "write_file", {
+            "path": str(tmp_path / name), "content": name,
+        })], "tool_calls")
+
+    monkeypatch.setattr(provider, "generate", request_write)
+    root, controller, queue, children = await begin(delegation, "parallel", 2)
+    await receive(queue, "result", root)
+    release.set()
+    approvals = [await receive(queue, "approval_request", root) for _ in children]
+    assert {a["worker_session_id"] for a in approvals} == {c["session_id"] for c in children}
+    assert len({a["approval_id"] for a in approvals}) == 2
+    controller.unsubscribe(queue)
+    queue, ready = controller.subscribe()
+    assert {a["approval_id"] for a in ready["approvals"]} == {a["approval_id"] for a in approvals}
+
+    first, second = approvals
+    await controller.decide_approval(second["approval_id"], False)
+    await receive(queue, "result", root)
+    assert not (tmp_path / "parallel-0").exists() and not (tmp_path / "parallel-1").exists()
+    await controller.decide_approval(first["approval_id"], True)
+    await receive(queue, "result", root)
+    approved_path = Path(first["arguments"]["path"])
+    assert approved_path.read_text() == approved_path.name
+    assert not Path(second["arguments"]["path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_role_change_on_same_session_controls_discovery_and_dispatch(delegation, monkeypatch):
+    service, provider, reader, tmp_path = delegation
+    root = await reader.create(tmp_path)
+    controller = service.get_session_controller(root)
+    queue, _ = controller.subscribe()
+    offered = []
+
+    async def request_tool(request):
+        if request.messages[-1]["role"] == "tool":
+            return ModelResponse(content=request.messages[-1]["content"])
+        is_single = request.messages[-1]["content"].startswith("single")
+        offered.append({tool["function"]["name"] for tool in request.tools})
+        call = (ToolCall("delegate", "sub_agent", {"title": "test", "task": "test"}) if is_single
+                else ToolCall("write", "write_file", {"path": str(tmp_path / "forbidden.txt"), "content": "test"}))
+        return ModelResponse(None, [call], "tool_calls")
+
+    monkeypatch.setattr(provider, "generate", request_tool)
+    for turn in ("single", "router", "single again"):
+        if turn != "single":
+            await service.set_super_mode(reader, root, turn == "router")
+        await controller.submit(ChatRequest(content=turn))
+        await receive(queue, "result", root)
+    assert "ask_user" in offered[0] and "write_file" in offered[0]
+    assert not {"sub_agent", "send_message"} & offered[0]
+    assert "sub_agent" in offered[1] and "write_file" not in offered[1]
+    assert offered[0] == offered[2]
+    assert not (tmp_path / "forbidden.txt").exists()
+    assert not await reader.descendant_ids(root)
+    results = [m["content"] for m in (await reader.get(root)).messages if m["role"] == "tool"]
+    assert len(results) == 3 and all("not exposed" in result for result in results)

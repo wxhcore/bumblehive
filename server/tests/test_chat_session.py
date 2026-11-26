@@ -65,6 +65,9 @@ class Stream:
 
 
 class Service:
+    config = SimpleNamespace(agent=SimpleNamespace(tool_names=None))
+    tools = SimpleNamespace(tool_names=[])
+
     def __init__(self):
         self.streams = []
         self.lease_gate = asyncio.Event()
@@ -273,7 +276,7 @@ async def test_service_delete_and_shutdown_close_only_the_owned_runs(tmp_path):
 
     service = RuntimeService(tmp_path / "unused.json")
     service._runtime = SimpleNamespace(
-        stream=streams.stream, delete_session=delete, close=close
+        stream=streams.stream, delete_session=delete, close=close, config=streams.config, tools=streams.tools
     )
     one = service.get_session_controller("one")
     two = service.get_session_controller("two")
