@@ -21,6 +21,7 @@ class DelegationProvider(ModelProvider):
     def __init__(self):
         self.plans = {}
         self.children = {}
+        self.parent_answer_requested = asyncio.Event()
         self.parent_release = asyncio.Event()
         self.parent_release.set()
         self.requests = []
@@ -70,6 +71,7 @@ class DelegationProvider(ModelProvider):
                     )
                 )
             return ModelResponse(None, calls, "tool_calls")
+        self.parent_answer_requested.set()
         await self.parent_release.wait()
         if self.parent_error:
             raise RuntimeError("parent execution failed")
@@ -163,6 +165,32 @@ def assert_message_order(messages):
     assert not waiting
 
 
+async def assert_worker_reports(history, reader, parent, root, count):
+    # Recovery may merge consecutive user messages. Verify deliveries by task ID and body.
+    marker = "[Background tool result]\n"
+    receipts = [
+        index for index, message in enumerate(history)
+        if message["role"] == "tool" and message.get("name") == "sub_agent"
+    ]
+    assert len(receipts) == count
+    assert all(marker not in message["content"] for message in history[:receipts[-1]]
+               if message["role"] == "user")
+    reports = [
+        report.rstrip()
+        for message in history if message["role"] == "user"
+        for report in message["content"].split(marker)[1:]
+    ]
+    expected = []
+    for i in range(count):
+        task_id = f"delegate-{i}"
+        child = await reader.find_child(parent, task_id)
+        final = (await reader.get(child.session_id)).messages[-1]
+        assert final["role"] == "assistant"
+        assert final["content"].startswith(f"REPORT:{root}-{i}: ")
+        expected.append(f"Task ID: {task_id}\n\n{final['content']}")
+    assert sorted(reports) == sorted(expected)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("count", [1, 3])
 async def test_background_returns_then_wakes_idle_parent_and_preserves_order(
@@ -193,19 +221,7 @@ async def test_background_returns_then_wakes_idle_parent_and_preserves_order(
             await asyncio.sleep(0.001)
     assert service.subagents.snapshot(parent) == []
     history = (await reader.get(parent)).messages
-    reports = [
-        m
-        for m in history
-        if str(m.get("content", "")).startswith("[Background tool result]")
-    ]
-    assert len(reports) == count
-    assert {f"delegate-{i}" for i in range(count)} == {
-        m["content"].split("Task ID: ", 1)[1].split("\n", 1)[0] for m in reports
-    }
-    assert all(m["role"] == "user" for m in reports)
-    assert all(m["content"].split("\n\n", 1)[1].startswith("REPORT:idle-") for m in reports)
-    for child in children:
-        assert (await reader.get(child["session_id"])).messages
+    await assert_worker_reports(history, reader, parent, "idle", count)
     assert_message_order(history)
     for request in provider.requests:
         assert_message_order(request)
@@ -346,13 +362,7 @@ async def test_report_arriving_during_final_model_response_follows_assistant(
     provider.parent_release.clear()
     parent, controller, queue, _ = await begin(delegation, "final", 1)
     # Wait until the parent has requested its answer with the delegation result.
-    async with asyncio.timeout(4):
-        while not any(
-            messages[-1]["role"] == "tool"
-            and str(messages[1].get("content", "")).startswith("ROOT:final")
-            for messages in provider.requests
-        ):
-            await asyncio.sleep(0.001)
+    await asyncio.wait_for(provider.parent_answer_requested.wait(), timeout=4)
     provider.children.setdefault("final-0", asyncio.Event()).set()
     await receive(queue, "message_status", parent, "steered")
     provider.parent_release.set()
@@ -393,26 +403,30 @@ async def test_report_during_question_is_consumed_after_complete_tool_batch(dele
 
 
 @pytest.mark.asyncio
-async def test_extremely_fast_children_still_report_after_the_tool_batch(delegation):
+@pytest.mark.parametrize("staggered", [False, True], ids=["immediate", "two-then-one"])
+async def test_extremely_fast_children_still_report_after_the_tool_batch(delegation, staggered):
     service, provider, reader, _ = delegation
-    for i in range(3):
-        provider.children.setdefault(f"fast-{i}", asyncio.Event()).set()
+    gates = [provider.children.setdefault(f"fast-{i}", asyncio.Event()) for i in range(3)]
+    if staggered:
+        provider.parent_release.clear()
+    else:
+        for gate in gates:
+            gate.set()
     parent, controller, queue, _ = await begin(delegation, "fast", 3)
     async with asyncio.timeout(4):
+        if staggered:
+            await provider.parent_answer_requested.wait()
+            for gate in gates[:2]:
+                gate.set()
+                await receive(queue, "message_status", parent, "steered")
+            parent_turn = controller.active_task
+            provider.parent_release.set()
+            await parent_turn
+            gates[2].set()
         while service.subagents._tasks or controller.active_task:
             await asyncio.sleep(0.001)
     history = (await reader.get(parent)).messages
-    assert (
-        len(
-            notices := [
-                m
-                for m in history
-                if str(m.get("content", "")).startswith("[Background tool result]")
-            ]
-        )
-        == 3
-    )
-    assert all("REPORT:fast-" in m["content"] for m in notices)
+    await assert_worker_reports(history, reader, parent, "fast", 3)
     assert_message_order(history)
 
 
