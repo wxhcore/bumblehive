@@ -1,5 +1,7 @@
 import { memo } from "react";
+import { StreamedMarkdown } from "./chat/MarkdownContent";
 import type {
+  WorkerReport,
   ToolActivity,
   ToolActivityStatus,
 } from "../types/api";
@@ -178,6 +180,21 @@ function BeeLogo({ active }: { active: boolean }) {
     <span className={`subagent-logo${active ? " active" : ""}`} aria-hidden="true">
       <img alt="" src={BEE_LOGO_PATH} />
     </span>
+  );
+}
+
+export function WorkerReportRow({ report }: { report: WorkerReport }) {
+  return (
+    <details className="worker-report">
+      <summary className="subagent-summary">
+        <BeeLogo active={false} />
+        <span>{report.title}</span>
+        <span className="tool-detail-chevron" aria-hidden="true" />
+      </summary>
+      <div className="worker-report-body markdown-body">
+        <StreamedMarkdown content={report.body} />
+      </div>
+    </details>
   );
 }
 

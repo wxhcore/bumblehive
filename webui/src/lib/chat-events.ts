@@ -1,3 +1,4 @@
+import { historyInputParts, liveWorkerReport } from "./worker-reports";
 import {
   detailFromStoredToolResult,
   normalizeToolActivityOutcome,
@@ -17,6 +18,7 @@ import type {
   StoredMessage,
   ToolActivity,
   UiMessage,
+  WorkerReport,
 } from "../types/api";
 
 const STREAM_TEXT_EVENT_KINDS = new Set([
@@ -51,11 +53,12 @@ export function frameSessionId(frame: ChatFrame, fallback: string): string {
 export function applyPendingMessageStatus(
   items: PendingChatMessage[],
   frame: MessageStatusFrame,
+  report?: WorkerReport,
 ): PendingChatMessage[] {
   if (frame.status !== "queued") {
     return items.filter((item) => item.message_id !== frame.message_id);
   }
-  const message = { message_id: frame.message_id, content: frame.content };
+  const message = { message_id: frame.message_id, content: frame.content, ...(report && { report }) };
   if (frame.position !== undefined) {
     const next = items.filter((item) => item.message_id !== frame.message_id);
     next.splice(frame.position, 0, message);
@@ -66,11 +69,17 @@ export function applyPendingMessageStatus(
     : [...items, message];
 }
 
+export function inputMessage(input: PendingChatMessage, messages: UiMessage[]): UiMessage {
+  const report = input.report ?? liveWorkerReport(input, messages);
+  return { id: input.message_id, role: "user", content: input.content,
+    ...(report && { workerReports: [{ ...report, id: input.message_id }] }) };
+}
+
 export function restoreRunningMessages(messages: UiMessage[], frame: ReadyFrame, matchById = false): UiMessage[] {
   const next = [...messages];
   const active = frame.active_message;
   if (active && !next.some((item) => item.role === "user" && (matchById ? item.id === active.message_id : item.content === active.content))) {
-    next.push({ id: active.message_id, role: "user", content: active.content });
+    next.push(inputMessage(active, next));
   }
   const startedAt = (frame.started_at ?? Date.now() / 1000) * 1000;
   const last = next.at(-1);
@@ -150,25 +159,28 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
   messages.forEach((message, index) => {
     if (message.role === "user") {
       const ui = asRecord(message._bumblehive_ui);
-      const previous = result.at(-1);
-      const lastIteration = previous?.iterations?.at(-1);
-      // Input between tool execution and the next model response stays in this turn.
-      if (!ui?.message_id && previous?.role === "assistant" && (
-        lastIteration?.tools?.length || lastIteration?.kind === "steering"
-      )) {
-        previous.iterations = [...(previous.iterations ?? []), {
-          id: `history-${index}`,
-          iteration: null,
-          kind: "steering",
-          content: messageContent(message.content),
-        }];
-        return;
+      const content = messageContent(ui?.content ?? message.content);
+      const id = typeof ui?.message_id === "string" ? ui.message_id : `history-${index}`;
+      const parts = ui?.message_id && !id.startsWith("subagent:")
+        ? [{ content, report: undefined }] : historyInputParts(content, toolsByCallId);
+      for (const [i, part] of parts.entries()) {
+        const partId = i ? `${id}-${i}` : id;
+        const previous = result.at(-1);
+        const lastIteration = previous?.iterations?.at(-1);
+        const reports = part.report ? [{ ...part.report, id: partId }] : undefined;
+        // Steered input stays in the original execution. Keep reports visible when it collapses.
+        if (!ui?.message_id && previous?.role === "assistant" && (
+          lastIteration?.tools?.length || lastIteration?.kind === "steering"
+        )) {
+          if (reports) previous.workerReports = [...(previous.workerReports ?? []), ...reports];
+          else previous.iterations = [...(previous.iterations ?? []), {
+            id: partId, iteration: null, kind: "steering", content: part.content,
+          }];
+        } else {
+          result.push({ id: partId, role: "user", content: part.content,
+            ...(reports && { workerReports: reports }) });
+        }
       }
-      result.push({
-        id: typeof ui?.message_id === "string" ? ui.message_id : `history-${index}`,
-        role: "user",
-        content: messageContent(ui?.content ?? message.content),
-      });
       return;
     }
 
@@ -226,6 +238,9 @@ export function historyMessages(messages: StoredMessage[]): UiMessage[] {
         // Read old histories without retaining the former execution-mode switch.
         if (!tool.taskId && tool.name === "sub_agent" && resultDocument?.background === true) {
           tool.taskId = tool.id;
+        }
+        if (tool.name === "sub_agent" && tool.taskId && tool.taskId !== tool.id) {
+          toolsByCallId.set(tool.taskId, tool);
         }
         tool.detail = detailFromStoredToolResult(tool.name, message.content);
         Object.assign(tool, normalizeToolActivityOutcome(tool));

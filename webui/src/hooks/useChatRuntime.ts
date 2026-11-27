@@ -9,6 +9,7 @@ import {
   createMessageId,
   frameSessionId,
   historyMessages,
+  inputMessage,
   restoreRunningMessages,
 } from "../lib/chat-events";
 import type { PendingSessionInfo } from "../lib/session-tree";
@@ -21,6 +22,7 @@ import type {
   UiMessage,
   UserQuestion,
 } from "../types/api";
+import { liveWorkerReport } from "../lib/worker-reports";
 import { useAgentFrameBuffer } from "./useAgentFrameBuffer";
 import { useStableCallback } from "./useStableCallback";
 
@@ -232,7 +234,9 @@ export function useChatRuntime({
       if (backgroundParentsRef.current.has(sessionId)) return;
       flushPendingAgentFrames(sessionId);
       await restoreHistory(sessionId);
-      updatePending(sessionId, frame.pending ?? []);
+      updatePending(sessionId, (frame.pending ?? []).map(item => ({
+        ...item, report: liveWorkerReport(item, messagesBySessionRef.current.get(sessionId) ?? []),
+      })));
       setDisconnectedSessions((current) => {
         const next = new Set(current); next.delete(sessionId); return next;
       });
@@ -289,7 +293,18 @@ export function useChatRuntime({
     if (frame.type === "message_status") {
       flushPendingAgentFrames(sessionId);
       const items = pendingRef.current.get(sessionId) ?? [];
-      updatePending(sessionId, applyPendingMessageStatus(items, frame));
+      const report = liveWorkerReport(frame, messagesBySessionRef.current.get(sessionId) ?? []);
+      updatePending(sessionId, applyPendingMessageStatus(items, frame, report));
+      const assistantId = assistantIdsRef.current.get(sessionId);
+      if (report && assistantId && (frame.status === "steered" || frame.position !== undefined)) {
+        // A stopped run can return unconsumed steering to the queue.
+        updateSessionMessages(sessionId, current => current.map(item => {
+          if (item.id !== assistantId) return item;
+          const reports = (item.workerReports ?? []).filter(r => r.id !== frame.message_id);
+          if (frame.status === "steered") reports.push({ ...report, id: frame.message_id });
+          return { ...item, workerReports: reports };
+        }));
+      }
       if (frame.status === "started") {
         if (sourceSessionId !== sessionId) {
           backgroundParentsRef.current.set(sessionId, sourceSessionId);
@@ -308,13 +323,13 @@ export function useChatRuntime({
           const assistantId = createMessageId();
           assistantIdsRef.current.set(sessionId, assistantId);
           return [...current,
-            { id: frame.message_id, role: "user", content: frame.content },
+            inputMessage({ ...frame, report }, current),
             { id: assistantId, role: "assistant", content: "", iterations: [], startedAt: Date.now() },
           ];
         });
         setSessionRunning(sessionId, true);
         setSessionStopping(sessionId, false);
-      } else if (frame.status === "steered") {
+      } else if (frame.status === "steered" && !report) {
         // Keep the current run/assistant; the completed history restores exact message order.
         notify("引导已发送");
       }

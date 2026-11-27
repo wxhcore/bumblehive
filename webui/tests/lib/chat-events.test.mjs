@@ -329,3 +329,48 @@ test("reconnecting to a Bee distinguishes follow-ups with identical text", () =>
     assert.equal(restored.at(-1).role, "assistant");
   }
 });
+
+test("Worker titles and complete reports survive merged history, steering and follow-ups", () => {
+  const envelope = (id, text) => `[Background tool result]\nTask ID: ${id}\n\n${text}`;
+  const calls = [
+    ["w1", "sub_agent", "制作页面"], ["w2", "sub_agent", "检查布局"], ["q", "ask_user", ""],
+  ];
+  const history = [
+    { role: "user", content: "做个小游戏" },
+    { role: "assistant", tool_calls: calls.map(([id, name, title]) =>
+      ({ id, function: { name, arguments: JSON.stringify({ title }) } })) },
+    ...calls.map(([id]) => ({ role: "tool", tool_call_id: id, content: JSON.stringify({ status: "pending", task_id: id }) })),
+  ];
+  const first = envelope("w2", "结构通过。\n\n尚未试玩。");
+  const second = envelope("w1", "已创建 `index.html`。");
+  const question = envelope("q", "用户选择了 A");
+  const messages = chatEvents.historyMessages([...history,
+    { role: "user", content: [first, second, question].join("\n\n") },
+    { role: "assistant", content: "给用户的答复" },
+    { role: "user", content: envelope("w1", "续派结果") },
+  ]);
+  const run = messages[1];
+  assert.deepEqual(run.workerReports.map(({ title, body }) => [title, body]), [
+    ["检查布局", "结构通过。\n\n尚未试玩。"], ["制作页面", "已创建 `index.html`。"],
+  ]);
+  assert.ok(run.iterations.some(item => item.content === question));
+  assert.equal(messages[2].workerReports[0].body, "续派结果");
+  const html = renderToStaticMarkup(createElement(assistantMessage.MessageView, { message: run, active: false }));
+  assert.equal((html.match(/<details class="worker-report">/g) ?? []).length, 2);
+  assert.match(html, /bumblehive-bee\.png/);
+  assert.match(html, /<code>index.html<\/code>/);
+  assert.doesNotMatch(html, /Task ID|Background tool result/);
+  assert.ok(html.indexOf("尚未试玩") < html.indexOf("给用户的答复"));
+
+  const quoted = envelope("w1", "原样保留示例：\n\n" + envelope("example-id", "示例正文"));
+  const quotedRun = chatEvents.historyMessages([...history, { role: "user", content: quoted }]).at(-1);
+  assert.match(quotedRun.workerReports[0].body, /Task ID: example-id\n\n示例正文$/);
+  const input = { message_id: "subagent:followup-id", content: first };
+  assert.equal(chatEvents.inputMessage(input, messages).workerReports[0].title, "检查布局");
+  assert.equal(chatEvents.restoreRunningMessages(messages, { active_message: input }).at(-2).workerReports[0].title, "检查布局");
+  for (const data of [
+    { ...input, message_id: "user-id" }, { ...input, content: question },
+    { ...input, content: first.replace("Background tool result", "Sub-agent progress update") },
+    { ...input, content: envelope("unknown", "未知来源") },
+  ]) assert.equal(chatEvents.inputMessage(data, messages).workerReports, undefined);
+});

@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { AssistantIteration, UiMessage } from "../../types/api";
 import { ReasoningBlock, StreamedMarkdown } from "./MarkdownContent";
+import { WorkerReportRow } from "../SubAgentActivity";
 import { consolidateShellIterations, ToolSteps } from "./ToolActivityList";
 
 interface AssistantIterationViewProps {
@@ -245,6 +246,11 @@ export const MessageView = memo(function MessageView({
     active,
   );
 
+  const reports = message.workerReports?.map(report => <WorkerReportRow key={report.id} report={report} />);
+  if (message.role === "user" && reports?.length) {
+    return <article className="message message-worker-report">{reports}</article>;
+  }
+
   return (
     <article
       className={`message message-${message.role}${
@@ -263,6 +269,7 @@ export const MessageView = memo(function MessageView({
               stopped={Boolean(message.stopped)}
             />
           ) : null}
+          {reports}
           {visibleIterations.map((modelIteration, iterationIndex) => {
             const iterationActive =
               active &&

@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import type { ApprovalMode, PendingChatMessage } from "../types/api";
+import { WorkerReportRow } from "./SubAgentActivity";
 import { ApprovalModeSelect } from "./ApprovalModeSelect";
 import { useMenuNavigation } from "../hooks/useMenuNavigation";
 import { ModelOptions } from "./ModelOptions";
@@ -133,9 +134,9 @@ export const Composer = memo(function Composer({
                 <svg className="pending-queue-icon" viewBox="0 0 20 20" aria-hidden="true">
                   <path d="M4 3v11h12m-3-3 3 3-3 3M8 5h7M8 9h5" />
                 </svg>
-                <span className="pending-message-content" title={message.content}>
-                  {message.content}
-                </span>
+                {message.report ? <WorkerReportRow report={message.report} /> : (
+                  <span className="pending-message-content" title={message.content}>{message.content}</span>
+                )}
                 <button
                   type="button"
                   className="pending-steer"
@@ -147,7 +148,7 @@ export const Composer = memo(function Composer({
                 <button
                   type="button"
                   className="pending-remove"
-                  aria-label={`删除待发送消息：${message.content}`}
+                  aria-label={`删除待发送消息：${message.report?.title ?? message.content}`}
                   disabled={message.submitting || disconnected}
                   onClick={() => onPendingAction?.(message.message_id, "remove_pending")}
                 >

@@ -165,7 +165,13 @@ export interface RunningSubagent {
   started_at: number;
 }
 
+export interface WorkerReport {
+  title: string;
+  body: string;
+}
+
 export interface PendingChatMessage {
+  report?: WorkerReport;
   message_id: string;
   content: string;
   submitting?: boolean;
@@ -386,6 +392,7 @@ export interface AssistantIteration {
 }
 
 export interface UiMessage {
+  workerReports?: Array<WorkerReport & { id: string }>;
   id: string;
   role: "user" | "assistant" | "tool";
   content: string;
