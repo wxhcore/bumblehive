@@ -5,7 +5,7 @@ import type {
   ToolActivity,
   ToolActivityStatus,
 } from "../../types/api";
-import { SubAgentActivity } from "../SubAgentActivity";
+import { AgentMessageRow, SubAgentActivity } from "../SubAgentActivity";
 import { getToolPresentation } from "../tool-presentation";
 import {
   hasExpandableToolDetail,
@@ -408,6 +408,8 @@ export const ToolSteps = memo(function ToolSteps({ tools }: { tools: ToolActivit
           <ReadActivity key={row.id} tools={row.tools} />
         ) : row.kind === "subagents" ? (
           <SubAgentActivity key={row.id} tools={row.tools} />
+        ) : row.tool.name === "send_message" ? (
+          <AgentMessageRow key={row.tool.id} tool={row.tool} />
         ) : (
           <ToolEntry key={row.tool.id} tool={row.tool} />
         ),

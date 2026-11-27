@@ -1180,8 +1180,8 @@ button.tool-step:focus-visible,
 }
 
 .message-worker-report { align-self: flex-start; }
-.worker-report { min-width: 0; max-width: 100%; }
-.worker-report > summary {
+:is(.worker-report, .agent-message) { min-width: 0; max-width: 100%; }
+:is(.worker-report, .agent-message) > summary {
   display: flex;
   width: fit-content;
   max-width: 100%;
@@ -1189,8 +1189,11 @@ button.tool-step:focus-visible,
   font-size: 13px;
   color: var(--ink);
 }
-.worker-report > summary span { overflow-wrap: anywhere; }
-.worker-report .subagent-logo, .worker-report .tool-detail-chevron { flex-shrink: 0; }
-.worker-report .tool-detail-chevron { transform: rotate(-45deg); }
-.worker-report[open] .tool-detail-chevron { transform: rotate(45deg); }
+:is(.worker-report, .agent-message) > summary span { overflow-wrap: anywhere; }
+:is(.worker-report, .agent-message) .subagent-logo, :is(.worker-report, .agent-message) .tool-detail-chevron { flex-shrink: 0; }
+:is(.worker-report, .agent-message) .tool-detail-chevron { transform: rotate(-45deg); }
+:is(.worker-report, .agent-message)[open] .tool-detail-chevron { transform: rotate(45deg); }
 .worker-report-body { margin: 4px 6px 8px 18px; padding-left: 12px; border-left: 2px solid var(--sidebar-surface); }
+
+.agent-message-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-message-target { color: var(--muted); overflow-wrap: anywhere; }

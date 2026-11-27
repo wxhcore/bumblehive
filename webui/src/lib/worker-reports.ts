@@ -2,18 +2,20 @@ import type { PendingChatMessage, ToolActivity, UiMessage, WorkerReport } from "
 
 const reportHeader = /^\[Background tool result\]\nTask ID: ([^\r\n]+)\n\n/;
 
+export function workerTaskTitle(task: ToolActivity | undefined): string | undefined {
+  if (task?.name !== "sub_agent") return;
+  const args = task.arguments as { title?: unknown } | undefined;
+  return typeof args?.title === "string" ? args.title.trim() || undefined : undefined;
+}
+
 function workerReport(content: string, tasks: ReadonlyMap<string, ToolActivity>): WorkerReport | undefined {
   const header = reportHeader.exec(content);
   if (!header) return;
-  const task = tasks.get(header[1]);
-  if (task?.name !== "sub_agent") return;
-  const args = task.arguments as { title?: unknown } | undefined;
-  if (typeof args?.title !== "string" || !args.title.trim()) return;
-  return { title: args.title.trim(), body: content.slice(header[0].length) };
+  const title = workerTaskTitle(tasks.get(header[1]));
+  if (title) return { title, body: content.slice(header[0].length) };
 }
 
-export function liveWorkerReport(input: PendingChatMessage, messages: UiMessage[]) {
-  if (!input.message_id.startsWith("subagent:")) return;
+export function collectWorkerTasks(messages: UiMessage[]) {
   const tasks = new Map<string, ToolActivity>();
   for (const message of messages) {
     for (const iteration of message.iterations ?? []) {
@@ -22,7 +24,12 @@ export function liveWorkerReport(input: PendingChatMessage, messages: UiMessage[
       }
     }
   }
-  return workerReport(input.content, tasks);
+  return tasks;
+}
+
+export function liveWorkerReport(input: PendingChatMessage, messages: UiMessage[]) {
+  if (!input.message_id.startsWith("subagent:")) return;
+  return workerReport(input.content, collectWorkerTasks(messages));
 }
 
 // Recovery can join adjacent user inputs, including several notifications, with two newlines.

@@ -1,4 +1,5 @@
-import { memo } from "react";
+import { createContext, memo, useContext, type ReactNode } from "react";
+import { workerTaskTitle } from "../lib/worker-reports";
 import { StreamedMarkdown } from "./chat/MarkdownContent";
 import type {
   WorkerReport,
@@ -183,18 +184,54 @@ function BeeLogo({ active }: { active: boolean }) {
   );
 }
 
-export function WorkerReportRow({ report }: { report: WorkerReport }) {
+export const WorkerTasksContext = createContext<ReadonlyMap<string, ToolActivity>>(new Map());
+
+function BeeDisclosure({ title, className, active = false, children }: {
+  title: string;
+  className: string;
+  active?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <details className="worker-report">
+    <details className={className}>
       <summary className="subagent-summary">
-        <BeeLogo active={false} />
-        <span>{report.title}</span>
+        <BeeLogo active={active} />
+        <span>{title}</span>
         <span className="tool-detail-chevron" aria-hidden="true" />
       </summary>
+      {children}
+    </details>
+  );
+}
+
+export function WorkerReportRow({ report }: { report: WorkerReport }) {
+  return (
+    <BeeDisclosure className="worker-report" title={report.title}>
       <div className="worker-report-body markdown-body">
         <StreamedMarkdown content={report.body} />
       </div>
-    </details>
+    </BeeDisclosure>
+  );
+}
+
+export function AgentMessageRow({ tool }: { tool: ToolActivity }) {
+  const tasks = useContext(WorkerTasksContext);
+  const target = argumentText(tool, "target");
+  const workerTitle = workerTaskTitle(tasks.get(target));
+  const recipient = target === "parent" ? "主 Agent" : workerTitle ? `「${workerTitle}」` : " Worker";
+  const value = argumentRecord(tool)?.message;
+  const message = typeof value === "string" ? value : streamedArgument(tool, "message");
+  const status: Partial<Record<ToolActivityStatus, string>> = { error: "发送失败", cancelled: "已停止", rejected: "已拒绝", waiting_approval: "等待审批" };
+  const state = status[tool.status];
+  const title = target ? `发给${recipient}` : "发送消息";
+  return (
+    <BeeDisclosure className="agent-message" title={state ? `${title} · ${state}` : title} active={isActive(tool.status)}>
+      <div className="worker-report-body">
+        {target && target !== "parent" && !workerTitle && <div className="agent-message-target">任务 ID：{target}</div>}
+        <div className="agent-message-text">{message}</div>
+        {tool.errorMessage && <div className="subagent-error-message">{tool.errorMessage}</div>}
+      </div>
+    </BeeDisclosure>
   );
 }
 

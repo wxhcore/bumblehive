@@ -1,9 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
 import type { UiMessage } from "../types/api";
+import { collectWorkerTasks } from "../lib/worker-reports";
+import { WorkerTasksContext } from "./SubAgentActivity";
 import { MessageView } from "./chat/AssistantMessage";
 
 const AUTO_SCROLL_TIME_CONSTANT_MS = 42;
@@ -15,6 +17,7 @@ interface ChatViewProps {
 }
 
 export function ChatView({ messages, isStreaming }: ChatViewProps) {
+  const workerTasks = useMemo(() => collectWorkerTasks(messages), [messages]);
   const scrollRef = useRef<HTMLElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const scrollbarTrackRef = useRef<HTMLDivElement>(null);
@@ -337,17 +340,19 @@ export function ChatView({ messages, isStreaming }: ChatViewProps) {
         }}
       >
         <div className="message-list" ref={messageListRef}>
-          {messages.map((message, index) => (
-            <MessageView
-              active={
-                isStreaming &&
-                message.role === "assistant" &&
-                index === messages.length - 1
-              }
-              key={message.id}
-              message={message}
-            />
-          ))}
+          <WorkerTasksContext.Provider value={workerTasks}>
+            {messages.map((message, index) => (
+              <MessageView
+                active={
+                  isStreaming &&
+                  message.role === "assistant" &&
+                  index === messages.length - 1
+                }
+                key={message.id}
+                message={message}
+              />
+            ))}
+          </WorkerTasksContext.Provider>
           <div className="message-scroll-anchor" />
         </div>
       </section>
