@@ -10,11 +10,20 @@ _ROUTER_TOOLS = {"read_file", "list_dir", "find_files", "grep", "ask_user", "sub
 _EXCLUDED_TOOLS = {"single": {"sub_agent", "send_message"}, "worker": {"sub_agent", "ask_user"}}
 _ROLE_INSTRUCTIONS = {
     "router": (
-        "Answer directly when you can fulfill the request with the context and tools available. "
+        "You and your workers act as one assistant. Use your own tools or delegate to a worker "
+        "to fulfill the user's request. When deciding whether you can complete an action, "
+        "consider the tools available to both you and your workers. "
         "When delegating, give each worker a clear objective, the context it needs, and the expected "
-        "deliverable. Keep parallel assignments independent. If all remaining work depends on a "
-        "pending result, end the turn and wait for delivery. Use the results to fulfill the user's "
-        "original request in the requested form."
+        "deliverable. Keep parallel assignments independent. "
+        "Worker reports arrive automatically as conversation input and may start a new turn. "
+        "Match each report to the current assignment using its task ID. Progress updates and "
+        "delivery receipts leave the assignment open. "
+        "When some results are in and required assignments are still pending, acknowledge in one "
+        "sentence what is done and what remains. Continue any work that can proceed, ask the user "
+        "if a decision is needed, or end the turn if all that remains is to wait. "
+        "Once all required assignments have reported an outcome, finish any remaining integration "
+        "or verification and answer the original request in the requested form. Mention failures "
+        "or verification limits that affect the result."
     ),
     "worker": (
         "Complete the assigned task and return the requested deliverable in the requested form. "
@@ -22,6 +31,16 @@ _ROLE_INSTRUCTIONS = {
         "Your final report is delivered automatically to the parent."
     ),
 }
+
+
+def _role_tool_names(enabled: list[str], role: AgentRole, *, delegated: bool = False) -> list[str]:
+    if role == "router":
+        return [name for name in enabled if name in _ROUTER_TOOLS]
+    excluded = _EXCLUDED_TOOLS[role]
+    if role == "worker" and not delegated:
+        # An idle worker chat reopened by the user has no active parent task to message.
+        excluded = excluded | {"send_message"}
+    return [name for name in enabled if name not in excluded]
 
 
 def role_config(
@@ -39,20 +58,18 @@ def role_config(
     allowed = set(registered)
     if configured is not None:
         allowed.intersection_update(configured)
-    if role == "router":
-        allowed.intersection_update(_ROUTER_TOOLS)
-    else:
-        allowed.difference_update(_EXCLUDED_TOOLS[role])
-    instructions = _ROLE_INSTRUCTIONS.get(role)
-    if role == "worker" and not delegated:
-        # An idle worker chat reopened by the user has no active parent task to message.
-        allowed.discard("send_message")
-        instructions = "Respond directly to the user in this worker conversation using your available tools."
     selection = requested if requested is not None else configured
     if selection is None:
         selection = registered
-    agent["tool_names"] = [name for name in selection if name in allowed]
-    if role == "worker" and delegated and "send_message" in agent["tool_names"]:
+    enabled = [name for name in selection if name in allowed]
+    agent["tool_names"] = _role_tool_names(enabled, role, delegated=delegated)
+    instructions = _ROLE_INSTRUCTIONS.get(role)
+    if role == "router":
+        worker_tools = _role_tool_names(enabled, "worker", delegated=True)
+        instructions += "\n\nTools available to a delegated worker this turn: " + (", ".join(worker_tools) or "none")
+    elif role == "worker" and not delegated:
+        instructions = "Respond directly to the user in this worker conversation using your available tools."
+    elif role == "worker" and "send_message" in agent["tool_names"]:
         instructions += (
             " Use send_message(target='parent', message=...) when a finding changes the parent's "
             "next step or you need a decision. Continue any work that can proceed independently."

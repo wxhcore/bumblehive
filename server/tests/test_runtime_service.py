@@ -1215,8 +1215,11 @@ def test_role_tool_selection_respects_config_and_empty_request_allowlists():
     assert router["instructions"].startswith("Project rules")
     worker = role_config(runtime, request, "worker", delegated=True)["agent"]
     assert worker["tool_names"] == ["example_mcp", "send_message"]
+    assert router["instructions"].endswith("Tools available to a delegated worker this turn: example_mcp, send_message")
     assert "send_message(target='parent'" in worker["instructions"]
     limited = role_config(runtime, {"agent": {"tool_names": ["read_file"]}}, "worker", delegated=True)["agent"]
     assert "send_message" not in limited["instructions"]
     for role in ("single", "router", "worker"):
         assert role_config(runtime, {"agent": {"tool_names": []}}, role)["agent"]["tool_names"] == []
+    empty_router = role_config(runtime, {"agent": {"tool_names": []}}, "router")
+    assert empty_router["agent"]["instructions"].endswith("Tools available to a delegated worker this turn: none")

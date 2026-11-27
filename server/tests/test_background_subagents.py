@@ -783,6 +783,62 @@ async def test_two_worker_approvals_remain_independent_after_reconnect(delegatio
 
 
 @pytest.mark.asyncio
+async def test_router_reports_worker_tools_after_exec_setting_changes(delegation, monkeypatch):
+    service, provider, reader, workspace = delegation
+    root = await reader.create(workspace)
+    await service.set_super_mode(reader, root, True)
+    controller = service.get_session_controller(root)
+    router_requests = []
+    worker_requests = []
+
+    async def delegate_or_execute(request):
+        last = request.messages[-1]
+        if last["role"] == "user":
+            task = last["content"].splitlines()[0]
+            if task.startswith("Delegate "):
+                router_requests.append(request)
+                return ModelResponse(None, [ToolCall(task.split()[-1], "sub_agent", {
+                    "title": "Exec probe", "task": "Run the probe",
+                })], "tool_calls")
+            if task == "Run the probe":
+                worker_requests.append(request)
+                return ModelResponse(None, [ToolCall("probe", "exec", {
+                    "command": "echo worker-exec-ok",
+                })], "tool_calls")
+        return ModelResponse(content="Done")
+
+    monkeypatch.setattr(provider, "generate", delegate_or_execute)
+    for task_id, exec_enabled in [("enabled", True), ("disabled", False)]:
+        tools = ["sub_agent", "ask_user", "read_file"]
+        if exec_enabled:
+            tools.append("exec")
+        await service.update_config({"agent": {"tool_names": tools}})
+        await controller.submit(ChatRequest(
+            content=f"Delegate {task_id}", approval_mode="full_access",
+            config={"runtime": {"workspace": str(workspace)}},
+        ))
+        async with asyncio.timeout(10):
+            while controller.active_task or service.subagents._tasks:
+                await asyncio.sleep(0.001)
+
+        router = router_requests.pop()
+        worker = worker_requests.pop()
+        assert "exec" not in [t["function"]["name"] for t in router.tools]
+        actual = [t["function"]["name"] for t in worker.tools]
+        assert actual == (["read_file", "exec"] if exec_enabled else ["read_file"])
+        system = next(m["content"] for m in router.messages if m["role"] == "system")
+        expected_line = "Tools available to a delegated worker this turn: " + ", ".join(actual)
+        assert expected_line in [line.strip() for line in system.splitlines()]
+        child = await reader.find_child(root, task_id)
+        history = (await reader.get(child.session_id)).messages
+        result, = [json.loads(m["content"]) for m in history if m.get("name") == "exec"]
+        if exec_enabled:
+            assert result["exit_code"] == 0 and result["stdout"].strip() == "worker-exec-ok"
+        else:
+            assert result["error"]["code"] == "tool_not_allowed"
+
+
+@pytest.mark.asyncio
 async def test_role_change_on_same_session_controls_discovery_and_dispatch(delegation, monkeypatch):
     service, provider, reader, tmp_path = delegation
     root = await reader.create(tmp_path)
