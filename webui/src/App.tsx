@@ -472,8 +472,8 @@ export default function App() {
   const branchRunning = Boolean(activeSessionId &&
     [...sessionBranchIds(activeSessionId, sessions, pendingSessionInfo)].some(isSessionRunning));
 
-  async function toggleSuperMode() {
-    if (savingMode || branchRunning || isWorker) return;
+  async function selectAgentMode(multi: boolean) {
+    if (savingMode || branchRunning || isWorker || multi === Boolean(selectedSession?.super_mode)) return;
     const version = sessionSelectionVersionRef.current;
     setSavingMode(true);
     try {
@@ -488,7 +488,7 @@ export default function App() {
           displaySession(id, []);
         }
       }
-      await setSuperMode(id, !selectedSession?.super_mode);
+      await setSuperMode(id, multi);
       await loadSessions();
     } catch (error) {
       notify(error instanceof Error ? error.message : "模式切换失败");
@@ -796,7 +796,7 @@ export default function App() {
                   superMode={Boolean(selectedSession?.super_mode)}
                   isWorker={isWorker}
                   modeLocked={branchRunning}
-                  onToggleSuper={toggleSuperMode}
+                  onSelectMode={selectAgentMode}
                   questionSlot={questions.length > 0 ? (
                     <div className="question-cards" aria-label="用户提问">
                       {questions.map((question) => (

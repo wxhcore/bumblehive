@@ -73,14 +73,16 @@ test("switching and stopping expose the actual pending action instead of an enab
   assert.doesNotMatch(html, /role="listbox"/);
 });
 
-test("Super mode belongs to the root chat and locks while its workers run", async () => {
+test("Single and Multi belong to the root chat and lock while its workers run", async () => {
   const { Composer } = await server.ssrLoadModule("/src/components/Composer.tsx");
   const render = (props) => renderToStaticMarkup(createElement(Composer, {
     value: "", models: [], approvalMode: "request", superMode: false, ...props,
   }));
-  assert.match(render({}), /role="switch" aria-checked="false"/);
-  assert.match(render({ superMode: true, modeLocked: true }), /role="switch" aria-checked="true" disabled/);
+  assert.match(render({}), /type="radio"[^>]*checked=""[^>]*value="Single"/);
+  const multi = render({ superMode: true, modeLocked: true });
+  assert.match(multi, /<fieldset[^>]*disabled=""/);
+  assert.match(multi, /type="radio"[^>]*checked=""[^>]*value="Multi"/);
   const worker = render({ isWorker: true });
   assert.match(worker, />Worker</);
-  assert.doesNotMatch(worker, /role="switch"/);
+  assert.doesNotMatch(worker, /class="agent-mode"/);
 });

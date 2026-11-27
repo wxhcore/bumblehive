@@ -633,11 +633,38 @@
 .question-hint { margin: 6px 0 0 29px; color: #929292; font-size: 11px; line-height: 1.5; }
 .question-error { margin: 8px 0; color: #b13a32; font-size: 13px; }
 
-.super-indicator {
-  width: 0.65em;
-  height: 0.65em;
-  border: 1px solid currentColor;
-  border-radius: 50%;
+.agent-mode {
+  position: relative;
+  isolation: isolate;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 99px;
+  background: var(--hover-surface);
+  color: var(--muted);
+  font-size: 12px;
 }
-.super-switch[aria-checked="true"] .super-indicator { background: currentColor; }
+.agent-mode::before {
+  content: "";
+  position: absolute;
+  inset: 2px auto 2px 2px;
+  width: calc(50% - 2px);
+  border-radius: inherit;
+  background: var(--main-surface);
+  box-shadow: 0 1px 3px #0002;
+  transition: transform 160ms ease;
+  z-index: -1;
+}
+.agent-mode[data-multi="true"]::before { transform: translateX(100%); }
+.agent-mode label { position: relative; padding: 3px 9px; text-align: center; cursor: pointer; }
+.agent-mode input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.agent-mode label:has(:checked) { color: var(--ink); font-weight: 550; }
+.agent-mode label:has(:focus-visible) { outline: 2px solid currentColor; border-radius: 99px; }
+.agent-mode:disabled { opacity: .55; }
+.agent-mode:disabled label { cursor: default; }
+@media (prefers-reduced-motion: reduce) {
+  .agent-mode::before { transition: none; }
+}
 .worker-label { font-size: 12px; color: var(--muted); }

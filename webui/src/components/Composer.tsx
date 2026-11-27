@@ -17,7 +17,7 @@ interface ComposerProps {
   superMode: boolean;
   modeLocked: boolean;
   isWorker: boolean;
-  onToggleSuper: () => void;
+  onSelectMode: (multi: boolean) => void;
   approvalSlot?: ReactNode;
   questionSlot?: ReactNode;
   pendingMessages?: PendingChatMessage[];
@@ -40,7 +40,7 @@ interface ComposerProps {
 }
 
 export const Composer = memo(function Composer({
-  superMode, modeLocked, isWorker, onToggleSuper,
+  superMode, modeLocked, isWorker, onSelectMode,
   approvalSlot,
   questionSlot,
   pendingMessages = [],
@@ -187,12 +187,19 @@ export const Composer = memo(function Composer({
               onOpenChange={setApprovalOpen}
             />
             {isWorker ? <span className="worker-label">Worker</span> : (
-              <button className="workspace-button super-switch" type="button" role="switch"
-                aria-checked={superMode} disabled={disabled || modeLocked || disconnected}
-                title={modeLocked ? "当前会话和 Worker 空闲后可切换" : "开启后由 Router 协调，Worker 执行任务"}
-                onClick={onToggleSuper}>
-                <span aria-hidden="true" className="super-indicator" />Super 模式
-              </button>
+              <fieldset className="agent-mode" aria-label="会话模式"
+                disabled={disabled || modeLocked || disconnected}
+                title={modeLocked ? "当前会话和 Worker 空闲后可切换" : undefined}
+                data-multi={superMode}>
+                {["Single", "Multi"].map((label) => (
+                  <label key={label}>
+                    <input type="radio" name="agent-mode" value={label}
+                      checked={Boolean(superMode) === (label === "Multi")}
+                      onChange={() => onSelectMode(label === "Multi")} />
+                    {label}
+                  </label>
+                ))}
+              </fieldset>
             )}
             <span className="toolbar-spacer" />
             <div className="composer-model-field" ref={modelFieldRef}>
